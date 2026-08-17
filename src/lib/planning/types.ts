@@ -339,6 +339,14 @@ export interface ProjectionResult {
   people: PersonInput[];
 }
 
+/** A projection plus the withdrawal strategy that produced it. */
+export interface PlanResult extends ProjectionResult {
+  /** The ordering actually used. */
+  chosenStrategy: WithdrawalStrategy;
+  /** True when "auto" picked the ordering rather than the user. */
+  autoSelected: boolean;
+}
+
 /**
  * Scenario hooks. The original tool used these to run what-if variants
  * (fee drag, market shocks, delayed CPP, downsizing) without duplicating
