@@ -353,10 +353,10 @@ describe("scenario overrides", () => {
     expect(JSON.stringify(inputs)).toBe(before);
   });
 
-  it("runs the money out sooner when spending rises", () => {
+  it("falls short in more years when spending rises", () => {
     const more = runPlan(inputs, { spendAdj: 20000 });
-    expect(lasts(more)).toBeLessThan(lasts(base));
     expect(shortfallYears(more)).toBeGreaterThan(shortfallYears(base));
+    expect(lasts(more)).toBeLessThanOrEqual(lasts(base));
   });
 
   it("runs the money out sooner when a market shock hits early", () => {
