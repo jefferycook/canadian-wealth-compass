@@ -135,6 +135,8 @@ export interface AccountInput {
 }
 
 export interface ExpenseInput {
+  /** Stable row id, used as a UI key. */
+  id?: string;
   name: string;
   /** Person A's age when the expense lands. */
   age: number;
@@ -164,6 +166,8 @@ export interface LumpSumInput {
 }
 
 export interface HardAssetInput {
+  /** Stable row id, used as a UI key. */
+  id?: string;
   name: string;
   /** Current value. */
   val: number;
@@ -181,6 +185,8 @@ export interface HardAssetInput {
 }
 
 export interface LiabilityInput {
+  /** Stable row id, used as a UI key. */
+  id?: string;
   name: string;
   bal: number;
   /** Annual interest rate as a fraction. */
