@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 
 import { cppFactor, cppSurvivorBenefit, oasFactor } from "./benefits";
-import { defaultPlanInputs } from "./defaults";
+import { regressionFixturePlan as defaultPlanInputs } from "./fixtures";
 import {
   afterTaxEstate,
   depletionAge,

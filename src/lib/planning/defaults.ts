@@ -1,146 +1,113 @@
 /**
- * The default plan, matching the seed data of the original tool exactly.
+ * The starting point for a brand-new plan.
  *
- * This doubles as the regression fixture: the engine test runs this plan and
- * asserts on its lifetime tax, so an accidental change to any tax constant or
- * projection rule shows up as a failing test rather than a silently wrong
- * client number.
+ * Rule: nothing that varies person to person is pre-filled. No ages, no
+ * balances, no contribution room, no incomes, no province, no spending target,
+ * no accounts, no assets, no debts. The client answers each of those step by
+ * step and the engine responds to what they actually give it.
+ *
+ * The only values set here are program-wide planning assumptions that are the
+ * same for every client until they choose to change them (return assumptions,
+ * inflation, projection horizon). Statutory figures are never copied here —
+ * they come from the rules layer (`taxYears.ts`) at normalization time.
+ *
+ * Anything a client has not answered yet is `null`. `null` means "unanswered",
+ * which is different from `0`, a real answer meaning "none".
  */
 
-import type { PlanInputs } from "./types";
+import type { PersonKey } from "./types";
+import type { PersonDraft, PlanDraft } from "./draft";
+import { LATEST_TAX_YEAR } from "./taxYears";
 
-/** Person A is born 1966-01-01; pinned so results don't drift with the clock. */
-export const DEFAULT_BASE_YEAR = 2026;
+/**
+ * Household-level modelling assumptions applied to every new plan. These are
+ * not personal facts, so pre-filling them is safe; the client can override any
+ * of them later.
+ */
+export const PLANNING_ASSUMPTIONS = {
+  /** Long-run inflation used to index spending. */
+  inflation: 0.021,
+  /** Expected nominal return on the equity sleeve. */
+  eqRet: 0.065,
+  /** Expected nominal return on the fixed-income sleeve. */
+  fiRet: 0.035,
+  /** Share of household spending a surviving spouse still needs. */
+  survivorPct: 0.6,
+  /** Age the projection runs to. */
+  endAge: 95,
+} as const;
 
-export function defaultPlanInputs(): PlanInputs {
+/** A person with nothing filled in yet. */
+export function emptyPerson(id: PersonKey): PersonDraft {
   return {
-    taxYear: 2026,
+    id,
+    firstName: "",
+    lastName: "",
+    dob: null,
+    curAge: null,
+    retAge: null,
+    employ: null,
+    deathAge: null,
+    cpp: { amt: null, age: null },
+    oas: { amt: null, age: null },
+    pen: { amt: null, age: null },
+    bridge: { amt: null, end: null },
+    tfsaRoom: null,
+    rrspRoom: null,
+  };
+}
+
+/**
+ * A blank plan for a client who has just signed up: one unnamed person, no
+ * province, no accounts, no expenses, no assets, no liabilities. The intake
+ * wizard fills this in.
+ */
+export function newPlanDraft(taxYear: number = LATEST_TAX_YEAR): PlanDraft {
+  return {
+    taxYear,
     planType: "single",
-    endAge: 95,
-    inflation: 0.021,
-    spendNeed: 60000,
-    eqRet: 0.065,
-    fiRet: 0.035,
-    survivorPct: 0.6,
+    endAge: PLANNING_ASSUMPTIONS.endAge,
+    inflation: PLANNING_ASSUMPTIONS.inflation,
+    eqRet: PLANNING_ASSUMPTIONS.eqRet,
+    fiRet: PLANNING_ASSUMPTIONS.fiRet,
+    survivorPct: PLANNING_ASSUMPTIONS.survivorPct,
     strategy: "auto",
+    spendNeed: null,
     tax: {
-      provinceKey: "ON",
-      fedBPA: 16452,
-      provBPA: 12989,
-      oasThresh: 95323,
-      lifRate: 6.0,
+      provinceKey: null,
+      fedBPA: null,
+      provBPA: null,
+      oasThresh: null,
+      lifRate: null,
     },
-    people: [
-      {
-        id: "A",
-        firstName: "",
-        lastName: "",
-        dob: "1966-01-01",
-        curAge: 60,
-        retAge: 65,
-        employ: 0,
-        deathAge: 0,
-        cpp: { amt: 14000, age: 65 },
-        oas: { amt: 9024, age: 65 },
-        pen: { amt: 0, age: 65 },
-        bridge: { amt: 0, end: 65 },
-      },
-    ],
-    accounts: [
-      {
-        id: "acc_rrif",
-        name: "RRIF",
-        type: "RRIF",
-        owner: "A",
-        bal: 450000,
-        acb: 450000,
-        eq: 55,
-        mix: { int: 1, div: 0, cg: 0 },
-        juris: "ON",
-        conv: 0,
-        unlock: 0,
-        contrib: 0,
-        contribEnd: 0,
-        wd: 0,
-        wdStart: 0,
-        wdEnd: 0,
-      },
-      {
-        id: "acc_lif",
-        name: "LIF (from LIRA)",
-        type: "LIF",
-        owner: "A",
-        bal: 180000,
-        acb: 180000,
-        eq: 55,
-        mix: { int: 1, div: 0, cg: 0 },
-        juris: "ON",
-        conv: 0,
-        unlock: 0,
-        contrib: 0,
-        contribEnd: 0,
-        wd: 0,
-        wdStart: 0,
-        wdEnd: 0,
-      },
-      {
-        id: "acc_tfsa",
-        name: "TFSA",
-        type: "TFSA",
-        owner: "A",
-        bal: 120000,
-        acb: 120000,
-        eq: 75,
-        mix: { int: 0.2, div: 0.2, cg: 0.6 },
-        juris: "ON",
-        conv: 0,
-        unlock: 0,
-        contrib: 0,
-        contribEnd: 0,
-        wd: 0,
-        wdStart: 0,
-        wdEnd: 0,
-      },
-      {
-        id: "acc_nonreg",
-        name: "Non-registered",
-        type: "NONREG",
-        owner: "A",
-        bal: 250000,
-        acb: 180000,
-        eq: 60,
-        mix: { int: 0.25, div: 0.25, cg: 0.5 },
-        juris: "ON",
-        conv: 0,
-        unlock: 0,
-        contrib: 0,
-        contribEnd: 0,
-        wd: 0,
-        wdStart: 0,
-        wdEnd: 0,
-      },
-    ],
-    expenses: [
-      { id: "exp_vehicle", name: "New vehicle", age: 70, amt: 45000 },
-      { id: "exp_roof", name: "Roof / reno", age: 78, amt: 35000 },
-    ],
+    people: [emptyPerson("A")],
+    accounts: [],
+    expenses: [],
     otherIncome: [],
     lumpSums: [],
-    hardAssets: [
-      {
-        id: "as_home",
-        name: "Home",
-        val: 750000,
-        acb: 750000,
-        apr: 0.03,
-        sale: 0,
-        taxable: false,
-        dsAge: 0,
-        dsPct: 30,
-      },
-    ],
-    liabilities: [
-      { id: "li_mortgage", name: "Mortgage", bal: 220000, rate: 0.045, pay: 28000 },
-    ],
+    hardAssets: [],
+    liabilities: [],
   };
+}
+
+/**
+ * What is still missing before the projection can mean anything. The wizard
+ * uses this to decide what to ask next and whether to show results at all.
+ */
+export function missingRequiredInputs(d: PlanDraft): string[] {
+  const gaps: string[] = [];
+  if (!d.tax.provinceKey) gaps.push("province of residence");
+  for (const person of d.people) {
+    const who = person.firstName || (person.id === "A" ? "you" : "your spouse");
+    if (person.curAge == null) gaps.push(`current age for ${who}`);
+    if (person.retAge == null) gaps.push(`retirement age for ${who}`);
+  }
+  if (d.spendNeed == null) gaps.push("annual spending target");
+  if (d.accounts.length === 0) gaps.push("at least one account or savings balance");
+  return gaps;
+}
+
+/** True when the draft has enough answers for the projection to be run. */
+export function isPlanReady(d: PlanDraft): boolean {
+  return missingRequiredInputs(d).length === 0;
 }
