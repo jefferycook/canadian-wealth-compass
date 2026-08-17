@@ -1,5 +1,7 @@
 /**
-  * A test-only fixture plan, matching the seed data of the original tool exactly.
+ * TEST FIXTURE ONLY — never shown to a client and never used to seed a new plan.
+ *
+ * Mirrors the seed data of the original tool exactly.
  *
  * This doubles as the regression fixture: the engine test runs this plan and
  * asserts on its lifetime tax, so an accidental change to any tax constant or
