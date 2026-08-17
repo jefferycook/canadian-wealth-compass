@@ -80,6 +80,8 @@ export interface PersonInput {
   id: PersonKey;
   firstName: string;
   lastName: string;
+  /** Date of birth, ISO yyyy-mm-dd. Optional; `curAge` is what the engine uses. */
+  dob?: string;
   /** Current age in whole years. */
   curAge: number;
   /** Retirement age. Use 999 for "already retired / never works". */
