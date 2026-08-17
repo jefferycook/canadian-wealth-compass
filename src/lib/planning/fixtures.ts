@@ -1,5 +1,5 @@
 /**
- * The default plan, matching the seed data of the original tool exactly.
+  * A test-only fixture plan, matching the seed data of the original tool exactly.
  *
  * This doubles as the regression fixture: the engine test runs this plan and
  * asserts on its lifetime tax, so an accidental change to any tax constant or
@@ -12,7 +12,7 @@ import type { PlanInputs } from "./types";
 /** Person A is born 1966-01-01; pinned so results don't drift with the clock. */
 export const DEFAULT_BASE_YEAR = 2026;
 
-export function defaultPlanInputs(): PlanInputs {
+export function regressionFixturePlan(): PlanInputs {
   return {
     taxYear: 2026,
     planType: "single",
