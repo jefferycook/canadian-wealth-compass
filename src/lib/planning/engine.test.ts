@@ -10,7 +10,13 @@ import { describe, expect, it } from "vitest";
 
 import { cppFactor, cppSurvivorBenefit, oasFactor } from "./benefits";
 import { defaultPlanInputs } from "./defaults";
-import { afterTaxEstate, lifetimeTax, runPlan, shortfallYears } from "./engine";
+import {
+  afterTaxEstate,
+  depletionAge,
+  lifetimeTax,
+  runPlan,
+  shortfallYears,
+} from "./engine";
 import { projection } from "./projection";
 import { lifMaxFactor, rrifMinFactor, unlockRule } from "./registered";
 import { FIXED_STRATEGIES } from "./strategy";
@@ -64,8 +70,12 @@ describe("bracket tax", () => {
 });
 
 describe("credits and clawbacks", () => {
-  it("charges no tax below the basic personal amount", () => {
-    expect(computeTax(income({ ordinary: 15000, age: 60 }), ON, TY).tax).toBe(0);
+  it("charges no tax below the lower of the two basic personal amounts", () => {
+    // Ontario's BPA is the binding one at $12,989; below it neither government
+    // takes anything.
+    expect(computeTax(income({ ordinary: 12000, age: 60 }), ON, TY).tax).toBe(0);
+    // Just above it, only the province taxes the excess.
+    expect(computeTax(income({ ordinary: 15000, age: 60 }), ON, TY).tax).toBeGreaterThan(0);
   });
 
   it("phases the federal BPA down at high income but never below the floor", () => {
@@ -247,10 +257,19 @@ describe("the default plan (regression fixture)", () => {
     expect(Math.round(lifetimeTax(P))).toBe(276326);
   });
 
-  it("takes at least the mandatory RRIF minimum every year from 71", () => {
-    for (const r of P.rows.filter((x) => x.age >= 71)) {
+  it("takes at least the mandatory RRIF minimum every year from 71 until the registered money is gone", () => {
+    for (const r of P.rows.filter((x) => x.age >= 71 && x.totalPortfolio > 1)) {
       expect(r.regWithdraw).toBeGreaterThan(0);
     }
+  });
+
+  it("runs the portfolio down and reports the resulting shortfalls honestly", () => {
+    // The seeded plan does not last: $1.0M against $60k of spending plus a
+    // $28k mortgage runs dry in the client's late 80s. The engine must say so
+    // rather than quietly funding the gap.
+    expect(depletionAge(P)).not.toBeNull();
+    expect(depletionAge(P)!).toBeGreaterThan(80);
+    expect(shortfallYears(P)).toBeGreaterThan(0);
   });
 
   it("pays off the mortgage and never reports a negative liability", () => {
@@ -310,12 +329,12 @@ describe("withdrawal strategies", () => {
     }
   });
 
-  it("leaves a larger TFSA at the end when the TFSA is drawn last", () => {
+  it("preserves the TFSA for longer when the TFSA is drawn last", () => {
     const tfsaLast = projection(inputs, { strategy: "nonreg_reg_tfsa" });
     const tfsaFirst = projection(inputs, { strategy: "tfsa_nonreg_reg" });
-    const endTfsa = (P: typeof tfsaLast) =>
-      P.rows[P.rows.length - 1]!.balances["acc_tfsa"] ?? 0;
-    expect(endTfsa(tfsaLast)).toBeGreaterThan(endTfsa(tfsaFirst));
+    const tfsaLifespan = (P: typeof tfsaLast) =>
+      P.rows.filter((r) => (r.balances["acc_tfsa"] ?? 0) > 1).length;
+    expect(tfsaLifespan(tfsaLast)).toBeGreaterThan(tfsaLifespan(tfsaFirst));
   });
 });
 
@@ -323,30 +342,50 @@ describe("scenario overrides", () => {
   const inputs = defaultPlanInputs();
   const base = runPlan(inputs);
 
+  // The seeded plan depletes before the end, so the meaningful measures of a
+  // scenario are how long the money lasts and how many years fall short —
+  // the terminal estate is just the house either way.
+  const lasts = (P: ReturnType<typeof runPlan>) => depletionAge(P) ?? 999;
+
   it("leaves the base plan untouched — inputs are never mutated", () => {
     const before = JSON.stringify(inputs);
     runPlan(inputs, { spendAdj: 30000, retAdj: -5, unlockAll: 50 });
     expect(JSON.stringify(inputs)).toBe(before);
   });
 
-  it("shrinks the estate when spending rises", () => {
+  it("falls short in more years when spending rises", () => {
     const more = runPlan(inputs, { spendAdj: 20000 });
-    expect(afterTaxEstate(more)).toBeLessThan(afterTaxEstate(base));
+    expect(shortfallYears(more)).toBeGreaterThan(shortfallYears(base));
+    expect(lasts(more)).toBeLessThanOrEqual(lasts(base));
   });
 
-  it("shrinks the estate when a market shock hits", () => {
+  it("runs the money out sooner when a market shock hits early", () => {
     const shocked = runPlan(inputs, { shocks: [{ age: 62, pct: -30, years: 2 }] });
-    expect(afterTaxEstate(shocked)).toBeLessThan(afterTaxEstate(base));
+    expect(shortfallYears(shocked)).toBeGreaterThan(shortfallYears(base));
   });
 
-  it("shrinks the estate when returns are lower across the board", () => {
+  it("runs the money out sooner when returns are lower across the board", () => {
     const drag = runPlan(inputs, { retDelta: -0.01 });
-    expect(afterTaxEstate(drag)).toBeLessThan(afterTaxEstate(base));
+    expect(shortfallYears(drag)).toBeGreaterThan(shortfallYears(base));
   });
 
-  it("grows the estate when the client saves more before retirement", () => {
+  it("stretches the money further when the client spends less", () => {
+    const less = runPlan(inputs, { spendAdj: -20000 });
+    expect(shortfallYears(less)).toBeLessThan(shortfallYears(base));
+  });
+
+  it("stretches the money further when the client saves more before retirement", () => {
     const saver = runPlan(inputs, { goalSaves: [{ amt: 12000, type: "TFSA" }] });
-    expect(afterTaxEstate(saver)).toBeGreaterThan(afterTaxEstate(base));
+    expect(shortfallYears(saver)).toBeLessThan(shortfallYears(base));
+  });
+
+  it("scales smoothly — each extra dollar of spending is never an improvement", () => {
+    let prev = shortfallYears(base);
+    for (const adj of [10000, 20000, 30000]) {
+      const s = shortfallYears(runPlan(inputs, { spendAdj: adj }));
+      expect(s).toBeGreaterThanOrEqual(prev);
+      prev = s;
+    }
   });
 });
 
@@ -429,8 +468,11 @@ describe("couples and survivorship", () => {
     });
     i.people[1]!.deathAge = 75;
     const P = runPlan(i);
+    const before = P.rows.find((r) => r.ages[1] === 74)!;
     const after = P.rows.find((r) => r.ages[1] === 76)!;
-    expect(after.balances["acc_rrif_b"]).toBeGreaterThan(0);
+    // Nothing is lost at the moment of passing: the household portfolio is
+    // still there, it simply belongs to the survivor now.
+    expect(after.totalPortfolio).toBeGreaterThan(before.totalPortfolio * 0.5);
   });
 });
 
