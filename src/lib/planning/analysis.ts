@@ -279,7 +279,7 @@ export function buildRecommendations(
   }
 
   for (const p of inputs.people) {
-    if (p.cpp.amt > 0 && p.cpp.age < 70 && (dep == null || dep > 80)) {
+    if (p.cpp.amt > 0 && p.cpp.age < 70 && (shortAge == null || shortAge > 80)) {
       out.push({
         id: `cpp-${p.id}`,
         title: `Consider starting CPP later than ${p.cpp.age} for ${p.firstName || "you"}`,

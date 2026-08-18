@@ -14,6 +14,7 @@ import {
   afterTaxEstate,
   firstShortfallAge,
   lifetimeTax,
+  portfolioExhaustionAge,
   runPlan,
   shortfallYears,
 } from "./engine";
@@ -324,7 +325,7 @@ describe("the default plan (regression fixture)", () => {
 
   it("does not report an exhausted portfolio for a household that never invested", () => {
     const R = runPlan({
-      ...DEFAULT_PLAN,
+      ...defaultPlanInputs(),
       accounts: [],
       assets: [],
       liabilities: [],
