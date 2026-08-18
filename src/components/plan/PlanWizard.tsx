@@ -485,80 +485,125 @@ function PropertyStep({ draft, onChange }: StepProps) {
             </CardContent>
           </Card>
         ))}
-        <Button
-          variant="secondary"
-          onClick={() =>
-            onChange({
-              ...draft,
-              hardAssets: [
-                ...draft.hardAssets,
-                {
-                  id: uid(),
-                  name: "Home",
-                  val: 0,
-                  apr: 0.03,
-                  sale: 0,
-                  dsAge: 0,
-                  dsPct: 0,
-                  taxable: false,
-                  acb: 0,
-                },
-              ],
-            })
-          }
-        >
-          <Plus className="mr-2 size-4" /> Add property
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {ASSET_PRESETS.map((preset) => (
+            <Button
+              key={preset.name}
+              variant="secondary"
+              onClick={() =>
+                onChange({
+                  ...draft,
+                  hardAssets: [
+                    ...draft.hardAssets,
+                    {
+                      id: uid(),
+                      name: preset.name,
+                      val: 0,
+                      apr: preset.apr,
+                      sale: 0,
+                      dsAge: 0,
+                      dsPct: 0,
+                      taxable: preset.taxable,
+                      acb: 0,
+                    },
+                  ],
+                })
+              }
+            >
+              <Plus className="mr-2 size-4" /> Add {preset.label}
+            </Button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Vehicles, boats and trailers lose value each year — the growth rate starts negative so
+          your net worth reflects that. A principal residence is not taxable on sale; a cottage,
+          rental or collectible is.
+        </p>
       </div>
 
       <div className="space-y-3">
-        <h3 className="text-lg">Debts</h3>
-        {draft.liabilities.map((l) => (
-          <Card key={l.id}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-              <CardTitle className="text-base">{l.name || "Debt"}</CardTitle>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Remove debt"
-                onClick={() =>
-                  onChange({
-                    ...draft,
-                    liabilities: draft.liabilities.filter((x) => x.id !== l.id),
-                  })
-                }
-              >
-                <Trash2 className="size-4" />
-              </Button>
-            </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
-              <TextField
-                label="What is it?"
-                value={l.name}
-                onChange={(v) => updateLiab(l.id!, { name: v })}
-              />
-              <NumberField
-                label="Balance owing"
-                prefix="$"
-                value={l.bal || null}
-                onChange={(v) => updateLiab(l.id!, { bal: v ?? 0 })}
-              />
-              <NumberField
-                label="Interest rate"
-                suffix="%"
-                step={0.1}
-                value={pct(l.rate)}
-                onChange={(v) => updateLiab(l.id!, { rate: (v ?? 0) / 100 })}
-              />
-              <NumberField
-                label="Annual payment"
-                prefix="$"
-                value={l.pay || null}
-                onChange={(v) => updateLiab(l.id!, { pay: v ?? 0 })}
-              />
-            </CardContent>
-          </Card>
-        ))}
+        <h3 className="text-lg">Mortgages and other debt</h3>
+        {draft.liabilities.map((l) => {
+          const monthly = l.pay ? Math.round((l.pay / 12) * 100) / 100 : null;
+          const suggested = monthlyMortgagePayment(l.bal, l.rate, l.amortYears ?? 0);
+          return (
+            <Card key={l.id}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                <CardTitle className="text-base">{l.name || "Debt"}</CardTitle>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Remove debt"
+                  onClick={() =>
+                    onChange({
+                      ...draft,
+                      liabilities: draft.liabilities.filter((x) => x.id !== l.id),
+                    })
+                  }
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              </CardHeader>
+              <CardContent className="grid gap-4 sm:grid-cols-2">
+                <TextField
+                  label="What is it?"
+                  value={l.name}
+                  onChange={(v) => updateLiab(l.id!, { name: v })}
+                />
+                <NumberField
+                  label="Balance owing"
+                  prefix="$"
+                  value={l.bal || null}
+                  onChange={(v) => updateLiab(l.id!, { bal: v ?? 0 })}
+                />
+                <NumberField
+                  label="Interest rate"
+                  hint="The rate on your renewal or loan agreement."
+                  suffix="%"
+                  step={0.01}
+                  value={pct(l.rate)}
+                  onChange={(v) => updateLiab(l.id!, { rate: (v ?? 0) / 100 })}
+                />
+                <NumberField
+                  label="Amortization remaining"
+                  hint="Years left to pay it off."
+                  suffix="yrs"
+                  step={1}
+                  min={0}
+                  max={40}
+                  value={l.amortYears ?? null}
+                  onChange={(v) => updateLiab(l.id!, { amortYears: v ?? 0 })}
+                />
+                <NumberField
+                  label="Monthly payment"
+                  hint="Principal and interest only — not property tax or insurance."
+                  prefix="$"
+                  step={10}
+                  value={monthly}
+                  onChange={(v) => updateLiab(l.id!, { pay: (v ?? 0) * 12 })}
+                />
+                <div className="flex flex-col justify-end gap-1">
+                  <Button
+                    variant="outline"
+                    type="button"
+                    disabled={!suggested}
+                    onClick={() => updateLiab(l.id!, { pay: Math.round(suggested * 12) })}
+                  >
+                    <Calculator className="mr-2 size-4" />
+                    {suggested
+                      ? `Use ${money(suggested)}/mo`
+                      : "Calculate payment"}
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    {suggested
+                      ? "Level payment that clears the balance over the amortization, at Canadian semi-annual compounding."
+                      : "Enter a balance, rate and amortization to calculate the payment."}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
         <Button
           variant="secondary"
           onClick={() =>
@@ -566,7 +611,7 @@ function PropertyStep({ draft, onChange }: StepProps) {
               ...draft,
               liabilities: [
                 ...draft.liabilities,
-                { id: uid(), name: "Mortgage", bal: 0, rate: 0.05, pay: 0 },
+                { id: uid(), name: "Mortgage", bal: 0, rate: 0.05, pay: 0, amortYears: 25 },
               ],
             })
           }
