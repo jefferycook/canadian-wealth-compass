@@ -9,10 +9,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PlanResults } from "@/components/plan/PlanResults";
+import {
+  GoalPanel,
+  NetWorthPanel,
+  RecommendationsPanel,
+  StrategyPanel,
+} from "@/components/plan/PlanInsights";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlanWizard, WIZARD_STEPS, type WizardStepKey } from "@/components/plan/PlanWizard";
 import { isPlanReady, missingRequiredInputs } from "@/lib/planning/defaults";
 import type { PlanDraft } from "@/lib/planning/draft";
-import { getPlan, runProjection, savePlan } from "@/lib/plans.functions";
+import { analyzePlan, getPlan, savePlan } from "@/lib/plans.functions";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/plans/$planId")({
