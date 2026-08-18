@@ -5,7 +5,14 @@
  * reduces it to the handful of numbers and series a chart or headline needs.
  */
 
-import { afterTaxEstate, depletionAge, lifetimeTax, shortfallYears } from "./engine";
+import {
+  afterTaxEstate,
+  firstShortfallAge,
+  lifetimeTax,
+  noInvestableAssets,
+  portfolioExhaustionAge,
+  shortfallYears,
+} from "./engine";
 import type { AccountMeta, PlanResult } from "./types";
 
 export interface PlanChartPoint {
@@ -63,7 +70,9 @@ export interface PlanYearDetail {
   /** Flags */
   lifRemaining: number;
   lifBound: boolean;
-  depleted: boolean;
+  fundingShortfall: boolean;
+  portfolioEmpty: boolean;
+  portfolioExhausted: boolean;
   anyDeceased: boolean;
   /** Closing balance per account id. */
   balances: Record<string, number>;
@@ -72,7 +81,12 @@ export interface PlanYearDetail {
 
 export interface PlanSummary {
   /** Age money runs out, or null when the plan lasts. */
-  depletionAge: number | null;
+  /** Age a previously funded portfolio is drawn to zero. Not a failure signal. */
+  portfolioExhaustionAge: number | null;
+  /** First age the plan cannot fund spending. This is the failure signal. */
+  firstShortfallAge: number | null;
+  /** True when the household holds no investable assets at all. */
+  noInvestableAssets: boolean;
   /** Years the plan cannot fund the spending target. */
   shortfallYears: number;
   lifetimeTax: number;
@@ -168,7 +182,9 @@ export function summarize(P: PlanResult): PlanOutput {
     netWorth: round(r.netWorth),
     lifRemaining: round(r.lifRemaining),
     lifBound: r.lifBound,
-    depleted: r.depleted,
+    fundingShortfall: r.fundingShortfall,
+    portfolioEmpty: r.portfolioEmpty,
+    portfolioExhausted: r.portfolioExhausted,
     anyDeceased: r.anyDeceased,
     balances: Object.fromEntries(
       Object.entries(r.balances).map(([id, b]) => [id, round(b)]),
@@ -182,7 +198,9 @@ export function summarize(P: PlanResult): PlanOutput {
 
   return {
     summary: {
-      depletionAge: depletionAge(P),
+      portfolioExhaustionAge: portfolioExhaustionAge(P),
+      firstShortfallAge: firstShortfallAge(P),
+      noInvestableAssets: noInvestableAssets(P),
       shortfallYears: shortfallYears(P),
       lifetimeTax: Math.round(lifetimeTax(P)),
       afterTaxEstate: Math.round(afterTaxEstate(P)),

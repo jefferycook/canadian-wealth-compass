@@ -12,8 +12,9 @@ import { cppFactor, cppSurvivorBenefit, oasFactor } from "./benefits";
 import { regressionFixturePlan as defaultPlanInputs } from "./fixtures";
 import {
   afterTaxEstate,
-  depletionAge,
+  firstShortfallAge,
   lifetimeTax,
+  portfolioExhaustionAge,
   runPlan,
   shortfallYears,
 } from "./engine";
@@ -311,12 +312,32 @@ describe("the default plan (regression fixture)", () => {
   });
 
   it("runs the portfolio down and reports the resulting shortfalls honestly", () => {
-    // The seeded plan does not last: $1.0M against $60k of spending plus a
-    // $28k mortgage runs dry in the client's late 80s. The engine must say so
-    // rather than quietly funding the gap.
-    expect(depletionAge(P)).not.toBeNull();
-    expect(depletionAge(P)!).toBeGreaterThan(80);
+    // The seeded plan does not last. The engine must say so rather than
+    // quietly funding the gap — and it must separate the funding failure
+    // (spending unmet) from the balance-sheet event (portfolio exhausted).
+    expect(firstShortfallAge(P)).not.toBeNull();
+    expect(firstShortfallAge(P)!).toBeGreaterThan(70);
     expect(shortfallYears(P)).toBeGreaterThan(0);
+    expect(P.hadInvestableAssets).toBe(true);
+    expect(portfolioExhaustionAge(P)).not.toBeNull();
+    expect(portfolioExhaustionAge(P)!).toBeGreaterThanOrEqual(firstShortfallAge(P)!);
+  });
+
+  it("does not report an exhausted portfolio for a household that never invested", () => {
+    const R = runPlan({
+      ...defaultPlanInputs(),
+      accounts: [],
+      liabilities: [],
+    });
+    expect(R.hadInvestableAssets).toBe(false);
+    expect(portfolioExhaustionAge(R)).toBeNull();
+    expect(R.rows.every((r) => r.portfolioEmpty)).toBe(true);
+    expect(R.rows.every((r) => !r.portfolioExhausted)).toBe(true);
+  });
+
+  it("does not flag a funding shortfall in working years funded by employment income", () => {
+    const working = P.rows.filter((r) => r.employ > 0 && r.shortfall <= 1);
+    for (const r of working) expect(r.fundingShortfall).toBe(false);
   });
 
   it("pays off the mortgage and never reports a negative liability", () => {
@@ -392,7 +413,7 @@ describe("scenario overrides", () => {
   // The seeded plan depletes before the end, so the meaningful measures of a
   // scenario are how long the money lasts and how many years fall short —
   // the terminal estate is just the house either way.
-  const lasts = (P: ReturnType<typeof runPlan>) => depletionAge(P) ?? 999;
+  const lasts = (P: ReturnType<typeof runPlan>) => firstShortfallAge(P) ?? 999;
 
   it("leaves the base plan untouched — inputs are never mutated", () => {
     const before = JSON.stringify(inputs);

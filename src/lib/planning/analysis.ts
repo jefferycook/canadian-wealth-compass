@@ -5,7 +5,15 @@
  * No statutory number is defined in this file — the rules layer owns those.
  */
 
-import { afterTaxEstate, depletionAge, lifetimeTax, runPlan, shortfallYears } from "./engine";
+import {
+  afterTaxEstate,
+  firstShortfallAge,
+  lifetimeTax,
+  planFunded,
+  portfolioExhaustionAge,
+  runPlan,
+  shortfallYears,
+} from "./engine";
 import { FIXED_STRATEGIES } from "./strategy";
 import { strategyLabel } from "./summary";
 import type { PlanInputs, PlanResult, ProjectionResult, WithdrawalStrategy } from "./types";
@@ -71,7 +79,10 @@ export interface StrategyRow {
   key: WithdrawalStrategy;
   label: string;
   shortfallYears: number;
-  depletionAge: number | null;
+  /** Age a previously funded portfolio is exhausted. Not a failure signal. */
+  portfolioExhaustionAge: number | null;
+  /** First age spending is not fully funded. */
+  firstShortfallAge: number | null;
   lifetimeTax: number;
   oasClawback: number;
   afterTaxEstate: number;
@@ -87,7 +98,8 @@ export function compareStrategies(inputs: PlanInputs, chosen: WithdrawalStrategy
       key: s,
       label: strategyLabel(s),
       shortfallYears: shortfallYears(P),
-      depletionAge: depletionAge(P),
+      portfolioExhaustionAge: portfolioExhaustionAge(P),
+      firstShortfallAge: firstShortfallAge(P),
       lifetimeTax: Math.round(lifetimeTax(P)),
       oasClawback: Math.round(P.rows.reduce((t, r) => t + r.oasClaw, 0)),
       afterTaxEstate: Math.round(afterTaxEstate(P)),
@@ -132,7 +144,7 @@ export function goalProgress(inputs: PlanInputs, P: PlanResult): GoalProgress {
   const currentSavings = inputs.accounts.reduce((s, a) => s + a.bal, 0);
   const funds = (f: number) => {
     const R = scaled(f);
-    return shortfallYears(R) === 0 && depletionAge(R) == null;
+    return planFunded(R);
   };
 
   let factor: number;
@@ -180,8 +192,8 @@ export function goalProgress(inputs: PlanInputs, P: PlanResult): GoalProgress {
     projectedAtRetirement: Math.round(atRet?.totalPortfolio ?? 0),
     requiredToday,
     fundedRatio,
-    onTrack: shortfallYears(P) === 0 && depletionAge(P) == null,
-    firstShortfallAge: P.rows.find((r) => r.shortfall > 1)?.age ?? null,
+    onTrack: planFunded(P),
+    firstShortfallAge: firstShortfallAge(P),
     annualSpendTarget: Math.round(atRet?.spendTarget ?? 0),
     guaranteedIncomeAtRetirement: Math.round(
       (atRet?.cpp ?? 0) + (atRet?.oas ?? 0) + (atRet?.pen ?? 0),
@@ -215,12 +227,16 @@ export function buildRecommendations(
 ): Recommendation[] {
   const out: Recommendation[] = [];
   const short = shortfallYears(P);
-  const dep = depletionAge(P);
+  const shortAge = firstShortfallAge(P);
+  const exhaustAge = portfolioExhaustionAge(P);
 
-  if (short > 0 || dep != null) {
+  if (short > 0) {
     out.push({
       id: "shortfall",
-      title: dep != null ? `Savings run out at age ${dep}` : `${short} years fall short`,
+      title:
+        shortAge != null
+          ? `Spending is not fully funded from age ${shortAge}`
+          : `${short} years fall short`,
       detail:
         "On the current path the plan cannot fund your spending target every year. Closing it takes some combination of retiring later, spending less, or saving more before retirement.",
       impact: `About ${money(Math.max(0, goal.requiredToday - goal.currentSavings))} more capital today would fund the plan in full.`,
@@ -234,6 +250,16 @@ export function buildRecommendations(
         "Your spending target is met in full through the whole projection, with money left over at the end.",
       impact: `Estate after tax: ${money(Math.round(afterTaxEstate(P)))}.`,
       severity: "info",
+    });
+  }
+
+  if (short === 0 && exhaustAge != null) {
+    out.push({
+      id: "portfolio-exhausted",
+      title: `Investments are fully drawn down by age ${exhaustAge}`,
+      detail:
+        "Spending is still funded every year — pensions, CPP and OAS carry the later years — but there is no investment buffer left after this age for one-off costs or care.",
+      severity: "medium",
     });
   }
 
@@ -263,7 +289,7 @@ export function buildRecommendations(
   }
 
   for (const p of inputs.people) {
-    if (p.cpp.amt > 0 && p.cpp.age < 70 && (dep == null || dep > 80)) {
+    if (p.cpp.amt > 0 && p.cpp.age < 70 && (shortAge == null || shortAge > 80)) {
       out.push({
         id: `cpp-${p.id}`,
         title: `Consider starting CPP later than ${p.cpp.age} for ${p.firstName || "you"}`,

@@ -340,7 +340,19 @@ export interface ProjectionRow {
   afterTax: number;
   spendTarget: number;
   shortfall: number;
-  depleted: boolean;
+  /**
+   * Plan-status flags. These are deliberately separate concepts:
+   *
+   * - `fundingShortfall` — after-tax resources could not fund the year's
+   *   spending need. This is the plan-failure signal.
+   * - `portfolioEmpty` — the investable portfolio is ~zero. A balance-sheet
+   *   state, not by itself a failure.
+   * - `portfolioExhausted` — investable assets existed earlier and have now
+   *   been drawn to ~zero.
+   */
+  fundingShortfall: boolean;
+  portfolioEmpty: boolean;
+  portfolioExhausted: boolean;
   /** Total remaining in LIF accounts. */
   lifRemaining: number;
   /** True when a shortfall is driven by LIF maximum-withdrawal limits. */
@@ -362,6 +374,11 @@ export interface ProjectionResult {
   endAge: number;
   couple: boolean;
   people: PersonInput[];
+  /**
+   * False when the household holds no investable assets at any point in the
+   * projection. An intake/information state, never a plan failure.
+   */
+  hadInvestableAssets: boolean;
 }
 
 /** A projection plus the withdrawal strategy that produced it. */

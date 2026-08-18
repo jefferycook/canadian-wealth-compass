@@ -169,7 +169,7 @@ export function StrategyPanel({ rows }: { rows: StrategyRow[] }) {
               <tr>
                 <th className="p-3 font-medium">Withdrawal order</th>
                 <th className="p-3 text-right font-medium">Years short</th>
-                <th className="p-3 text-right font-medium">Money runs out</th>
+                <th className="p-3 text-right font-medium">Spending funded to</th>
                 <th className="p-3 text-right font-medium">Lifetime tax</th>
                 <th className="p-3 text-right font-medium">OAS lost</th>
                 <th className="p-3 text-right font-medium">Estate after tax</th>
@@ -194,7 +194,7 @@ export function StrategyPanel({ rows }: { rows: StrategyRow[] }) {
                     {r.shortfallYears}
                   </td>
                   <td className="tabular p-3 text-right">
-                    {r.depletionAge == null ? "Never" : `Age ${r.depletionAge}`}
+                    {r.firstShortfallAge == null ? "Full plan" : `Age ${r.firstShortfallAge}`}
                   </td>
                   <td className="tabular p-3 text-right">{money(r.lifetimeTax)}</td>
                   <td className="tabular p-3 text-right">{money(r.oasClawback)}</td>
