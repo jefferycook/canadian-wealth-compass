@@ -32,12 +32,31 @@ function PlansPage() {
   const plans = useQuery({ queryKey: ["plans"], queryFn: () => fetchPlans() });
 
   const createMutation = useMutation({
-    mutationFn: () => create({ data: { name: "My plan" } }),
+    /**
+     * A stale access token in a long-open tab makes the server reject the call
+     * as unauthorized. Refresh the session once and try again before telling
+     * the person anything went wrong.
+     */
+    mutationFn: async () => {
+      try {
+        return await create({ data: { name: "My plan" } });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!/unauthor|401|jwt|token/i.test(message)) throw err;
+        const { data } = await supabase.auth.refreshSession();
+        if (!data.session) throw new Error("Your session expired. Please sign in again.");
+        return await create({ data: { name: "My plan" } });
+      }
+    },
     onSuccess: (row) => {
       void navigate({ to: "/plans/$planId", params: { planId: row.id } });
     },
-    onError: () => toast.error("Could not create the plan."),
+    onError: (err) => {
+      console.error("createPlan failed", err);
+      toast.error(err instanceof Error ? err.message : "Could not create the plan.");
+    },
   });
+
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => remove({ data: { id } }),
