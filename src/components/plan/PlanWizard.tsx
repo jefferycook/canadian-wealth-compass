@@ -331,7 +331,7 @@ function AccountsStep({ draft, onChange }: StepProps) {
             <NumberField
               label="Current balance"
               prefix="$"
-              value={a.bal}
+              value={a.bal || null}
               onChange={(v) => update(a.id, { bal: v ?? 0 })}
             />
             <NumberField
@@ -346,7 +346,7 @@ function AccountsStep({ draft, onChange }: StepProps) {
             <NumberField
               label="Annual contribution"
               prefix="$"
-              value={a.contrib}
+              value={a.contrib || null}
               onChange={(v) => update(a.id, { contrib: v ?? 0 })}
             />
             {a.type === "NONREG" ? (
@@ -354,7 +354,7 @@ function AccountsStep({ draft, onChange }: StepProps) {
                 label="Adjusted cost base"
                 hint="What you paid. Used for capital-gains tax on withdrawals."
                 prefix="$"
-                value={a.acb}
+                value={a.acb || null}
                 onChange={(v) => update(a.id, { acb: v ?? 0 })}
               />
             ) : null}
@@ -365,7 +365,7 @@ function AccountsStep({ draft, onChange }: StepProps) {
                 suffix="%"
                 min={0}
                 max={100}
-                value={a.unlock}
+                value={a.unlock || null}
                 onChange={(v) => update(a.id, { unlock: v ?? 0 })}
               />
             ) : null}
@@ -426,7 +426,7 @@ function PropertyStep({ draft, onChange }: StepProps) {
               <NumberField
                 label="Current value"
                 prefix="$"
-                value={h.val}
+                value={h.val || null}
                 onChange={(v) => updateAsset(h.id!, { val: v ?? 0 })}
               />
               <NumberField
@@ -447,7 +447,7 @@ function PropertyStep({ draft, onChange }: StepProps) {
                 suffix="%"
                 min={0}
                 max={100}
-                value={h.dsPct}
+                value={h.dsPct || null}
                 onChange={(v) => updateAsset(h.id!, { dsPct: v ?? 0 })}
               />
               <div className="flex items-center justify-between rounded-md border p-3">
@@ -520,7 +520,7 @@ function PropertyStep({ draft, onChange }: StepProps) {
               <NumberField
                 label="Balance owing"
                 prefix="$"
-                value={l.bal}
+                value={l.bal || null}
                 onChange={(v) => updateLiab(l.id!, { bal: v ?? 0 })}
               />
               <NumberField
@@ -533,7 +533,7 @@ function PropertyStep({ draft, onChange }: StepProps) {
               <NumberField
                 label="Annual payment"
                 prefix="$"
-                value={l.pay}
+                value={l.pay || null}
                 onChange={(v) => updateLiab(l.id!, { pay: v ?? 0 })}
               />
             </CardContent>
@@ -601,7 +601,7 @@ function SpendingStep({ draft, onChange }: StepProps) {
               />
               <NumberField
                 label="At your age"
-                value={e.age}
+                value={e.age || null}
                 onChange={(v) =>
                   onChange({
                     ...draft,
@@ -612,7 +612,7 @@ function SpendingStep({ draft, onChange }: StepProps) {
               <NumberField
                 label="Amount"
                 prefix="$"
-                value={e.amt}
+                value={e.amt || null}
                 onChange={(v) =>
                   onChange({
                     ...draft,
