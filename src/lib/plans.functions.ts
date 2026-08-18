@@ -19,6 +19,13 @@ import type {
   StrategyRow,
 } from "./planning/analysis";
 import type { PlanOutput } from "./planning/summary";
+import type {
+  CashflowView,
+  LeverSettings,
+  LeverSimulation,
+  PlanScore,
+  SavingAdvice,
+} from "./planning/levers";
 
 export interface PlanAnalysis {
   output: PlanOutput;
@@ -26,6 +33,9 @@ export interface PlanAnalysis {
   strategies: StrategyRow[];
   goal: GoalProgress;
   recommendations: Recommendation[];
+  score: PlanScore;
+  cashflow: CashflowView;
+  advice: SavingAdvice;
 }
 
 export interface PlanRow {
@@ -123,11 +133,12 @@ export const analyzePlan = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { draft: PlanDraft }) => input)
   .handler(async ({ data }): Promise<PlanAnalysis> => {
-    const [{ normalizeDraft }, { runPlan }, { summarize }, analysis] = await Promise.all([
+    const [{ normalizeDraft }, { runPlan }, { summarize }, analysis, levers] = await Promise.all([
       import("./planning/draft"),
       import("./planning/engine"),
       import("./planning/summary"),
       import("./planning/analysis"),
+      import("./planning/levers"),
     ]);
     const inputs = normalizeDraft(data.draft);
     const result = runPlan(inputs);
@@ -139,5 +150,23 @@ export const analyzePlan = createServerFn({ method: "POST" })
       strategies,
       goal,
       recommendations: analysis.buildRecommendations(inputs, result, strategies, goal),
+      score: levers.scorePlan(inputs),
+      cashflow: levers.cashflowView(inputs, result),
+      advice: levers.recommendSavingsAccount(inputs, result),
     };
+  });
+
+/**
+ * Re-run the plan with the client's "what if" sliders applied, and report the
+ * change each lever makes on its own as well as all of them together.
+ */
+export const simulatePlan = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { draft: PlanDraft; levers: LeverSettings }) => input)
+  .handler(async ({ data }): Promise<LeverSimulation> => {
+    const [{ normalizeDraft }, levers] = await Promise.all([
+      import("./planning/draft"),
+      import("./planning/levers"),
+    ]);
+    return levers.simulateLevers(normalizeDraft(data.draft), data.levers);
   });
