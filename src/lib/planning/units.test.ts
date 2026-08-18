@@ -59,17 +59,22 @@ describe("the engine stays annual", () => {
     return { ...regressionFixturePlan(), spendNeed: annualSpend };
   }
 
+  /** A retired year, so the target is retirement spending rather than today's. */
+  const retiredTarget = (spend: number) => {
+    const P = runPlan(planSpending(spend));
+    return P.rows.find((r) => r.age === 70)!.spendTarget;
+  };
+
   it("treats a monthly entry of $8,333 the same as $100,000 a year", () => {
-    const fromMonthly = runPlan(planSpending(annualFromMonthly(8333.333333)!));
-    const fromAnnual = runPlan(planSpending(100000));
-    expect(Math.round(fromMonthly.rows[0]!.spendTarget)).toBe(
-      Math.round(fromAnnual.rows[0]!.spendTarget),
+    expect(Math.round(retiredTarget(annualFromMonthly(8333.333333)!))).toBe(
+      Math.round(retiredTarget(100000)),
     );
   });
 
   it("an unconverted monthly figure would spend twelve times as much", () => {
-    const correct = runPlan(planSpending(annualFromMonthly(100000)!));
-    const naive = runPlan(planSpending(100000));
-    expect(correct.rows[0]!.spendTarget / naive.rows[0]!.spendTarget).toBeCloseTo(12, 6);
+    expect(retiredTarget(annualFromMonthly(100000)!) / retiredTarget(100000)).toBeCloseTo(
+      12,
+      6,
+    );
   });
 });
