@@ -250,3 +250,56 @@ export function recommendSavingsAccount(inputs: PlanInputs, P: ProjectionResult)
     roomAvailable: 0,
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* Scoring one lever at a time                                         */
+/* ------------------------------------------------------------------ */
+
+export const LEVER_KEYS = [
+  "extraMonthlySaving",
+  "retireDeferYears",
+  "preRetSpendCutMonthly",
+  "retSpendCutMonthly",
+  "cppAge",
+  "oasAge",
+] as const;
+
+export type LeverKey = (typeof LEVER_KEYS)[number];
+
+/** The same settings with every lever but one returned to its neutral value. */
+function isolate(levers: LeverSettings, key: LeverKey): LeverSettings {
+  return { ...NO_LEVERS, savingAccount: levers.savingAccount, [key]: levers[key] };
+}
+
+function isActive(levers: LeverSettings, key: LeverKey, inputs: PlanInputs): boolean {
+  const v = levers[key];
+  if (key === "cppAge") return v != null && inputs.people.some((p) => p.cpp.age !== v);
+  if (key === "oasAge") return v != null && inputs.people.some((p) => p.oas.age !== v);
+  return typeof v === "number" && v !== 0;
+}
+
+export interface LeverSimulation {
+  base: PlanScore;
+  combined: PlanScore;
+  /** Progress change from each lever on its own, as a fraction of the target. */
+  perLever: { key: LeverKey; progressDelta: number; score: PlanScore }[];
+  cashflow: CashflowView;
+  advice: SavingAdvice;
+}
+
+export function simulateLevers(inputs: PlanInputs, levers: LeverSettings): LeverSimulation {
+  const basePlan = runPlan(inputs);
+  const base = scorePlan(inputs, { ...NO_LEVERS, savingAccount: levers.savingAccount });
+  const combined = scorePlan(inputs, levers);
+  const perLever = LEVER_KEYS.filter((k) => isActive(levers, k, inputs)).map((key) => {
+    const score = scorePlan(inputs, isolate(levers, key));
+    return { key, progressDelta: score.progress - base.progress, score };
+  });
+  return {
+    base,
+    combined,
+    perLever,
+    cashflow: cashflowView(inputs, basePlan),
+    advice: recommendSavingsAccount(inputs, basePlan),
+  };
+}
