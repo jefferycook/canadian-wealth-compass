@@ -58,6 +58,9 @@ const PLAN_TYPES: { value: PlanType; label: string }[] = [
   { value: "partners", label: "Partners (not spouses for tax)" },
 ];
 
+/** A stored fraction shown as a percentage, without losing typed decimals. */
+const pct = (v: number) => Number((v * 100).toFixed(4));
+
 function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
