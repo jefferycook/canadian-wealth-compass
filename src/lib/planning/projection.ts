@@ -158,6 +158,10 @@ export function projection(
   const startYear = new Date().getFullYear();
 
   const rows: ProjectionRow[] = [];
+  // Whether the household has ever held investable assets. A plan that starts
+  // with nothing invested cannot "run out" of investments — that is an intake
+  // state, not a failure.
+  let everHadPortfolio = accts.reduce((s, a) => s + Math.max(0, a.bal), 0) > 1;
 
   for (let off = 0; off <= endAge - curAgeA; off++) {
     const yr = startYear + off;
