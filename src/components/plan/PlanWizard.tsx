@@ -322,12 +322,13 @@ function IncomeStep({ draft, onChange }: StepProps) {
             max={75}
             onChange={(v) => onChange(patchPerson(draft, i, { pen: { ...p.pen, age: v } }))}
           />
-          <NumberField
-            label="Bridge benefit (per year)"
+          <MonthlyMoneyField
+            label="Bridge benefit (per month)"
             hint="Some pensions pay a top-up until 65."
-            prefix="$"
-            value={p.bridge.amt}
-            onChange={(v) => onChange(patchPerson(draft, i, { bridge: { ...p.bridge, amt: v } }))}
+            annualValue={p.bridge.amt}
+            onChangeAnnual={(v) =>
+              onChange(patchPerson(draft, i, { bridge: { ...p.bridge, amt: v } }))
+            }
           />
           {p.bridge.amt ? (
             <NumberField
