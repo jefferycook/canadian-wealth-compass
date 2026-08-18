@@ -191,8 +191,13 @@ export interface LiabilityInput {
   bal: number;
   /** Annual interest rate as a fraction. */
   rate: number;
-  /** Annual payment. */
+  /** Annual payment. The UI collects a monthly figure and multiplies by 12. */
   pay: number;
+  /**
+   * Years left to pay the loan off. Presentation only — the projection runs
+   * off balance, rate and payment — but it lets the tool calculate a payment.
+   */
+  amortYears?: number;
 }
 
 /** Tax settings that the original tool exposed as editable advanced fields. */

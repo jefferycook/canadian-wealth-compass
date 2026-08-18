@@ -72,6 +72,8 @@ export interface TaxYear {
 
   /** Annual CPP maximum at 65. */
   cppMax65: number;
+  /** Average new CPP retirement pension taken at 65, annualized. */
+  cppAvgNew65: number;
   /** Survivor's pension flat-rate portion, annualized (under 65). */
   cppSurvFlat: number;
   /** Maximum survivor's pension, under 65, annualized. */
@@ -196,6 +198,7 @@ export const TAX_2026: TaxYear = {
   oasMax75: 9926.04,
 
   cppMax65: 18091.8, // $1,507.65/mo
+  cppAvgNew65: 10464, // $872/mo — average new retirement pension taken at 65
   cppSurvFlat: 238.17 * 12,
   cppSurvMaxU65: 803.54 * 12,
   cppSurvMax65: 904.59 * 12,
