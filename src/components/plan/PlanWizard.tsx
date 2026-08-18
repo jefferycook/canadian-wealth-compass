@@ -11,6 +11,8 @@ import {
   ageFromDob,
   money,
 } from "@/components/plan/fields";
+import { BenefitEstimator } from "@/components/plan/BenefitEstimator";
+import { monthlyMortgagePayment } from "@/lib/planning/estimates";
 import type { PersonDraft, PlanDraft } from "@/lib/planning/draft";
 import { emptyPerson } from "@/lib/planning/defaults";
 import { getProvince, getTaxYear, provinceKeys } from "@/lib/planning/taxYears";
