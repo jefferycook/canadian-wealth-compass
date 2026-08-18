@@ -829,7 +829,11 @@ function PropertyStep({ draft, onChange }: StepProps) {
                     variant="outline"
                     type="button"
                     disabled={!suggested}
-                    onClick={() => updateLiab(l.id!, { pay: Math.round(suggested * 12) })}
+                    onClick={() =>
+                      updateLiab(l.id!, {
+                        pay: Math.round(annualFromMonthly(suggested) ?? 0),
+                      })
+                    }
                   >
                     <Calculator className="mr-2 size-4" />
                     {suggested
