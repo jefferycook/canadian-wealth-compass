@@ -374,6 +374,11 @@ export interface ProjectionResult {
   endAge: number;
   couple: boolean;
   people: PersonInput[];
+  /**
+   * False when the household holds no investable assets at any point in the
+   * projection. An intake/information state, never a plan failure.
+   */
+  hadInvestableAssets: boolean;
 }
 
 /** A projection plus the withdrawal strategy that produced it. */
