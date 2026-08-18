@@ -767,7 +767,7 @@ function PropertyStep({ draft, onChange }: StepProps) {
       <div className="space-y-3">
         <h3 className="text-lg">Mortgages and other debt</h3>
         {draft.liabilities.map((l) => {
-          const monthly = l.pay ? Math.round((l.pay / 12) * 100) / 100 : null;
+          const monthly = monthlyFromAnnual(l.pay || null);
           const suggested = monthlyMortgagePayment(l.bal, l.rate, l.amortYears ?? 0);
           return (
             <Card key={l.id}>
