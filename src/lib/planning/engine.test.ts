@@ -12,7 +12,7 @@ import { cppFactor, cppSurvivorBenefit, oasFactor } from "./benefits";
 import { regressionFixturePlan as defaultPlanInputs } from "./fixtures";
 import {
   afterTaxEstate,
-  depletionAge,
+  firstShortfallAge,
   lifetimeTax,
   runPlan,
   shortfallYears,
@@ -314,8 +314,8 @@ describe("the default plan (regression fixture)", () => {
     // The seeded plan does not last: $1.0M against $60k of spending plus a
     // $28k mortgage runs dry in the client's late 80s. The engine must say so
     // rather than quietly funding the gap.
-    expect(depletionAge(P)).not.toBeNull();
-    expect(depletionAge(P)!).toBeGreaterThan(80);
+    expect(firstShortfallAge(P)).not.toBeNull();
+    expect(firstShortfallAge(P)!).toBeGreaterThan(80);
     expect(shortfallYears(P)).toBeGreaterThan(0);
   });
 
@@ -392,7 +392,7 @@ describe("scenario overrides", () => {
   // The seeded plan depletes before the end, so the meaningful measures of a
   // scenario are how long the money lasts and how many years fall short —
   // the terminal estate is just the house either way.
-  const lasts = (P: ReturnType<typeof runPlan>) => depletionAge(P) ?? 999;
+  const lasts = (P: ReturnType<typeof runPlan>) => firstShortfallAge(P) ?? 999;
 
   it("leaves the base plan untouched — inputs are never mutated", () => {
     const before = JSON.stringify(inputs);
