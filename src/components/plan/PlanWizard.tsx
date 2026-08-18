@@ -1055,12 +1055,11 @@ function OtherIncomeStep({ draft, onChange }: StepProps) {
                 value={s.name}
                 onChange={(v) => updateStream(i, { name: v })}
               />
-              <NumberField
-                label="Amount per year"
+              <MonthlyMoneyField
+                label="Amount per month"
                 hint="Today's dollars, before tax."
-                prefix="$"
-                value={s.amt || null}
-                onChange={(v) => updateStream(i, { amt: v ?? 0 })}
+                annualValue={s.amt || null}
+                onChangeAnnual={(v) => updateStream(i, { amt: v ?? 0 })}
               />
               <SelectField<OwnerKey>
                 label="Whose income is it?"
