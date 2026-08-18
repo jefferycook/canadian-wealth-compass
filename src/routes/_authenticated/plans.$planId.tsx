@@ -195,7 +195,7 @@ function PlanBuilder() {
         )}
       </div>
 
-      <section className="mt-14">
+      <section id="projection" className="mt-14 scroll-mt-6">
         <h2 className="mb-4 text-2xl">Your projection</h2>
         {!ready ? (
           <Card>
