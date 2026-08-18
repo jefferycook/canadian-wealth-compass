@@ -420,12 +420,11 @@ function AdvancedAccountFields({
             options={JURISDICTIONS}
           />
         ) : null}
-        <NumberField
-          label="Scheduled withdrawal (per year)"
+        <MonthlyMoneyField
+          label="Scheduled withdrawal (per month)"
           hint="A withdrawal you take regardless of what the plan needs."
-          prefix="$"
-          value={a.wd || null}
-          onChange={(v) => update(a.id, { wd: v ?? 0 })}
+          annualValue={a.wd || null}
+          onChangeAnnual={(v) => update(a.id, { wd: v ?? 0 })}
         />
         {a.wd ? (
           <>
