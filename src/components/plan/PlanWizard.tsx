@@ -397,20 +397,9 @@ function AccountsStep({ draft, onChange }: StepProps) {
               value={a.bal || null}
               onChange={(v) => update(a.id, { bal: v ?? 0 })}
             />
-            <NumberField
-              label="Equity allocation"
-              hint={`The rest is treated as fixed income. Assumed total return: ${(
-                effectiveReturn(a, draft) * 100
-              ).toFixed(2)}%.`}
-              suffix="%"
-              min={0}
-              max={100}
-              value={a.eq}
-              onChange={(v) => update(a.id, { eq: v ?? 0 })}
-            />
             <SelectField
               label="Expected return"
-              hint="Pick a preset, or let it follow the equity mix and your global return assumptions."
+              hint={`Assumed total return: ${(effectiveReturn(a, draft) * 100).toFixed(2)}%.`}
               value={presetKeyOf(a)}
               onChange={(k) => {
                 if (k === "blend") return update(a.id, { retOverride: null });
@@ -482,6 +471,14 @@ function PropertyStep({ draft, onChange }: StepProps) {
       liabilities: draft.liabilities.map((x) => (x.id === id ? { ...x, ...patch } : x)),
     });
 
+  // Assets are entered as calendar years; the engine works in Person A's ages.
+  const me = draft.people[0];
+  const meAge = me?.curAge ?? ageFromDob(me?.dob ?? null);
+  const nowYear = new Date().getFullYear();
+  const toYear = (age: number) => (meAge == null || !age ? null : nowYear + (age - meAge));
+  const toAge = (year: number | null) =>
+    year == null || meAge == null ? 0 : Math.max(0, Math.round(meAge + (year - nowYear)));
+
   return (
     <div className="space-y-6">
       <div className="space-y-3">
@@ -517,6 +514,13 @@ function PropertyStep({ draft, onChange }: StepProps) {
                 onChange={(v) => updateAsset(h.id!, { val: v ?? 0 })}
               />
               <NumberField
+                label="Purchase price"
+                hint="What you paid, including improvements. Used to work out the gain if a sale is taxable."
+                prefix="$"
+                value={h.acb || null}
+                onChange={(v) => updateAsset(h.id!, { acb: v ?? 0 })}
+              />
+              <NumberField
                 label="Expected growth"
                 suffix="%"
                 step={0.1}
@@ -524,14 +528,27 @@ function PropertyStep({ draft, onChange }: StepProps) {
                 onChange={(v) => updateAsset(h.id!, { apr: (v ?? 0) / 100 })}
               />
               <NumberField
-                label="Buy at your age"
-                hint="Only for something you plan to buy later. Leave blank if you already own it."
-                value={h.buyAge || null}
-                onChange={(v) => updateAsset(h.id!, { buyAge: v ?? 0 })}
+                label="Costs associated with sale"
+                hint="Commission, legal and closing costs in today's dollars. Taken off the proceeds and the taxable gain."
+                prefix="$"
+                value={h.sellCost || null}
+                onChange={(v) => updateAsset(h.id!, { sellCost: v ?? 0 })}
+              />
+              <NumberField
+                label="Future purchase date"
+                hint={
+                  meAge == null
+                    ? "Enter your date of birth on the Household step first."
+                    : "Calendar year you plan to buy. Leave blank if you already own it."
+                }
+                placeholder="Year"
+                min={nowYear}
+                value={toYear(h.buyAge ?? 0)}
+                onChange={(v) => updateAsset(h.id!, { buyAge: toAge(v) })}
               />
               {h.buyAge ? (
                 <NumberField
-                  label="Purchase price"
+                  label="Purchase cost at that date"
                   hint="Today's dollars. It comes out of the plan in the year you buy."
                   prefix="$"
                   value={h.buyCost || null}
@@ -539,24 +556,16 @@ function PropertyStep({ draft, onChange }: StepProps) {
                 />
               ) : null}
               <NumberField
-                label="Sell it completely at your age"
-                hint="Proceeds go into your non-registered savings. Leave blank to keep it."
-                value={h.sale || null}
-                onChange={(v) => updateAsset(h.id!, { sale: v ?? 0 })}
-              />
-              <NumberField
-                label="Downsize at your age"
-                hint="Free up part of the value without selling outright."
-                value={h.dsAge || null}
-                onChange={(v) => updateAsset(h.id!, { dsAge: v ?? 0 })}
-              />
-              <NumberField
-                label="Percent freed by downsizing"
-                suffix="%"
-                min={0}
-                max={100}
-                value={h.dsPct || null}
-                onChange={(v) => updateAsset(h.id!, { dsPct: v ?? 0 })}
+                label="Future sale date"
+                hint={
+                  meAge == null
+                    ? "Enter your date of birth on the Household step first."
+                    : "Calendar year you plan to sell. Proceeds go into non-registered savings."
+                }
+                placeholder="Year"
+                min={nowYear}
+                value={toYear(h.sale || 0)}
+                onChange={(v) => updateAsset(h.id!, { sale: toAge(v) })}
               />
               <div className="flex items-center justify-between rounded-md border p-3">
                 <div>
@@ -722,14 +731,6 @@ function SpendingStep({ draft, onChange }: StepProps) {
           step={100}
           value={draft.currentSpend == null ? null : Math.round(draft.currentSpend / 12)}
           onChange={(v) => onChange({ ...draft, currentSpend: v == null ? null : v * 12 })}
-        />
-        <NumberField
-          label="Household spending (per year)"
-          hint="The same figure annually, if that is easier."
-          prefix="$"
-          step={1000}
-          value={draft.currentSpend}
-          onChange={(v) => onChange({ ...draft, currentSpend: v })}
         />
       </SectionCard>
 

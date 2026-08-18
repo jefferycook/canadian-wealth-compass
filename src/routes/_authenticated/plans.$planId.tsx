@@ -178,15 +178,24 @@ function PlanBuilder() {
         >
           <ArrowLeft className="mr-2 size-4" /> Back
         </Button>
-        <Button
-          disabled={stepIndex === WIZARD_STEPS.length - 1}
-          onClick={() => setStepIndex((i) => Math.min(WIZARD_STEPS.length - 1, i + 1))}
-        >
-          Next <ArrowRight className="ml-2 size-4" />
-        </Button>
+        {stepIndex === WIZARD_STEPS.length - 1 ? (
+          <Button
+            onClick={() =>
+              document
+                .getElementById("projection")
+                ?.scrollIntoView({ behavior: "smooth", block: "start" })
+            }
+          >
+            <Check className="mr-2 size-4" /> Finished
+          </Button>
+        ) : (
+          <Button onClick={() => setStepIndex((i) => Math.min(WIZARD_STEPS.length - 1, i + 1))}>
+            Next <ArrowRight className="ml-2 size-4" />
+          </Button>
+        )}
       </div>
 
-      <section className="mt-14">
+      <section id="projection" className="mt-14 scroll-mt-6">
         <h2 className="mb-4 text-2xl">Your projection</h2>
         {!ready ? (
           <Card>
