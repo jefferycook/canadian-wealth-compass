@@ -445,7 +445,11 @@ function AccountsStep({ draft, onChange }: StepProps) {
                 onChange={(v) => update(a.id, { unlock: v ?? 0 })}
               />
             ) : null}
+            <div className="sm:col-span-2">
+              <AdvancedAccountFields account={a} update={update} />
+            </div>
           </CardContent>
+
         </Card>
       ))}
 
