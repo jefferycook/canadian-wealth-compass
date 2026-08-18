@@ -6,7 +6,7 @@
  */
 
 import { afterTaxEstate, depletionAge, lifetimeTax, shortfallYears } from "./engine";
-import type { PlanResult } from "./types";
+import type { AccountMeta, PlanResult } from "./types";
 
 export interface PlanChartPoint {
   age: number;
