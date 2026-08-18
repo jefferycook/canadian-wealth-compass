@@ -6,7 +6,7 @@
  */
 
 import { afterTaxEstate, depletionAge, lifetimeTax, shortfallYears } from "./engine";
-import type { PlanResult } from "./types";
+import type { AccountMeta, PlanResult } from "./types";
 
 export interface PlanChartPoint {
   age: number;
@@ -21,6 +21,54 @@ export interface PlanChartPoint {
   tfsa: number;
   nonreg: number;
 }
+
+/**
+ * The full year-by-year detail the projection already computes.
+ *
+ * The chart series above is deliberately small; this is the ledger behind it,
+ * and it is what the tax, cash-flow and details views read.
+ */
+export interface PlanYearDetail {
+  age: number;
+  ages: number[];
+  year: number;
+  /** Guaranteed income */
+  cpp: number;
+  oas: number;
+  pension: number;
+  employment: number;
+  otherIncome: number;
+  /** Portfolio withdrawals by tax treatment */
+  registeredWithdraw: number;
+  tfsaWithdraw: number;
+  nonregWithdraw: number;
+  /** Tax detail */
+  taxableIncome: number;
+  tax: number;
+  oasClawback: number;
+  splitAmount: number;
+  averageRate: number;
+  marginalRate: number;
+  /** Cash flow */
+  afterTax: number;
+  spendTarget: number;
+  shortfall: number;
+  contributions: number;
+  debtPayment: number;
+  /** Balance sheet */
+  portfolio: number;
+  assetTotal: number;
+  liabTotal: number;
+  netWorth: number;
+  /** Flags */
+  lifRemaining: number;
+  lifBound: boolean;
+  depleted: boolean;
+  anyDeceased: boolean;
+  /** Closing balance per account id. */
+  balances: Record<string, number>;
+}
+
 
 export interface PlanSummary {
   /** Age money runs out, or null when the plan lasts. */
@@ -43,7 +91,11 @@ export interface PlanSummary {
 export interface PlanOutput {
   summary: PlanSummary;
   chart: PlanChartPoint[];
+  /** The full ledger behind the chart. */
+  years: PlanYearDetail[];
+  accounts: AccountMeta[];
 }
+
 
 const STRATEGY_LABEL: Record<string, string> = {
   nonreg_reg_tfsa: "Non-registered first, then registered, TFSA last",
@@ -86,8 +138,47 @@ export function summarize(P: PlanResult): PlanOutput {
     };
   });
 
+  const round = (n: number) => Math.round(n);
+  const years: PlanYearDetail[] = P.rows.map((r) => ({
+    age: r.age,
+    ages: r.ages,
+    year: r.yr,
+    cpp: round(r.cpp),
+    oas: round(r.oas),
+    pension: round(r.pen),
+    employment: round(r.employ),
+    otherIncome: round(r.other),
+    registeredWithdraw: round(r.regWithdraw),
+    tfsaWithdraw: round(r.tfsaWithdraw),
+    nonregWithdraw: round(r.nonregWithdraw),
+    taxableIncome: round(r.taxable),
+    tax: round(r.tax),
+    oasClawback: round(r.oasClaw),
+    splitAmount: round(r.splitAmt),
+    averageRate: r.avgRate,
+    marginalRate: r.margRate,
+    afterTax: round(r.afterTax),
+    spendTarget: round(r.spendTarget),
+    shortfall: round(r.shortfall),
+    contributions: round(r.contribTotal),
+    debtPayment: round(r.liabPay),
+    portfolio: round(r.totalPortfolio),
+    assetTotal: round(r.assetTotal),
+    liabTotal: round(r.liabTotal),
+    netWorth: round(r.netWorth),
+    lifRemaining: round(r.lifRemaining),
+    lifBound: r.lifBound,
+    depleted: r.depleted,
+    anyDeceased: r.anyDeceased,
+    balances: Object.fromEntries(
+      Object.entries(r.balances).map(([id, b]) => [id, round(b)]),
+    ),
+  }));
+
   const last = P.rows[P.rows.length - 1];
   const first = P.rows[0];
+
+
 
   return {
     summary: {
@@ -104,5 +195,8 @@ export function summarize(P: PlanResult): PlanOutput {
       peakMarginalRate: P.rows.reduce((m, r) => Math.max(m, r.margRate), 0),
     },
     chart,
+    years,
+    accounts: P.acctMeta,
   };
+
 }
