@@ -218,7 +218,7 @@ export function PlanResults({ output }: { output: PlanOutput }) {
                 <th className="p-3 font-medium">Age</th>
                 <th className="p-3 font-medium">Year</th>
                 <th className="p-3 text-right font-medium">Portfolio</th>
-                <th className="p-3 text-right font-medium">Spending funded</th>
+                <th className="p-3 text-right font-medium">Spending funded (per month)</th>
                 <th className="p-3 text-right font-medium">Tax</th>
                 <th className="p-3 text-right font-medium">Net worth</th>
               </tr>
