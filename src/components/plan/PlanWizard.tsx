@@ -732,14 +732,6 @@ function SpendingStep({ draft, onChange }: StepProps) {
           value={draft.currentSpend == null ? null : Math.round(draft.currentSpend / 12)}
           onChange={(v) => onChange({ ...draft, currentSpend: v == null ? null : v * 12 })}
         />
-        <NumberField
-          label="Household spending (per year)"
-          hint="The same figure annually, if that is easier."
-          prefix="$"
-          step={1000}
-          value={draft.currentSpend}
-          onChange={(v) => onChange({ ...draft, currentSpend: v })}
-        />
       </SectionCard>
 
       <SectionCard title="Retirement spending">
