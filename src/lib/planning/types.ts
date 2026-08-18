@@ -195,6 +195,8 @@ export interface HardAssetInput {
   /** Whether a gain on sale is taxable (a principal residence is not). */
   taxable: boolean;
   acb: number;
+  /** Selling costs (commission, legal, staging) in today's dollars. */
+  sellCost?: number;
 }
 
 export interface LiabilityInput {
