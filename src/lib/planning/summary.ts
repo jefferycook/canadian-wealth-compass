@@ -5,7 +5,14 @@
  * reduces it to the handful of numbers and series a chart or headline needs.
  */
 
-import { afterTaxEstate, depletionAge, lifetimeTax, shortfallYears } from "./engine";
+import {
+  afterTaxEstate,
+  firstShortfallAge,
+  lifetimeTax,
+  noInvestableAssets,
+  portfolioExhaustionAge,
+  shortfallYears,
+} from "./engine";
 import type { AccountMeta, PlanResult } from "./types";
 
 export interface PlanChartPoint {
