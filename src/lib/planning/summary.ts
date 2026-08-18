@@ -70,7 +70,9 @@ export interface PlanYearDetail {
   /** Flags */
   lifRemaining: number;
   lifBound: boolean;
-  depleted: boolean;
+  fundingShortfall: boolean;
+  portfolioEmpty: boolean;
+  portfolioExhausted: boolean;
   anyDeceased: boolean;
   /** Closing balance per account id. */
   balances: Record<string, number>;
