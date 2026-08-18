@@ -823,6 +823,255 @@ function SpendingStep({ draft, onChange }: StepProps) {
   );
 }
 
+function ownerOptions(draft: PlanDraft): { value: OwnerKey; label: string }[] {
+  return [
+    { value: "A", label: draft.people[0]?.firstName || "You" },
+    ...(draft.people.length > 1
+      ? [{ value: "B" as OwnerKey, label: draft.people[1]?.firstName || "Spouse" }]
+      : []),
+    { value: "JOINT", label: "Joint" },
+  ];
+}
+
+const LUMP_DESTINATIONS: { value: AccountType; label: string }[] = [
+  { value: "NONREG", label: "Non-registered savings" },
+  { value: "TFSA", label: "TFSA" },
+  { value: "RRSP", label: "RRSP" },
+];
+
+function ToggleRow({
+  title,
+  note,
+  checked,
+  onChange,
+}: {
+  title: string;
+  note?: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+      <div>
+        <p className="text-sm font-medium">{title}</p>
+        {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
+      </div>
+      <Switch checked={checked} onCheckedChange={onChange} />
+    </div>
+  );
+}
+
+function OtherIncomeStep({ draft, onChange }: StepProps) {
+  const owners = ownerOptions(draft);
+  const updateStream = (i: number, patch: Partial<OtherIncomeInput>) =>
+    onChange({
+      ...draft,
+      otherIncome: draft.otherIncome.map((x, j) => (i === j ? { ...x, ...patch } : x)),
+    });
+  const updateLump = (i: number, patch: Partial<LumpSumInput>) =>
+    onChange({
+      ...draft,
+      lumpSums: draft.lumpSums.map((x, j) => (i === j ? { ...x, ...patch } : x)),
+    });
+
+  return (
+    <div className="space-y-8">
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-lg">Recurring income</h3>
+          <p className="text-sm text-muted-foreground">
+            Rent, a side business, support payments, an annuity — anything that arrives year after
+            year. Say when it starts and when it stops.
+          </p>
+        </div>
+
+        {draft.otherIncome.map((s, i) => (
+          <Card key={s.id ?? i}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+              <CardTitle className="text-base">{s.name || "Recurring income"}</CardTitle>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Remove income"
+                onClick={() =>
+                  onChange({
+                    ...draft,
+                    otherIncome: draft.otherIncome.filter((_, j) => j !== i),
+                  })
+                }
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2">
+              <TextField
+                label="What is it?"
+                placeholder="Rental income"
+                value={s.name}
+                onChange={(v) => updateStream(i, { name: v })}
+              />
+              <NumberField
+                label="Amount per year"
+                hint="Today's dollars, before tax."
+                prefix="$"
+                value={s.amt || null}
+                onChange={(v) => updateStream(i, { amt: v ?? 0 })}
+              />
+              <SelectField<OwnerKey>
+                label="Whose income is it?"
+                value={s.owner}
+                onChange={(v) => updateStream(i, { owner: v })}
+                options={owners}
+              />
+              <NumberField
+                label="Starts at age"
+                hint="The owner's age when it begins."
+                value={s.start || null}
+                onChange={(v) => updateStream(i, { start: v ?? 0 })}
+              />
+              <NumberField
+                label="Stops at age"
+                hint="Leave blank if it never stops."
+                value={s.end || null}
+                onChange={(v) => updateStream(i, { end: v ?? 0 })}
+              />
+              <div className="grid gap-3">
+                <ToggleRow
+                  title="Taxable"
+                  note="Rent and business income are; a tax-free benefit is not."
+                  checked={s.taxable}
+                  onChange={(c) => updateStream(i, { taxable: c })}
+                />
+                <ToggleRow
+                  title="Rises with inflation"
+                  note="Off keeps it flat in today's dollars."
+                  checked={s.indexed}
+                  onChange={(c) => updateStream(i, { indexed: c })}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+
+        <Button
+          variant="secondary"
+          onClick={() =>
+            onChange({
+              ...draft,
+              otherIncome: [
+                ...draft.otherIncome,
+                {
+                  id: uid(),
+                  name: "",
+                  amt: 0,
+                  owner: "A",
+                  start: 0,
+                  end: 0,
+                  taxable: true,
+                  indexed: true,
+                },
+              ],
+            })
+          }
+        >
+          <Plus className="mr-2 size-4" /> Add recurring income
+        </Button>
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-lg">One-time amounts</h3>
+          <p className="text-sm text-muted-foreground">
+            A bonus, an inheritance, a severance package, the sale of a business. It lands once, in
+            the year you choose, and goes into the account you pick.
+          </p>
+        </div>
+
+        {draft.lumpSums.map((l, i) => (
+          <Card key={l.id ?? i}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+              <CardTitle className="text-base">{l.name || "One-time amount"}</CardTitle>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Remove amount"
+                onClick={() =>
+                  onChange({ ...draft, lumpSums: draft.lumpSums.filter((_, j) => j !== i) })
+                }
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2">
+              <TextField
+                label="What is it?"
+                placeholder="Inheritance"
+                value={l.name}
+                onChange={(v) => updateLump(i, { name: v })}
+              />
+              <NumberField
+                label="Amount"
+                hint="Today's dollars."
+                prefix="$"
+                value={l.amt || null}
+                onChange={(v) => updateLump(i, { amt: v ?? 0 })}
+              />
+              <SelectField<"A" | "B">
+                label="Whose is it?"
+                value={l.owner}
+                onChange={(v) => updateLump(i, { owner: v })}
+                options={owners
+                  .filter((o) => o.value !== "JOINT")
+                  .map((o) => ({ value: o.value as "A" | "B", label: o.label }))}
+              />
+              <NumberField
+                label="Arrives at age"
+                value={l.age || null}
+                onChange={(v) => updateLump(i, { age: v ?? 0 })}
+              />
+              <SelectField<AccountType>
+                label="Where does it go?"
+                value={l.dest}
+                onChange={(v) => updateLump(i, { dest: v })}
+                options={LUMP_DESTINATIONS}
+              />
+              <ToggleRow
+                title="Taxable"
+                note="An inheritance is not taxable to you; a bonus or severance is."
+                checked={l.taxable}
+                onChange={(c) => updateLump(i, { taxable: c })}
+              />
+            </CardContent>
+          </Card>
+        ))}
+
+        <Button
+          variant="secondary"
+          onClick={() =>
+            onChange({
+              ...draft,
+              lumpSums: [
+                ...draft.lumpSums,
+                {
+                  id: uid(),
+                  name: "",
+                  age: 0,
+                  amt: 0,
+                  dest: "NONREG",
+                  owner: "A",
+                  taxable: false,
+                },
+              ],
+            })
+          }
+        >
+          <Plus className="mr-2 size-4" /> Add a one-time amount
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function AssumptionsStep({ draft, onChange }: StepProps) {
   return (
     <div className="space-y-4">
@@ -892,6 +1141,8 @@ export function PlanWizard({
       return <HouseholdStep {...props} />;
     case "income":
       return <IncomeStep {...props} />;
+    case "other":
+      return <OtherIncomeStep {...props} />;
     case "accounts":
       return <AccountsStep {...props} />;
     case "property":
