@@ -198,7 +198,9 @@ export function summarize(P: PlanResult): PlanOutput {
 
   return {
     summary: {
-      depletionAge: depletionAge(P),
+      portfolioExhaustionAge: portfolioExhaustionAge(P),
+      firstShortfallAge: firstShortfallAge(P),
+      noInvestableAssets: noInvestableAssets(P),
       shortfallYears: shortfallYears(P),
       lifetimeTax: Math.round(lifetimeTax(P)),
       afterTaxEstate: Math.round(afterTaxEstate(P)),
