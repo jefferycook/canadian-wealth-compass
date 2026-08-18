@@ -91,7 +91,11 @@ export interface PlanSummary {
 export interface PlanOutput {
   summary: PlanSummary;
   chart: PlanChartPoint[];
+  /** The full ledger behind the chart. */
+  years: PlanYearDetail[];
+  accounts: AccountMeta[];
 }
+
 
 const STRATEGY_LABEL: Record<string, string> = {
   nonreg_reg_tfsa: "Non-registered first, then registered, TFSA last",
