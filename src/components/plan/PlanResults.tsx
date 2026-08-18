@@ -14,6 +14,7 @@ import {
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { money } from "@/components/plan/fields";
+import { perMonth, perYear } from "@/lib/planning/units";
 import { strategyLabel, type PlanOutput } from "@/lib/planning/summary";
 
 const compact = (n: number) =>
