@@ -153,7 +153,7 @@ export function PlanResults({ output }: { output: PlanOutput }) {
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Spending funded vs. target</CardTitle>
+            <CardTitle className="text-base">Spending funded vs. target (per month)</CardTitle>
           </CardHeader>
           <CardContent className="h-72">
             <ResponsiveContainer width="100%" height="100%">
