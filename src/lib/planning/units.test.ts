@@ -62,7 +62,7 @@ describe("the engine stays annual", () => {
   /** A retired year, so the target is retirement spending rather than today's. */
   const retiredTarget = (spend: number) => {
     const P = runPlan(planSpending(spend));
-    return P.rows.find((r) => r.age === 70)!.spendTarget;
+    return P.rows.find((r) => r.age === 72)!.spendTarget;
   };
 
   it("treats a monthly entry of $8,333 the same as $100,000 a year", () => {
