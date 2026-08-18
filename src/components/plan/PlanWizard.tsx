@@ -3,7 +3,14 @@ import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { NumberField, SelectField, TextField, money } from "@/components/plan/fields";
+import {
+  DateField,
+  NumberField,
+  SelectField,
+  TextField,
+  ageFromDob,
+  money,
+} from "@/components/plan/fields";
 import type { PersonDraft, PlanDraft } from "@/lib/planning/draft";
 import { emptyPerson } from "@/lib/planning/defaults";
 import { getProvince, getTaxYear, provinceKeys } from "@/lib/planning/taxYears";
