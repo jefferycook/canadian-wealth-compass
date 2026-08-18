@@ -397,17 +397,8 @@ function AccountsStep({ draft, onChange }: StepProps) {
               value={a.bal || null}
               onChange={(v) => update(a.id, { bal: v ?? 0 })}
             />
-            <NumberField
-              label="Equity allocation"
-              hint={`The rest is treated as fixed income. Assumed total return: ${(
-                effectiveReturn(a, draft) * 100
-              ).toFixed(2)}%.`}
-              suffix="%"
-              min={0}
-              max={100}
-              value={a.eq}
-              onChange={(v) => update(a.id, { eq: v ?? 0 })}
-            />
+            <div className="hidden" />
+
             <SelectField
               label="Expected return"
               hint="Pick a preset, or let it follow the equity mix and your global return assumptions."
