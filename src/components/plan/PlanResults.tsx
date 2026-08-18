@@ -50,7 +50,14 @@ function Stat({
 
 export function PlanResults({ output }: { output: PlanOutput }) {
   const { summary, chart } = output;
-  const lasts = summary.depletionAge == null;
+  const shortAge = summary.firstShortfallAge;
+  const lasts = shortAge == null;
+  const exhaustNote =
+    summary.portfolioExhaustionAge != null
+      ? ` Investments are drawn down by age ${summary.portfolioExhaustionAge}.`
+      : summary.noInvestableAssets
+        ? " No investable assets have been entered yet."
+        : "";
 
   return (
     <div className="space-y-6">
