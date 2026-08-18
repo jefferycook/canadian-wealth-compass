@@ -506,6 +506,13 @@ function PropertyStep({ draft, onChange }: StepProps) {
                 onChange={(v) => updateAsset(h.id!, { val: v ?? 0 })}
               />
               <NumberField
+                label="Purchase price"
+                hint="What you paid, including improvements. Used to work out the gain if a sale is taxable."
+                prefix="$"
+                value={h.acb || null}
+                onChange={(v) => updateAsset(h.id!, { acb: v ?? 0 })}
+              />
+              <NumberField
                 label="Expected growth"
                 suffix="%"
                 step={0.1}
@@ -513,14 +520,27 @@ function PropertyStep({ draft, onChange }: StepProps) {
                 onChange={(v) => updateAsset(h.id!, { apr: (v ?? 0) / 100 })}
               />
               <NumberField
-                label="Buy at your age"
-                hint="Only for something you plan to buy later. Leave blank if you already own it."
-                value={h.buyAge || null}
-                onChange={(v) => updateAsset(h.id!, { buyAge: v ?? 0 })}
+                label="Costs associated with sale"
+                hint="Commission, legal and closing costs in today's dollars. Taken off the proceeds and the taxable gain."
+                prefix="$"
+                value={h.sellCost || null}
+                onChange={(v) => updateAsset(h.id!, { sellCost: v ?? 0 })}
+              />
+              <NumberField
+                label="Future purchase date"
+                hint={
+                  meAge == null
+                    ? "Enter your date of birth on the Household step first."
+                    : "Calendar year you plan to buy. Leave blank if you already own it."
+                }
+                placeholder="Year"
+                min={nowYear}
+                value={toYear(h.buyAge ?? 0)}
+                onChange={(v) => updateAsset(h.id!, { buyAge: toAge(v) })}
               />
               {h.buyAge ? (
                 <NumberField
-                  label="Purchase price"
+                  label="Purchase cost at that date"
                   hint="Today's dollars. It comes out of the plan in the year you buy."
                   prefix="$"
                   value={h.buyCost || null}
@@ -528,24 +548,16 @@ function PropertyStep({ draft, onChange }: StepProps) {
                 />
               ) : null}
               <NumberField
-                label="Sell it completely at your age"
-                hint="Proceeds go into your non-registered savings. Leave blank to keep it."
-                value={h.sale || null}
-                onChange={(v) => updateAsset(h.id!, { sale: v ?? 0 })}
-              />
-              <NumberField
-                label="Downsize at your age"
-                hint="Free up part of the value without selling outright."
-                value={h.dsAge || null}
-                onChange={(v) => updateAsset(h.id!, { dsAge: v ?? 0 })}
-              />
-              <NumberField
-                label="Percent freed by downsizing"
-                suffix="%"
-                min={0}
-                max={100}
-                value={h.dsPct || null}
-                onChange={(v) => updateAsset(h.id!, { dsPct: v ?? 0 })}
+                label="Future sale date"
+                hint={
+                  meAge == null
+                    ? "Enter your date of birth on the Household step first."
+                    : "Calendar year you plan to sell. Proceeds go into non-registered savings."
+                }
+                placeholder="Year"
+                min={nowYear}
+                value={toYear(h.sale || 0)}
+                onChange={(v) => updateAsset(h.id!, { sale: toAge(v) })}
               />
               <div className="flex items-center justify-between rounded-md border p-3">
                 <div>
