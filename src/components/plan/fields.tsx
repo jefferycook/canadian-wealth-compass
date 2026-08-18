@@ -23,9 +23,9 @@ export function Field({
   className,
 }: {
   label: string;
-  hint?: string;
+  hint?: string | undefined;
   children: ReactNode;
-  className?: string;
+  className?: string | undefined;
 }) {
   return (
     <div className={cn("space-y-1.5", className)}>
@@ -50,16 +50,16 @@ export function NumberField({
   className,
 }: {
   label: string;
-  hint?: string;
+  hint?: string | undefined;
   value: number | null;
   onChange: (v: number | null) => void;
-  prefix?: string;
-  suffix?: string;
-  placeholder?: string;
-  min?: number;
-  max?: number;
-  step?: number;
-  className?: string;
+  prefix?: string | undefined;
+  suffix?: string | undefined;
+  placeholder?: string | undefined;
+  min?: number | undefined;
+  max?: number | undefined;
+  step?: number | undefined;
+  className?: string | undefined;
 }) {
   return (
     <Field label={label} hint={hint} className={className}>
@@ -101,10 +101,10 @@ export function TextField({
   placeholder,
 }: {
   label: string;
-  hint?: string;
+  hint?: string | undefined;
   value: string;
   onChange: (v: string) => void;
-  placeholder?: string;
+  placeholder?: string | undefined;
 }) {
   return (
     <Field label={label} hint={hint}>
@@ -126,15 +126,15 @@ export function SelectField<T extends string>({
   placeholder,
 }: {
   label: string;
-  hint?: string;
+  hint?: string | undefined;
   value: T | null;
   onChange: (v: T) => void;
   options: { value: T; label: string }[];
-  placeholder?: string;
+  placeholder?: string | undefined;
 }) {
   return (
     <Field label={label} hint={hint}>
-      <Select value={value ?? undefined} onValueChange={(v) => onChange(v as T)}>
+      <Select value={value ?? ""} onValueChange={(v) => onChange(v as T)}>
         <SelectTrigger>
           <SelectValue placeholder={placeholder ?? "Select…"} />
         </SelectTrigger>
