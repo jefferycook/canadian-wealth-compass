@@ -155,17 +155,23 @@ recovery tax, the federal BPA phase-out and the age amount all move onto `netInc
 bracket tax stays on `taxable`. This removes the §1.11 proxy exactly where it starts to
 matter.
 
-**Optional:** `reinvestRefund` toggle contributing the modelled tax saving to TFSA
-(within room) then non-registered the following year.
+**RRSP refund (binding):** `reinvestRefund` defaults to **false**. A baseline plan never
+assumes the client saves their tax refund — the refund is treated as spent unless the
+client explicitly selects otherwise. Reinvesting the refund is a **strategy** that later
+analysis may test and recommend explicitly (showing the incremental benefit), never an
+implicit baseline assumption. When enabled, the modelled tax saving is contributed to TFSA
+(within room) and then non-registered the following year.
 
 **Types/schema:** per-year ledger fields above; `reinvestRefund: boolean` on the draft
-(default true for new plans, null-safe for old).
+(default **false** for new plans; null/absent on saved plans reads as false).
 **Tests:** working client contributing $10k pays less tax than contributing $0; TFSA
 contribution produces no deduction; contribution allowed while deduction deferred →
 carryforward grows and tax is unchanged that year; deduction claimed in a later year
 reduces that year's tax; deduction never exceeds the deduction limit; OAS clawback for a
-contributor near the threshold is computed on net, not taxable; retired client with no
-contributions — numbers identical to pre-batch.
+contributor near the threshold is computed on net, not taxable; refund is **not**
+reinvested by default and the toggle changes the projection when switched on; retired
+client with no contributions — numbers identical to pre-batch.
+
 **Compatibility:** loads fine; accumulation-stage results change.
 **Blast radius:** engine-wide for accumulation plans. Depends on 0.3.
 
