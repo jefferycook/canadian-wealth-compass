@@ -56,7 +56,7 @@ function PlanBuilder() {
   const { planId } = Route.useParams();
   const fetchPlan = useServerFn(getPlan);
   const persist = useServerFn(savePlan);
-  const project = useServerFn(runProjection);
+  const analyze = useServerFn(analyzePlan);
 
   const planQuery = useQuery({
     queryKey: ["plan", planId],
