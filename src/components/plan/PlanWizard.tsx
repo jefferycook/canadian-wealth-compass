@@ -276,12 +276,13 @@ function IncomeStep({ draft, onChange }: StepProps) {
               }
             />
           </div>
-          <NumberField
-            label="CPP at 65 (per year)"
+          <MonthlyMoneyField
+            label="CPP at 65 (per month)"
             hint="From My Service Canada, or use the estimator above."
-            prefix="$"
-            value={p.cpp.amt}
-            onChange={(v) => onChange(patchPerson(draft, i, { cpp: { ...p.cpp, amt: v } }))}
+            annualValue={p.cpp.amt}
+            onChangeAnnual={(v) =>
+              onChange(patchPerson(draft, i, { cpp: { ...p.cpp, amt: v } }))
+            }
           />
           <NumberField
             label="Start CPP at age"
