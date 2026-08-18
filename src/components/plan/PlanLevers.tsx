@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { SliderField, money } from "@/components/plan/fields";
+import { monthlyDisplay, perMonthWithYear } from "@/lib/planning/units";
 import { simulatePlan } from "@/lib/plans.functions";
 import type { PlanDraft } from "@/lib/planning/draft";
 import type {
