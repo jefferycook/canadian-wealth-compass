@@ -99,3 +99,31 @@ export const runProjection = createServerFn({ method: "POST" })
     ]);
     return summarize(runPlan(normalizeDraft(data.draft)));
   });
+
+/**
+ * Everything the analysis tabs show: net worth, strategy comparison,
+ * recommendations and goal progress. Computed server-side in one pass so the
+ * engine and the tax rules never reach the browser.
+ */
+export const analyzePlan = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { draft: PlanDraft }) => input)
+  .handler(async ({ data }): Promise<PlanAnalysis> => {
+    const [{ normalizeDraft }, { runPlan }, { summarize }, analysis] = await Promise.all([
+      import("./planning/draft"),
+      import("./planning/engine"),
+      import("./planning/summary"),
+      import("./planning/analysis"),
+    ]);
+    const inputs = normalizeDraft(data.draft);
+    const result = runPlan(inputs);
+    const strategies = analysis.compareStrategies(inputs, result.chosenStrategy);
+    const goal = analysis.goalProgress(inputs, result);
+    return {
+      output: summarize(result),
+      netWorth: analysis.netWorthView(result),
+      strategies,
+      goal,
+      recommendations: analysis.buildRecommendations(inputs, result, strategies, goal),
+    };
+  });
