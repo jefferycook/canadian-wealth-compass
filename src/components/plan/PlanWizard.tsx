@@ -23,11 +23,14 @@ import type { PersonDraft, PlanDraft } from "@/lib/planning/draft";
 import { accountTypeLabel } from "@/lib/planning/draft";
 import { RETURN_PRESETS, emptyPerson } from "@/lib/planning/defaults";
 import { getProvince, getTaxYear, provinceKeys } from "@/lib/planning/taxYears";
+import { UNLOCK_RULES } from "@/lib/planning/registered";
 import type {
   AccountInput,
   AccountType,
   HardAssetInput,
+  JurisdictionKey,
   LiabilityInput,
+
   LumpSumInput,
   OtherIncomeInput,
   OwnerKey,
