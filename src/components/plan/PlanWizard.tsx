@@ -210,9 +210,24 @@ function IncomeStep({ draft, onChange }: StepProps) {
             value={p.employ}
             onChange={(v) => onChange(patchPerson(draft, i, { employ: v }))}
           />
+          <div className="flex items-end sm:col-span-1">
+            <BenefitEstimator
+              person={p}
+              taxYear={draft.taxYear}
+              inflation={draft.inflation}
+              onApply={({ cpp, oas }) =>
+                onChange(
+                  patchPerson(draft, i, {
+                    cpp: { ...p.cpp, amt: cpp, age: p.cpp.age ?? 65 },
+                    oas: { ...p.oas, amt: oas, age: p.oas.age ?? 65 },
+                  }),
+                )
+              }
+            />
+          </div>
           <NumberField
             label="CPP at 65 (per year)"
-            hint="From your My Service Canada estimate."
+            hint="From My Service Canada, or use the estimator above."
             prefix="$"
             value={p.cpp.amt}
             onChange={(v) => onChange(patchPerson(draft, i, { cpp: { ...p.cpp, amt: v } }))}
