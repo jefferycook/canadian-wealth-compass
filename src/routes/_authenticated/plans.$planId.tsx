@@ -226,15 +226,7 @@ function PlanBuilder() {
               <StrategyPanel rows={results.data.strategies} />
             </TabsContent>
             <TabsContent value="advice">
-              <div className="space-y-8">
-                <LeversPanel
-                  draft={draft}
-                  score={results.data.score}
-                  cashflow={results.data.cashflow}
-                  advice={results.data.advice}
-                />
-                <RecommendationsPanel items={results.data.recommendations} />
-              </div>
+              <RecommendationsPanel items={results.data.recommendations} />
             </TabsContent>
             <TabsContent value="whatif">
               <LeversPanel
