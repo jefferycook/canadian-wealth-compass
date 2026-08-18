@@ -255,8 +255,9 @@ function IncomeStep({ draft, onChange }: StepProps) {
         <SectionCard key={p.id} title={p.firstName || (i === 0 ? "You" : "Your spouse")}>
           <NumberField
             label="Employment income (per year)"
-            hint="Today's dollars, before tax, until retirement."
+            hint="Today's dollars, before tax, until retirement. This is the one figure entered per year — everything else is monthly."
             prefix="$"
+            suffix="/yr"
             value={p.employ}
             onChange={(v) => onChange(patchPerson(draft, i, { employ: v }))}
           />
