@@ -123,6 +123,11 @@ export interface AccountInput {
   /** Percent of a LIRA/LIF to unlock into an RRSP. 0 = none. */
   unlock: number;
   juris: JurisdictionKey;
+  /**
+   * Expected return for this account as a fraction, overriding the blend
+   * implied by the equity allocation. Null/undefined means "use the blend".
+   */
+  retOverride?: number | null;
   /** Annual contribution in today's dollars. */
   contrib: number;
   /** Contribute until this owner age. 0 = no end. */
@@ -145,6 +150,8 @@ export interface ExpenseInput {
 }
 
 export interface OtherIncomeInput {
+  /** Stable row id, used as a UI key. */
+  id?: string;
   name: string;
   /** Annual amount in today's dollars. */
   amt: number;
@@ -156,6 +163,8 @@ export interface OtherIncomeInput {
 }
 
 export interface LumpSumInput {
+  /** Stable row id, used as a UI key. */
+  id?: string;
   name: string;
   /** Owner's age when it arrives. */
   age: number;
@@ -175,6 +184,10 @@ export interface HardAssetInput {
   apr: number;
   /** Person A's age at full sale. 0 = never. */
   sale: number;
+  /** Person A's age at a future purchase. 0 = already owned. */
+  buyAge?: number;
+  /** Purchase price in today's dollars, for a future purchase. */
+  buyCost?: number;
   /** Person A's age at downsize. 0 = never. */
   dsAge: number;
   /** Percent of value freed by the downsize. */
@@ -221,8 +234,13 @@ export interface PlanInputs {
   endAge: number;
   /** Annual inflation as a fraction. */
   inflation: number;
-  /** Household after-tax spending need in today's dollars. */
+  /** Household after-tax spending need in retirement, today's dollars. */
   spendNeed: number;
+  /**
+   * Household after-tax spending today, while still working. Null means the
+   * client has not said, and retirement spending is used throughout.
+   */
+  currentSpend?: number | null;
   /** Expected equity return as a fraction. */
   eqRet: number;
   /** Expected fixed-income return as a fraction. */
@@ -378,6 +396,8 @@ export interface ProjectionOverride {
   spendSet?: number;
   /** Add to the spending target. */
   spendAdj?: number;
+  /** Add to the pre-retirement (current) spending target. */
+  currentSpendAdj?: number;
   /** Shift every retirement age by this many years. */
   retAdj?: number;
   /** Add to every account's return (e.g. -0.012 for fee drag). */

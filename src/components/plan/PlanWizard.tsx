@@ -14,13 +14,16 @@ import {
 import { BenefitEstimator } from "@/components/plan/BenefitEstimator";
 import { monthlyMortgagePayment } from "@/lib/planning/estimates";
 import type { PersonDraft, PlanDraft } from "@/lib/planning/draft";
-import { emptyPerson } from "@/lib/planning/defaults";
+import { accountTypeLabel } from "@/lib/planning/draft";
+import { RETURN_PRESETS, emptyPerson } from "@/lib/planning/defaults";
 import { getProvince, getTaxYear, provinceKeys } from "@/lib/planning/taxYears";
 import type {
   AccountInput,
   AccountType,
   HardAssetInput,
   LiabilityInput,
+  LumpSumInput,
+  OtherIncomeInput,
   OwnerKey,
   PlanType,
   ProvinceKey,
@@ -29,9 +32,14 @@ import type {
 export const WIZARD_STEPS = [
   { key: "household", title: "About you", blurb: "Where you live and who the plan covers." },
   { key: "income", title: "Income", blurb: "Work income, CPP, OAS and workplace pensions." },
+  {
+    key: "other",
+    title: "Other income",
+    blurb: "Rent, bonuses, inheritances and anything else that comes in.",
+  },
   { key: "accounts", title: "Savings", blurb: "RRSPs, TFSAs, LIRAs and investment accounts." },
   { key: "property", title: "Property & debt", blurb: "Your home, other assets and what you owe." },
-  { key: "spending", title: "Spending", blurb: "What retirement needs to pay for." },
+  { key: "spending", title: "Spending", blurb: "What you spend now and what retirement has to fund." },
   { key: "assumptions", title: "Assumptions", blurb: "Returns, inflation and horizon." },
 ] as const;
 
@@ -79,7 +87,7 @@ function uid() {
 function newAccount(owner: OwnerKey, type: AccountType = "RRSP"): AccountInput {
   return {
     id: uid(),
-    name: type === "NONREG" ? "Investment account" : type,
+    name: "",
     type,
     owner,
     bal: 0,
@@ -88,6 +96,7 @@ function newAccount(owner: OwnerKey, type: AccountType = "RRSP"): AccountInput {
     conv: 0,
     unlock: 0,
     juris: "ON",
+    retOverride: null,
     contrib: 0,
     contribEnd: 0,
     wd: 0,
@@ -96,6 +105,25 @@ function newAccount(owner: OwnerKey, type: AccountType = "RRSP"): AccountInput {
     mix: { int: 0.3, div: 0.3, cg: 0.4 },
   };
 }
+
+/** The return an account is assumed to earn, given its mix or its override. */
+function effectiveReturn(a: AccountInput, draft: PlanDraft): number {
+  if (a.retOverride != null) return a.retOverride;
+  const eq = Math.max(0, Math.min(100, a.eq)) / 100;
+  return eq * draft.eqRet + (1 - eq) * draft.fiRet;
+}
+
+function presetKeyOf(a: AccountInput): string {
+  if (a.retOverride == null) return "blend";
+  const hit = RETURN_PRESETS.find((p) => Math.abs(p.rate - a.retOverride!) < 0.0001);
+  return hit ? hit.key : "custom";
+}
+
+const RETURN_OPTIONS = [
+  { value: "blend", label: "From my equity mix" },
+  ...RETURN_PRESETS.map((p) => ({ value: p.key as string, label: p.label })),
+  { value: "custom", label: "Custom rate" },
+];
 
 interface StepProps {
   draft: PlanDraft;
@@ -331,7 +359,7 @@ function AccountsStep({ draft, onChange }: StepProps) {
       {draft.accounts.map((a) => (
         <Card key={a.id}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-            <CardTitle className="text-base">{a.name || a.type}</CardTitle>
+            <CardTitle className="text-base">{a.name || accountTypeLabel(a.type)}</CardTitle>
             <Button
               variant="ghost"
               size="icon"
@@ -344,7 +372,13 @@ function AccountsStep({ draft, onChange }: StepProps) {
             </Button>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
-            <TextField label="Nickname" value={a.name} onChange={(v) => update(a.id, { name: v })} />
+            <TextField
+              label="Account name"
+              placeholder={accountTypeLabel(a.type)}
+              hint="Leave it blank and we'll use the account type."
+              value={a.name}
+              onChange={(v) => update(a.id, { name: v })}
+            />
             <SelectField<AccountType>
               label="Account type"
               value={a.type}
@@ -365,13 +399,37 @@ function AccountsStep({ draft, onChange }: StepProps) {
             />
             <NumberField
               label="Equity allocation"
-              hint="The rest is treated as fixed income."
+              hint={`The rest is treated as fixed income. Assumed total return: ${(
+                effectiveReturn(a, draft) * 100
+              ).toFixed(2)}%.`}
               suffix="%"
               min={0}
               max={100}
               value={a.eq}
               onChange={(v) => update(a.id, { eq: v ?? 0 })}
             />
+            <SelectField
+              label="Expected return"
+              hint="Pick a preset, or let it follow the equity mix and your global return assumptions."
+              value={presetKeyOf(a)}
+              onChange={(k) => {
+                if (k === "blend") return update(a.id, { retOverride: null });
+                if (k === "custom")
+                  return update(a.id, { retOverride: effectiveReturn(a, draft) });
+                const preset = RETURN_PRESETS.find((p) => p.key === k);
+                if (preset) update(a.id, { retOverride: preset.rate, eq: preset.eq });
+              }}
+              options={RETURN_OPTIONS}
+            />
+            {a.retOverride != null ? (
+              <NumberField
+                label="Return for this account"
+                suffix="%"
+                step={0.1}
+                value={pct(a.retOverride)}
+                onChange={(v) => update(a.id, { retOverride: (v ?? 0) / 100 })}
+              />
+            ) : null}
             <NumberField
               label="Annual contribution"
               prefix="$"
@@ -466,8 +524,29 @@ function PropertyStep({ draft, onChange }: StepProps) {
                 onChange={(v) => updateAsset(h.id!, { apr: (v ?? 0) / 100 })}
               />
               <NumberField
-                label="Downsize or sell at your age"
-                hint="Leave blank to keep it for life."
+                label="Buy at your age"
+                hint="Only for something you plan to buy later. Leave blank if you already own it."
+                value={h.buyAge || null}
+                onChange={(v) => updateAsset(h.id!, { buyAge: v ?? 0 })}
+              />
+              {h.buyAge ? (
+                <NumberField
+                  label="Purchase price"
+                  hint="Today's dollars. It comes out of the plan in the year you buy."
+                  prefix="$"
+                  value={h.buyCost || null}
+                  onChange={(v) => updateAsset(h.id!, { buyCost: v ?? 0 })}
+                />
+              ) : null}
+              <NumberField
+                label="Sell it completely at your age"
+                hint="Proceeds go into your non-registered savings. Leave blank to keep it."
+                value={h.sale || null}
+                onChange={(v) => updateAsset(h.id!, { sale: v ?? 0 })}
+              />
+              <NumberField
+                label="Downsize at your age"
+                hint="Free up part of the value without selling outright."
                 value={h.dsAge || null}
                 onChange={(v) => updateAsset(h.id!, { dsAge: v ?? 0 })}
               />
@@ -635,6 +714,25 @@ function PropertyStep({ draft, onChange }: StepProps) {
 function SpendingStep({ draft, onChange }: StepProps) {
   return (
     <div className="space-y-4">
+      <SectionCard title="What you spend today">
+        <NumberField
+          label="Household spending (per month)"
+          hint="Everything the household actually spends now, after tax — housing, food, cars, travel, the lot. Debt payments are counted separately."
+          prefix="$"
+          step={100}
+          value={draft.currentSpend == null ? null : Math.round(draft.currentSpend / 12)}
+          onChange={(v) => onChange({ ...draft, currentSpend: v == null ? null : v * 12 })}
+        />
+        <NumberField
+          label="Household spending (per year)"
+          hint="The same figure annually, if that is easier."
+          prefix="$"
+          step={1000}
+          value={draft.currentSpend}
+          onChange={(v) => onChange({ ...draft, currentSpend: v })}
+        />
+      </SectionCard>
+
       <SectionCard title="Retirement spending">
         <NumberField
           label="Annual spending after tax"
@@ -725,7 +823,263 @@ function SpendingStep({ draft, onChange }: StepProps) {
   );
 }
 
+function ownerOptions(draft: PlanDraft): { value: OwnerKey; label: string }[] {
+  return [
+    { value: "A", label: draft.people[0]?.firstName || "You" },
+    ...(draft.people.length > 1
+      ? [{ value: "B" as OwnerKey, label: draft.people[1]?.firstName || "Spouse" }]
+      : []),
+    { value: "JOINT", label: "Joint" },
+  ];
+}
+
+const LUMP_DESTINATIONS: { value: AccountType; label: string }[] = [
+  { value: "NONREG", label: "Non-registered savings" },
+  { value: "TFSA", label: "TFSA" },
+  { value: "RRSP", label: "RRSP" },
+];
+
+function ToggleRow({
+  title,
+  note,
+  checked,
+  onChange,
+}: {
+  title: string;
+  note?: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+      <div>
+        <p className="text-sm font-medium">{title}</p>
+        {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
+      </div>
+      <Switch checked={checked} onCheckedChange={onChange} />
+    </div>
+  );
+}
+
+function OtherIncomeStep({ draft, onChange }: StepProps) {
+  const owners = ownerOptions(draft);
+  const updateStream = (i: number, patch: Partial<OtherIncomeInput>) =>
+    onChange({
+      ...draft,
+      otherIncome: draft.otherIncome.map((x, j) => (i === j ? { ...x, ...patch } : x)),
+    });
+  const updateLump = (i: number, patch: Partial<LumpSumInput>) =>
+    onChange({
+      ...draft,
+      lumpSums: draft.lumpSums.map((x, j) => (i === j ? { ...x, ...patch } : x)),
+    });
+
+  return (
+    <div className="space-y-8">
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-lg">Recurring income</h3>
+          <p className="text-sm text-muted-foreground">
+            Rent, a side business, support payments, an annuity — anything that arrives year after
+            year. Say when it starts and when it stops.
+          </p>
+        </div>
+
+        {draft.otherIncome.map((s, i) => (
+          <Card key={s.id ?? i}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+              <CardTitle className="text-base">{s.name || "Recurring income"}</CardTitle>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Remove income"
+                onClick={() =>
+                  onChange({
+                    ...draft,
+                    otherIncome: draft.otherIncome.filter((_, j) => j !== i),
+                  })
+                }
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2">
+              <TextField
+                label="What is it?"
+                placeholder="Rental income"
+                value={s.name}
+                onChange={(v) => updateStream(i, { name: v })}
+              />
+              <NumberField
+                label="Amount per year"
+                hint="Today's dollars, before tax."
+                prefix="$"
+                value={s.amt || null}
+                onChange={(v) => updateStream(i, { amt: v ?? 0 })}
+              />
+              <SelectField<OwnerKey>
+                label="Whose income is it?"
+                value={s.owner}
+                onChange={(v) => updateStream(i, { owner: v })}
+                options={owners}
+              />
+              <NumberField
+                label="Starts at age"
+                hint="The owner's age when it begins."
+                value={s.start || null}
+                onChange={(v) => updateStream(i, { start: v ?? 0 })}
+              />
+              <NumberField
+                label="Stops at age"
+                hint="Leave blank if it never stops."
+                value={s.end || null}
+                onChange={(v) => updateStream(i, { end: v ?? 0 })}
+              />
+              <div className="grid gap-3">
+                <ToggleRow
+                  title="Taxable"
+                  note="Rent and business income are; a tax-free benefit is not."
+                  checked={s.taxable}
+                  onChange={(c) => updateStream(i, { taxable: c })}
+                />
+                <ToggleRow
+                  title="Rises with inflation"
+                  note="Off keeps it flat in today's dollars."
+                  checked={s.indexed}
+                  onChange={(c) => updateStream(i, { indexed: c })}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+
+        <Button
+          variant="secondary"
+          onClick={() =>
+            onChange({
+              ...draft,
+              otherIncome: [
+                ...draft.otherIncome,
+                {
+                  id: uid(),
+                  name: "",
+                  amt: 0,
+                  owner: "A",
+                  start: 0,
+                  end: 0,
+                  taxable: true,
+                  indexed: true,
+                },
+              ],
+            })
+          }
+        >
+          <Plus className="mr-2 size-4" /> Add recurring income
+        </Button>
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-lg">One-time amounts</h3>
+          <p className="text-sm text-muted-foreground">
+            A bonus, an inheritance, a severance package, the sale of a business. It lands once, in
+            the year you choose, and goes into the account you pick.
+          </p>
+        </div>
+
+        {draft.lumpSums.map((l, i) => (
+          <Card key={l.id ?? i}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+              <CardTitle className="text-base">{l.name || "One-time amount"}</CardTitle>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Remove amount"
+                onClick={() =>
+                  onChange({ ...draft, lumpSums: draft.lumpSums.filter((_, j) => j !== i) })
+                }
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2">
+              <TextField
+                label="What is it?"
+                placeholder="Inheritance"
+                value={l.name}
+                onChange={(v) => updateLump(i, { name: v })}
+              />
+              <NumberField
+                label="Amount"
+                hint="Today's dollars."
+                prefix="$"
+                value={l.amt || null}
+                onChange={(v) => updateLump(i, { amt: v ?? 0 })}
+              />
+              <SelectField<"A" | "B">
+                label="Whose is it?"
+                value={l.owner}
+                onChange={(v) => updateLump(i, { owner: v })}
+                options={owners
+                  .filter((o) => o.value !== "JOINT")
+                  .map((o) => ({ value: o.value as "A" | "B", label: o.label }))}
+              />
+              <NumberField
+                label="Arrives at age"
+                value={l.age || null}
+                onChange={(v) => updateLump(i, { age: v ?? 0 })}
+              />
+              <SelectField<AccountType>
+                label="Where does it go?"
+                value={l.dest}
+                onChange={(v) => updateLump(i, { dest: v })}
+                options={LUMP_DESTINATIONS}
+              />
+              <ToggleRow
+                title="Taxable"
+                note="An inheritance is not taxable to you; a bonus or severance is."
+                checked={l.taxable}
+                onChange={(c) => updateLump(i, { taxable: c })}
+              />
+            </CardContent>
+          </Card>
+        ))}
+
+        <Button
+          variant="secondary"
+          onClick={() =>
+            onChange({
+              ...draft,
+              lumpSums: [
+                ...draft.lumpSums,
+                {
+                  id: uid(),
+                  name: "",
+                  age: 0,
+                  amt: 0,
+                  dest: "NONREG",
+                  owner: "A",
+                  taxable: false,
+                },
+              ],
+            })
+          }
+        >
+          <Plus className="mr-2 size-4" /> Add a one-time amount
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function AssumptionsStep({ draft, onChange }: StepProps) {
+  // The rate the whole portfolio is assumed to earn, weighted by balance.
+  const total = draft.accounts.reduce((t, a) => t + Math.max(0, a.bal), 0);
+  const blended = total
+    ? draft.accounts.reduce((t, a) => t + Math.max(0, a.bal) * effectiveReturn(a, draft), 0) / total
+    : null;
+  const simpleBlend = 0.6 * draft.eqRet + 0.4 * draft.fiRet;
+
   return (
     <div className="space-y-4">
       <SectionCard title="Modelling assumptions">
@@ -771,6 +1125,32 @@ function AssumptionsStep({ draft, onChange }: StepProps) {
           ]}
         />
       </SectionCard>
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Your assumed total rate of return</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <p className="tabular text-3xl font-semibold">
+            {((blended ?? simpleBlend) * 100).toFixed(2)}%
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {blended != null
+              ? "Weighted across every account by its balance, using each account's own return where you set one."
+              : `A 60/40 blend of your equity and fixed-income assumptions. Add account balances and this becomes the weighted rate for your actual portfolio.`}
+          </p>
+          {blended != null ? (
+            <ul className="space-y-1 pt-1 text-sm">
+              {draft.accounts.map((a) => (
+                <li key={a.id} className="flex justify-between border-t pt-1">
+                  <span>{a.name || accountTypeLabel(a.type)}</span>
+                  <span className="tabular">{(effectiveReturn(a, draft) * 100).toFixed(2)}%</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </CardContent>
+      </Card>
+
       <p className="text-sm text-muted-foreground">
         Tax brackets, credits, CPP and OAS maximums, RRIF minimums and LIF maximums all come from
         the {draft.taxYear} statutory tables and are never entered by hand.
@@ -794,6 +1174,8 @@ export function PlanWizard({
       return <HouseholdStep {...props} />;
     case "income":
       return <IncomeStep {...props} />;
+    case "other":
+      return <OtherIncomeStep {...props} />;
     case "accounts":
       return <AccountsStep {...props} />;
     case "property":

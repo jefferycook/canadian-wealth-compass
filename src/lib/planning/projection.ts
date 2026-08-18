@@ -37,6 +37,7 @@ import type {
 
 /** Resolve an account's blended expected return from its equity allocation. */
 function accountReturn(a: AccountInput, eqRet: number, fiRet: number): number {
+  if (a.retOverride != null && Number.isFinite(a.retOverride)) return a.retOverride;
   const eq = Math.max(0, Math.min(100, a.eq)) / 100;
   return eq * eqRet + (1 - eq) * fiRet;
 }
@@ -75,6 +76,12 @@ export function projection(
       ? override.spendSet
       : inputs.spendNeed + (override.spendAdj ?? 0);
   const fiRetGlobal = inputs.fiRet;
+  // Spending while still working. Null means the client never told us, so the
+  // retirement figure is used for every year, as it always was.
+  const curSpend0 =
+    inputs.currentSpend != null
+      ? Math.max(0, inputs.currentSpend + (override.currentSpendAdj ?? 0))
+      : null;
   const shocks = override.shocks ?? [];
   const strategy = override.strategy ?? inputs.strategy;
   const opts = inputs.tax;
@@ -438,8 +445,20 @@ export function projection(
     /* --- 7. Hard assets: appreciate, downsize, sell --- */
     let saleGainTaxA = 0;
     let saleCashInflow = 0;
+    let purchaseCash = 0;
     for (const as of assets) {
       if (as.sold) continue;
+      const buyAge = as.buyAge ?? 0;
+      // A future purchase does not exist on the balance sheet until it is
+      // bought, and the purchase itself is a cash outflow in that year.
+      if (buyAge > 0 && ages[0]! < buyAge) continue;
+      if (buyAge > 0 && ages[0]! === buyAge) {
+        const cost = (as.buyCost ?? as.val) * infFac;
+        as.val = cost;
+        as.acb = cost;
+        purchaseCash += cost;
+        continue;
+      }
       as.val *= 1 + as.apr;
       if (as.dsAge && !as.dsDone && ages[0] === as.dsAge) {
         const dpct = Math.min(100, Math.max(0, as.dsPct || 30)) / 100;
@@ -492,9 +511,21 @@ export function projection(
     // One-off expenses are keyed to Person A's age.
     let expense = 0;
     for (const e of expenses) if (e.age === ages[0]) expense += e.amt * infFac;
+    // Someone still working spends what they spend today; the retirement
+    // figure only takes over once everyone who is alive has retired.
+    const stillWorking = people.some(
+      (p, i) => alive[i] && ages[i]! < (p.retAge || 999),
+    );
+    const baseSpend = curSpend0 != null && stillWorking ? curSpend0 : spend0;
     const spendTarget = Math.max(
       0,
-      spend0 * infFac + expense + liabPay - saleCashInflow - lumpCash - deathBenefit,
+      baseSpend * infFac +
+        expense +
+        purchaseCash +
+        liabPay -
+        saleCashInflow -
+        lumpCash -
+        deathBenefit,
     );
 
     /* --- Other income streams, per person --- */

@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlanWizard, WIZARD_STEPS, type WizardStepKey } from "@/components/plan/PlanWizard";
 import { isPlanReady, missingRequiredInputs } from "@/lib/planning/defaults";
 import type { PlanDraft } from "@/lib/planning/draft";
+import { LeversPanel } from "@/components/plan/PlanLevers";
 import { analyzePlan, getPlan, savePlan } from "@/lib/plans.functions";
 import { cn } from "@/lib/utils";
 
@@ -210,6 +211,7 @@ function PlanBuilder() {
               <TabsTrigger value="goal">Goal progress</TabsTrigger>
               <TabsTrigger value="strategies">Strategies</TabsTrigger>
               <TabsTrigger value="advice">Recommendations</TabsTrigger>
+              <TabsTrigger value="whatif">What if</TabsTrigger>
             </TabsList>
             <TabsContent value="projection">
               <PlanResults output={results.data.output} />
@@ -225,6 +227,14 @@ function PlanBuilder() {
             </TabsContent>
             <TabsContent value="advice">
               <RecommendationsPanel items={results.data.recommendations} />
+            </TabsContent>
+            <TabsContent value="whatif">
+              <LeversPanel
+                draft={draft}
+                score={results.data.score}
+                cashflow={results.data.cashflow}
+                advice={results.data.advice}
+              />
             </TabsContent>
           </Tabs>
         ) : (

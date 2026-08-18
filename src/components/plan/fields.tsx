@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
 import {
   Select,
   SelectContent,
@@ -212,3 +213,43 @@ export function ageFromDob(dob: string | null): number | null {
 
 export const money = (n: number) =>
   n.toLocaleString("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 0 });
+
+/** A labelled slider that reports its value on every drag. */
+export function SliderField({
+  label,
+  hint,
+  value,
+  onChange,
+  min,
+  max,
+  step,
+  format,
+}: {
+  label: string;
+  hint?: string | undefined;
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max: number;
+  step?: number | undefined;
+  format?: ((v: number) => string) | undefined;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-baseline justify-between gap-3">
+        <Label className="text-sm font-medium">{label}</Label>
+        <span className="tabular text-sm font-semibold">
+          {format ? format(value) : value}
+        </span>
+      </div>
+      <Slider
+        value={[value]}
+        min={min}
+        max={max}
+        step={step ?? 1}
+        onValueChange={([v]) => onChange(v ?? min)}
+      />
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+    </div>
+  );
+}
