@@ -307,12 +307,13 @@ function IncomeStep({ draft, onChange }: StepProps) {
             max={70}
             onChange={(v) => onChange(patchPerson(draft, i, { oas: { ...p.oas, age: v } }))}
           />
-          <NumberField
-            label="Workplace pension (per year)"
+          <MonthlyMoneyField
+            label="Workplace pension (per month)"
             hint="Defined-benefit pension only."
-            prefix="$"
-            value={p.pen.amt}
-            onChange={(v) => onChange(patchPerson(draft, i, { pen: { ...p.pen, amt: v } }))}
+            annualValue={p.pen.amt}
+            onChangeAnnual={(v) =>
+              onChange(patchPerson(draft, i, { pen: { ...p.pen, amt: v } }))
+            }
           />
           <NumberField
             label="Pension starts at age"
