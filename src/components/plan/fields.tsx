@@ -170,5 +170,45 @@ export function SelectField<T extends string>({
   );
 }
 
+export function DateField({
+  label,
+  hint,
+  value,
+  onChange,
+  max,
+}: {
+  label: string;
+  hint?: string | undefined;
+  value: string | null;
+  onChange: (v: string | null) => void;
+  max?: string | undefined;
+}) {
+  return (
+    <Field label={label} hint={hint}>
+      <Input
+        type="date"
+        className="tabular"
+        value={value ?? ""}
+        max={max}
+        onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}
+      />
+    </Field>
+  );
+}
+
+/** Whole years between a date of birth and today. Null when no date is given. */
+export function ageFromDob(dob: string | null): number | null {
+  if (!dob) return null;
+  const d = new Date(dob + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - d.getFullYear();
+  const beforeBirthday =
+    now.getMonth() < d.getMonth() ||
+    (now.getMonth() === d.getMonth() && now.getDate() < d.getDate());
+  if (beforeBirthday) age -= 1;
+  return age >= 0 && age <= 120 ? age : null;
+}
+
 export const money = (n: number) =>
   n.toLocaleString("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 0 });
