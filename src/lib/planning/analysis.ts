@@ -253,6 +253,16 @@ export function buildRecommendations(
     });
   }
 
+  if (short === 0 && exhaustAge != null) {
+    out.push({
+      id: "portfolio-exhausted",
+      title: `Investments are fully drawn down by age ${exhaustAge}`,
+      detail:
+        "Spending is still funded every year — pensions, CPP and OAS carry the later years — but there is no investment buffer left after this age for one-off costs or care.",
+      severity: "medium",
+    });
+  }
+
   const best = strategies[0];
   const current = strategies.find((s) => s.chosen);
   if (best && current && best.key !== current.key && best.estateDelta > 5000) {
