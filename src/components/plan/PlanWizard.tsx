@@ -145,13 +145,20 @@ function HouseholdStep({ draft, onChange }: StepProps) {
             placeholder="Optional"
             onChange={(v) => onChange(patchPerson(draft, i, { firstName: v }))}
           />
-          <NumberField
-            label="Current age"
-            value={p.curAge}
-            min={18}
-            max={110}
-            onChange={(v) => onChange(patchPerson(draft, i, { curAge: v }))}
+          <DateField
+            label="Date of birth"
+            hint={
+              p.curAge != null
+                ? `Age ${p.curAge} today. Drives CPP, OAS, RRIF and LIF timing.`
+                : "Drives CPP, OAS, RRIF conversion and LIF timing."
+            }
+            value={p.dob}
+            max={new Date().toISOString().slice(0, 10)}
+            onChange={(v) =>
+              onChange(patchPerson(draft, i, { dob: v, curAge: ageFromDob(v) }))
+            }
           />
+
           <NumberField
             label="Retirement age"
             hint="Leave blank if already retired."
