@@ -37,6 +37,21 @@ export const PLANNING_ASSUMPTIONS = {
   endAge: 95,
 } as const;
 
+/**
+ * Ready-made return assumptions a client can pick per account. These are
+ * planning assumptions, not statutory figures, so they live with the other
+ * program-wide defaults.
+ */
+export const RETURN_PRESETS = [
+  { key: "cash", label: "Cash / GIC — 2%", rate: 0.02, eq: 0 },
+  { key: "conservative", label: "Conservative — 4.5%", rate: 0.045, eq: 30 },
+  { key: "balanced", label: "Balanced — 7%", rate: 0.07, eq: 60 },
+  { key: "growth", label: "Growth — 8.5%", rate: 0.085, eq: 80 },
+  { key: "aggressive", label: "Aggressive — 10%", rate: 0.1, eq: 100 },
+] as const;
+
+export type ReturnPresetKey = (typeof RETURN_PRESETS)[number]["key"] | "custom" | "blend";
+
 /** A person with nothing filled in yet. */
 export function emptyPerson(id: PersonKey): PersonDraft {
   return {
