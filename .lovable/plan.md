@@ -1,352 +1,143 @@
-# Phase 0 — Financial Correctness (revised implementation contract)
+# Stabilization A/B + Product Parity — diagnosis and plan
 
-Scope: correctness of the existing deterministic engine only. No optimizer, no
-recommendation rebuild, no new dashboards, no large UI work. Each batch is a
-self-contained PR with its own tests, reviewable and revertible alone.
+No code has been changed for this item. Batch 0.1 (pension splitting) stays as is; Batch 0.2 is not started.
 
-Standing rules for this phase:
-- No interim behaviour that is knowingly wrong. If a bound is not yet known, take the
-  conservative path (e.g. sweep to non-registered) rather than an unbounded one.
-- No number reaches a recommendation unless its underlying rule is marked VERIFIED.
-- Residence province and pension jurisdiction are never interchangeable.
+## 1. Root cause of the "money runs out at age 33" result
 
----
+The underlying projection is **correct**. The depletion flag on top of it is **wrong**.
 
-## Batch 0.1 — Pension-splitting search: full 0-50% range
+`src/lib/planning/projection.ts` (last lines of the yearly loop) writes:
 
-**Files:** `src/lib/planning/tax.ts`
-**Change:** `tryDir(from, to, pensionEligible)` — drop the pre-multiplied `0.5`; apply the
-statutory ceiling exactly once, inside the loop (`T = maxT * f`, `f` to 0.50). Refine the
-step from 5% to 1% (or bisect) so the optimum is not missed between steps. Clamp so the
-transferor's `ordinary` cannot go negative.
-**Types/schema:** none. **Output:** `splitAmt` rises for lopsided couples.
-**Tests (write first):** lopsided couple ($80k DB pension vs $0) — chosen transfer equals
-50% of eligible pension and household tax is strictly lower than the 25%-capped result;
-equal-income couple — transfer near 0; `canSplit=false` — transfer 0; single filer —
-unchanged.
-**Compatibility:** safe. **Blast radius:** isolated to `tax.ts`; couple tax falls.
-Single-filer $276,326 regression unaffected.
-
----
-
-## Batch 0.2 — Pension-income eligibility: RRIF-status vs RRSP-status
-
-**Files:** `src/lib/planning/projection.ts` (accumulators + `incomesForG`), `types.ts`
-(working types only)
-**Change:** split `schedRegCash` into `schedRrifCash` / `schedRrspCash`, and split the
-solver's `add[].reg` the same way using each drawable account's converted status
-(`isRRIFnow`). Then:
-- `pensionEligible = penInc + bridgeInc + (age >= 65 ? mandatoryTaxable + rrifCash : 0)`
-- RRSP-status cash is never pension-eligible at any age.
-- RPP lifetime pension and RPP bridge income remain eligible at all ages — do not gate
-  them on 65.
-**Types/schema:** internal only; `PlanDraft` untouched.
-**Output:** per-year `pensionEligible` and `splitAmt` fall for RRSP-melt plans; tax rises.
-**Tests:** age-67 RRSP-only withdrawal — no $2,000 credit, not splittable; age-67 RRIF
-withdrawal — credit granted, splittable; age-62 RRIF minimum — no credit, not splittable;
-age-60 RPP pension — credit granted.
-**Compatibility:** safe. **Blast radius:** feeds the draw solver; most couple and
-melt-strategy results move, auto-strategy may flip.
-
----
-
-## Batch 0.3 — Contribution-room foundation (TFSA + RRSP ledgers)
-
-Must land before any sweep or deduction work. No unbounded contributions anywhere.
-
-**Files:** new `src/lib/planning/room.ts`, wired into `projection.ts`; `draft.ts`,
-`types.ts`, `defaults.ts` for the new inputs.
-
-**Definition (binding):** entered `rrspRoom` and `tfsaRoom` are **available room as of the
-plan start date** — they already include all prior-year accrual and carry-forward. The
-engine accrues **only from the next calendar year forward** and never re-accrues the start
-year. Documented in the field help text and enforced by test.
-
-**TFSA room (binding methodology):**
-- **Start year:** use the entered opening room **as-is**. Do not add the current calendar
-  year's statutory TFSA amount on top — it is already represented in the entered figure.
-- **Each following year:** `prior-year unused room + next year's statutory TFSA limit +
-  withdrawals made in the prior calendar year − contributions made`. Never negative.
-- **Unknown opening room:** do **not** assume the current year's statutory amount is
-  unused. Current-year available room is treated as **unknown → zero for recommendation
-  purposes** unless the client confirms it; the UI asks for confirmation and the figure is
-  listed as unverified. Statutory room may still accrue from the **next** calendar year
-  forward, subject to stated eligibility/residency assumptions (age 18+, Canadian
-  residency) which are surfaced as assumptions, not silently applied.
-
-**RRSP room (binding methodology):**
-- **Start year:** if the client enters their **CRA RRSP deduction limit**, that is the
-  authoritative opening-year figure. Do **not** recreate the same year's room from
-  prior-year earned income and PA — that would double-count.
-- Current-year earned income and current-year PA generate/affect the **following** year's
-  deduction limit, not the current one.
-- Opening **unused RRSP contributions** (contributed but not yet deducted) are a
-  **separate input** from the deduction limit, so that contribution made ≠ deduction
-  claimed ≠ deduction limit from the very first projected year.
-- The **$2,000 lifetime over-contribution cushion is never treated as usable room** and is
-  never included in any recommended contribution amount.
-
-**RRSP ledger, per person per year — required fields:**
-- `openingDeductionLimit` — CRA deduction limit at plan start (authoritative if entered)
-- `openingUnusedContributions` — contributed but undeducted at plan start
-- `priorYearEarnedIncome` — drives the following year's accrual
-- `annualStatutoryMax` — the year's RRSP dollar limit (rules table)
-- `pensionAdjustment` (PA)
-- `contributionsMade`
-- `deductionsClaimed`
-- `unclaimedDeductionCarryforward`
-- `remainingRoom` (running)
-
-Accrual applied to the **following** year =
-`min(0.18 × priorYearEarnedIncome, annualStatutoryMax) − PA`, floored at 0.
-
-**Pension adjustment (binding):** PA is **never inferred from the eventual DB pension
-benefit amount**. It comes from an explicit PA input (the client's T4 box 52 / CRA notice)
-or from a calculation with sufficient underlying pension-plan data. Where a future year's
-PA is unknown, the projected RRSP room for that year is **flagged as unreliable** and
-surfaced in the disclosure list — never silently assumed to be zero, and never used to
-justify a "contribute more to your RRSP" recommendation.
-
-**Explicitly unsupported for now (flagged, not silently ignored):** PSPA and PAR. Both
-appear in the unsupported list surfaced by Batch 0.8, with a plain-language note that a
-client with a past-service buyback or a pension termination should not rely on the room
-figure.
-
-**Types/schema:** per-person `pensionAdjustment: number | null`,
-`priorYearEarnedIncome: number | null`, `rrspUnusedContributions: number | null` on
-`PlanDraft`; `rrspRoom`/`tfsaRoom` keep their names but gain the start-date definition
-(`rrspRoom` = CRA deduction limit). `ProjectionRow` gains `roomBy` for audit.
-**Tests:** entered TFSA room is used as-is in year one with no extra statutory top-up;
-year two adds the statutory limit plus prior-year withdrawals; blank TFSA room → zero
-usable room in year one, accrual from year two; entered RRSP deduction limit is not
-re-derived from earned income and PA in year one; current-year earned income affects only
-the following year's limit; RRSP accrual reduced dollar-for-dollar by PA; unknown future
-PA sets the unreliable flag; the $2,000 cushion never appears in usable room; room never
-negative; a 10-year save never exceeds cumulative room; couple uses two independent rooms.
-**Compatibility:** new fields default null → "unknown", which caps contributions
-conservatively. Saved plans load; contribution-heavy plans may now contribute less.
-**Blast radius:** contribution years only.
-
-
----
-
-## Batch 0.4 — RRSP contribution vs deduction claimed, and the net-income base
-
-**Files:** `src/lib/planning/projection.ts`, `tax.ts`, `types.ts`, `room.ts`
-
-**Model (binding):** contribution and deduction are separate quantities and must never be
-collapsed into one number.
-- `contributionMade` — cash into the RRSP; bounded by **contribution room** (0.3).
-- `deductionClaimed` — amount deducted on that year's return; bounded by the
-  **deduction limit** = available undeducted contributions (this year's contribution plus
-  `unclaimedDeductionCarryforward`) and by room.
-- `unclaimedDeductionCarryforward` — contributions made but not yet deducted, carried
-  forward indefinitely and available to claim in a later, higher-bracket year.
-
-**MVP default:** claim the maximum available deduction in the contribution year
-(`deductionClaimed = min(contributionMade + carryforward, deductionLimit)`), so behaviour
-is intuitive out of the box — but the ledger, types and per-year outputs carry both
-figures independently, so a future optimizer can defer a deduction without any schema
-change.
-
-**Net income:** introduce a real `netIncome` in `computeTax`, distinct from `taxable`.
-`netIncome` = income less the RRSP deduction claimed (and future deductions). The OAS
-recovery tax, the federal BPA phase-out and the age amount all move onto `netIncome`;
-bracket tax stays on `taxable`. This removes the §1.11 proxy exactly where it starts to
-matter.
-
-**RRSP refund (binding):** `reinvestRefund` defaults to **false**. A baseline plan never
-assumes the client saves their tax refund — the refund is treated as spent unless the
-client explicitly selects otherwise. Reinvesting the refund is a **strategy** that later
-analysis may test and recommend explicitly (showing the incremental benefit), never an
-implicit baseline assumption. When enabled, the modelled tax saving is contributed to TFSA
-(within room) and then non-registered the following year.
-
-**Types/schema:** per-year ledger fields above; `reinvestRefund: boolean` on the draft
-(default **false** for new plans; null/absent on saved plans reads as false).
-**Tests:** working client contributing $10k pays less tax than contributing $0; TFSA
-contribution produces no deduction; contribution allowed while deduction deferred →
-carryforward grows and tax is unchanged that year; deduction claimed in a later year
-reduces that year's tax; deduction never exceeds the deduction limit; OAS clawback for a
-contributor near the threshold is computed on net, not taxable; refund is **not**
-reinvested by default and the toggle changes the projection when switched on; retired
-client with no contributions — numbers identical to pre-batch.
-
-**Compatibility:** loads fine; accumulation-stage results change.
-**Blast radius:** engine-wide for accumulation plans. Depends on 0.3.
-
----
-
-## Batch 0.5 — Surplus cash sweep
-
-**Files:** `src/lib/planning/projection.ts`
-**Change:** when after-tax cash exceeds the spending target, sweep the excess:
-1. to TFSA **only up to that person's verified remaining room from the 0.3 ledger**;
-2. the remainder to non-registered, incrementing ACB by the amount swept.
-There is no unbounded-TFSA path, interim or otherwise. If room is unknown (blank inputs),
-TFSA remaining room is treated as the statutory annual accrual only, and everything else
-goes to non-registered.
-**Types/schema:** `ProjectionRow.surplusSwept` (split TFSA / non-reg) for audit.
-**Tests:** forced-RRIF-minimum surplus year increases balances by exactly the surplus;
-surplus above TFSA room lands entirely in non-registered; a shortfall year sweeps nothing;
-swept non-reg raises ACB so no phantom gain appears on later withdrawal; estate strictly
-increases vs pre-fix on a minimum-heavy plan; TFSA room after sweeping is never negative.
-**Compatibility:** safe. **Blast radius:** raises balances and estates broadly; auto
-tie-break on estate may pick a different strategy. Depends on 0.3.
-
----
-
-## Batch 0.6 — Tax-table indexation, rule-by-rule
-
-**Files:** `src/lib/planning/taxYears.ts` (restructured into rule records), `tax.ts`,
-`projection.ts`
-
-**Change:** no blanket indexation. Every rules-data item becomes a record carrying:
-
-```text
-{ value, effectiveYear, jurisdiction, indexable: true|false,
-  indexationMethod: "CPI" | "AWE" | "statutory-table" | "none",
-  source, verification: "VERIFIED" | "APPROXIMATE" | "UNVERIFIED" }
+```ts
+depleted: totalPortfolio <= 1,
 ```
 
-Indexation is then applied per item according to its own `indexable` /
-`indexationMethod`, for years beyond the last published table only. Published years always
-use exact tables. Initial classification to be sourced item by item (CRA indexation
-tables for federal brackets/BPA/age amount/pension amount/OAS threshold; provincial
-indexation varies by province; Ontario surtax thresholds and the health-premium schedule
-are classified individually rather than assumed). Anything not yet sourced ships as
-`UNVERIFIED` + `indexable: false` and is listed in the disclosure output — never guessed.
+That is the only definition of depletion in the whole system. It says nothing about
+whether the household actually failed to fund its spending — it says only "the sum of
+investment account balances is (near) zero this year".
 
-**Types/schema:** `taxIndexation: number | null` on `PlanDraft.tax` (default = plan
-inflation). No change to `PlanDraft` beyond that field.
-**Tests:** flat-real income over 30 years → flat real tax; all-TFSA 40-year plan → tax
-stays ~0; `taxIndexation = 0` reproduces today's numbers exactly; an item marked
-`indexable: false` does not move across 30 years; every rule record has a source and a
-verification status (schema test).
-**Compatibility:** saved plans load; **results change** (lifetime tax falls). Needs a
-one-line in-app note. **Re-baselines the $276,326 golden number** — old value preserved as
-the `taxIndexation = 0` legacy fixture.
+`src/lib/planning/engine.ts`:
 
----
+```ts
+export function depletionAge(P) { return P.rows.find(r => r.depleted)?.age ?? null; }
+```
 
-## Batch 0.7A — Locked-in unlocking safety
+returns the **first** such year, so an empty portfolio in year one is reported as
+"money runs out at your current age".
 
-**Files:** `src/lib/planning/registered.ts`, `projection.ts`, `levers.ts`/`analysis.ts`
-(consumption guard only)
+### Reproduction
 
-**Change:**
-1. **Remove `full65: true` for Manitoba.** The automatic 100%-unlock-at-65 behaviour is
-   removed from the engine; Manitoba reverts to its regulator-verified age-based rule and
-   anything not verified is not modelled.
-2. Model **only regulator-verified** age-based unlocking rules. Every rule record carries
-   jurisdiction, percentage, minimum age, mechanism note, source citation and
-   `verification: VERIFIED | UNVERIFIED`.
-3. Percentages are **maxima ("up to X%")**, never a forced amount. The engine unlocks the
-   client's requested percentage clamped to the verified maximum; it never defaults to the
-   maximum on the client's behalf.
-4. Preserve one-time application: the existing `_split` guard is tested explicitly so an
-   unlock cannot recur in a later year.
-5. Unlocking is driven strictly by the account's **pension jurisdiction**; residence
-   province is never substituted, and an account with no jurisdiction is an input error,
-   not an implicit default.
-6. **Recommendation guard:** any unlock-related suggestion is suppressed unless the
-   governing rule is `VERIFIED`. Unverified jurisdictions produce an informational
-   "verify with your plan administrator" note instead of a recommendation.
+I ran the engine directly on an age-33 accumulator (retire at 60, $110k employment,
+$48k current spending, positive surplus):
 
-**Types/schema:** `UnlockRule` gains `source`, `verification`, `mechanismNote`; `full65`
-is deleted. Saved accounts unchanged.
-**Tests:** Manitoba at 65 does **not** unlock 100%; a requested 20% unlock in a 50%
-jurisdiction unlocks 20%, not 50%; a requested 80% clamps to the verified maximum; unlock
-occurs at most once across the whole projection; an Ontario LIRA held by a BC resident
-uses Ontario rules; an account with no jurisdiction throws/flags rather than defaulting;
-no unlock recommendation is emitted for an UNVERIFIED jurisdiction.
-**Compatibility:** Manitoba plans that previously unlocked fully will change materially —
-this is the point. Flag it in the plan's change note.
-**Blast radius:** locked-in plans only, but potentially large for those clients.
+| variant | depletion age | shortfall years |
+|---|---|---|
+| with two accounts holding balances | 94 | 2 |
+| same plan, **no investment account balances** | **33** | 0 |
 
----
+Year-by-year for the failing variant, ages 33–38:
 
-## Batch 0.7B — LIF maximum tables and disclosure
+| age | employment | spend target | tax | after-tax cash | contributions | withdrawals | portfolio | shortfall | depleted |
+|---|---|---|---|---|---|---|---|---|---|
+| 33 | 110,000 | 48,000 | 24,721 | 85,278 | 0 | 0 | 0 | 0 | **true** |
+| 34 | 112,309 | 49,007 | 25,524 | 86,785 | 0 | 0 | 0 | 0 | true |
+| 35 | 114,668 | 50,037 | 26,419 | 88,249 | 0 | 0 | 0 | 0 | true |
+| 36 | 117,076 | 51,087 | 27,333 | 89,742 | 0 | 0 | 0 | 0 | true |
+| 37 | 119,535 | 52,160 | 28,400 | 91,134 | 0 | 0 | 0 | 0 | true |
+| 38 | 122,045 | 53,256 | 29,490 | 92,554 | 0 | 0 | 0 | 0 | true |
 
-**Files:** `src/lib/planning/registered.ts`, `projection.ts`
-**Change:** (a) remove the `a.juris ?? provinceKey` fallback in `lifMaxFactor` — residence
-must never stand in for pension jurisdiction; (b) add published maximum tables for the
-jurisdictions actually offered, starting with FED and AB, each with source and
-verification status; (c) keep the 6% annuity formula only as an explicitly labelled
-fallback; (d) surface `lifApproximate` per row so the UI can disclose it; (e) Quebec's
-no-maximum-at-55+ stays, sourced and flagged.
-**Types/schema:** `ProjectionRow.lifApproximate: boolean`.
-**Tests:** ON LIF max matches the FSRA table at ages 55/65/75/85; QC 55+ has no maximum;
-FED/AB match their published tables within tolerance; a formula-fallback jurisdiction sets
-`lifApproximate = true`; a LIF-bound plan reports `lifBound = true`.
-**Compatibility:** safe. **Blast radius:** LIF-constrained plans only.
+Note the shortfall column: **zero**. Employment income fully covers spending. The ledger
+is right; the flag is wrong. Every ruled-out hypothesis from your list was checked:
+age/DOB, retirement age, `currentSpend` vs `spendNeed`, employment income inclusion,
+double-counted contributions, contributions reducing balances, the solver running during
+accumulation (it correctly solves G = 0), and the chart. None of them misbehaves.
 
----
+So the trigger is any plan whose **total investment balance is ~0 in the first year** —
+which is exactly what happens when a client has entered household, income and spending
+but has not yet entered account balances, or holds only accounts they are about to start
+funding. The plan is then reported as failed from day one.
 
-## Batch 0.8 — Jurisdiction and province guardrails
+### Blast radius (why this poisons the whole app)
 
-**Files:** `taxYears.ts`, `draft.ts`, `summary.ts`, minimal `PlanWizard.tsx`
-**Change:** the province dropdown already offers only tabled provinces (ON/BC/AB/CUSTOM);
-add a saved-plan-load validation that catches an untabled province and renders a clear
-"not yet supported" state instead of a thrown projection. Label `CUSTOM` as illustrative
-only, not a real jurisdiction. Add a machine-readable `approximations[]` and
-`unsupported[]` list to `PlanOutput` covering: annual time step, proportional ACB,
-same-year OAS clawback, single inflation rate, formula-based LIF maximums, no non-eligible
-dividends, PSPA/PAR unsupported, unverified unlocking jurisdictions, and any rule record
-still marked UNVERIFIED.
-**Tests:** a plan with province `QC` yields a friendly unsupported result, not a throw;
-`approximations[]` is non-empty, stable and includes every UNVERIFIED rule in use.
-**Compatibility:** safe.
+`depletionAge` is consumed by:
 
----
+- `src/lib/planning/analysis.ts` — `goalProgress().onTrack`, `compareStrategies`, `buildRecommendations`
+- `src/lib/planning/levers.ts` — `isFunded()` (line 118), `scorePlan`, the sustainable-spend bisection, every lever result
+- `src/components/plan/PlanResults.tsx:53` — the "Plan lasts until" KPI
+- `src/components/plan/PlanInsights.tsx:197` — the "Money runs out" column
 
-## Batch 0.9 — Terminal return at death
+so one bad flag turns every strategy, score and recommendation into "not on track".
 
-**Files:** new `src/lib/planning/terminal.ts`, `engine.ts`, `projection.ts`
-**Change:** replace the flat 0.62 / 0.92 / 1.00 haircuts in `afterTaxEstate` with a real
-terminal T1: full registered FMV added to the final-year income and taxed through
-`computeTax`; deemed disposition of non-registered at the statutory inclusion rate against
-tracked ACB; taxable hard assets deemed-disposed against ACB with the principal residence
-exempt; TFSA at par. First death with a surviving spouse applies the rollover (no terminal
-tax on rolled assets); the full inclusion lands on the last death.
+### Secondary defects found while tracing (not the cause, logged for later)
 
-**Terminology (binding):** probate / estate administration fees, executor compensation,
-legal and final-expense costs are **out of scope for this batch**. The output is therefore
-labelled **"Estate value after income tax at death"** — never "net estate" or "after all
-estate costs". `PlanOutput` carries an explicit `estateCostsIncluded: false` flag plus an
-`excludes[]` list (probate/estate administration fees, executor compensation, legal and
-accounting fees, final expenses, US estate tax), and the UI renders that exclusion note
-alongside the figure.
+1. Contributions increase balances but are **never subtracted from available cash**
+   (`projection.ts` step 5) — saving is currently free. Belongs with Batch 0.4/0.5.
+2. Surplus after-tax cash is **discarded**, not reinvested — already scheduled as Batch 0.5.
+   Combined with (1), accumulation-year balances are driven only by explicit `contrib`
+   fields, which is why an empty-account plan stays flat at zero forever.
 
-**Types/schema:** `PlanOutput` gains an estate breakdown (registered inclusion, deemed
-gains, terminal tax, estate value after income tax, `estateCostsIncluded`, `excludes[]`).
-**Tests:** single person dying at 90 with a $500k RRIF shows a terminal-year tax spike well
-above 38% of the RRIF; couple — near-zero incremental tax on the first death, full
-inclusion on the second; TFSA never taxed at death; non-reg with ACB = FMV produces no
-terminal gain; principal residence produces no gain; `estateCostsIncluded` is false and
-`excludes[]` is non-empty.
-**Compatibility:** loads fine; the headline estate figure changes for everyone.
-**Blast radius:** largest of Phase 0 — `afterTaxEstate` is also the auto-strategy
-tie-breaker, so strategy selection will shift. Ship last, alone.
+## 2. Proposed fix (Stabilization A)
 
----
+Small, isolated, no methodology change:
 
-## Batch 0.10 — Golden-suite re-baseline
+1. **`projection.ts`** — redefine the flag as a funding failure, not a zero balance:
+   `depleted = shortfall > 1 && totalPortfolio <= 1`. Also record `hadPortfolio`
+   (whether the household has ever held investable assets) on the result.
+2. **`engine.ts` `depletionAge()`** — return the first depleted year **only after** the
+   portfolio has been non-zero at some point; otherwise `null`. A plan that never had
+   investments cannot "run out".
+3. **`summary.ts`** — carry a distinct `noInvestableAssets` signal so the UI can say
+   "no investment accounts entered yet" instead of "your money runs out".
+4. **UI** (`PlanResults`, `PlanInsights`) — render that state as an intake prompt, not a
+   failure.
 
-Consolidate golden numbers: keep the original $276,326 as an explicit legacy fixture
-("2026 tables, no indexation, no surplus sweep, old estate proxy"), and add new golden
-values for the corrected engine across four fixtures — single filer, lopsided couple,
-accumulation-stage contributor with a PA, and a LIF-constrained locked-in client. Add an
-invariant suite: tax monotonic in income; after-tax cash monotonic in the gross draw; no
-negative balances; contribution room and deduction carryforward never negative; deduction
-claimed never exceeds the deduction limit; split transfer never exceeds 50% of eligible
-pension; no unlock recurs; every rule record in use has a source and verification status.
+No change to tax, withdrawal, growth or estate logic. Batch 0.1 untouched.
 
----
+## 3. Regression tests (Stabilization B)
 
-## Deliberately out of scope for Phase 0
+New fixture `accumulatorFixturePlan()` in `fixtures.ts`: age 33, retire at 60,
+employment through 59, spending below after-tax employment income, positive annual
+savings, existing investment assets. Assertions:
 
-Dynamic bracket-filling optimizer, recommendation-engine rebuild, non-eligible dividends,
-spousal RRSPs and attribution, PSPA/PAR, RRIF younger-spouse election, GIS, capital-loss
-carry-forwards, Quebec/QPP, new provinces, spending curves, probate/estate-cost modelling,
-new dashboards, printable reports.
+- No shortfall year between ages 33 and 59.
+- Total financial assets rise every year from 33 to 59.
+- `depletionAge` is null, and `depleted` is false in every accumulation year.
+- Empty-portfolio variant (no accounts): `depletionAge` is null and no year is flagged
+  depleted while shortfall is zero.
+- Single-account-empties variant: one account hits zero while others hold balances —
+  household is not reported depleted.
+- Existing $276,326 single-filer regression and the Batch 0.1 splitting tests unchanged.
+
+## 4. Product parity plan (Claude capability on the Lovable architecture)
+
+Engine stays as is; this is presentation and scenario plumbing over the ledger that
+`PlanOutput.years` already carries.
+
+**P1 — Full Plan information architecture.** Convert the plan route into a workspace with
+sections: Overview, Retirement, Cash Flow, Tax Planning, Strategies, Recommendations,
+What If, Net Worth, Investments, Estate, Plan Summary, Plan Details, Insights. Insurance
+deferred until the engine supports it.
+
+**P2 — Year-by-year details table.** Expandable ledger straight off `PlanYearDetail`:
+income sources, withdrawals by account, tax, splitting, clawback, spending, contributions,
+closing balances, per-year explanation of the result.
+
+**P3 — Charts, all fed by real projection data.** Total financial assets, balances by
+account/type, retirement income by source, employment vs retirement income, spending vs
+after-tax cash flow, taxable income, income tax, OAS recovery tax, net worth, assets and
+liabilities, estate projection, annual surplus/shortfall.
+
+**P4 — Interactive scenario tests (not "advice").** Each supported lever (CPP age, OAS
+age, retirement age, spending, savings, withdrawal strategy) gets Preview → current vs
+proposed on lifetime tax, sustainable spending, estate, funding, balances and years
+affected, then Apply to scenario / Compare with baseline / Undo. Every preview re-runs the
+real engine server-side; no cosmetic adjustment. No new financial recommendations are
+invented while the optimizer is paused.
+
+**P5 — Scenario persistence.** Named scenarios (Baseline, Retire at 58, CPP at 70, spend
++$10k, downsize at 70, alternate withdrawal order) stored against the plan and replayed
+through `runPlan` with overrides, with side-by-side comparison.
+
+**P6 — Resume Phase 0.2** and the remaining financial-correctness batches.
+
+Sequencing: Stabilization A → B → P1 → P2 → P3 → P4 → P5 → Phase 0.2.
