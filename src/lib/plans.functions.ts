@@ -8,6 +8,7 @@
 
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import type { Json, TablesUpdate } from "@/integrations/supabase/types";
 
 import { newPlanDraft } from "./planning/defaults";
 import type { PlanDraft } from "./planning/draft";
@@ -41,7 +42,7 @@ export const createPlan = createServerFn({ method: "POST" })
       .insert({
         user_id: context.userId,
         name: data.name?.trim() || "My plan",
-        draft: newPlanDraft() as unknown as Record<string, unknown>,
+        draft: newPlanDraft() as unknown as Json,
       })
       .select("id")
       .single();
@@ -69,11 +70,9 @@ export const savePlan = createServerFn({ method: "POST" })
     (input: { id: string; name?: string; draft: PlanDraft; isComplete?: boolean }) => input,
   )
   .handler(async ({ data, context }) => {
-    const patch: Record<string, unknown> = {
-      draft: data.draft as unknown as Record<string, unknown>,
-    };
-    if (data.name !== undefined) patch['name'] = data.name;
-    if (data.isComplete !== undefined) patch['is_complete'] = data.isComplete;
+    const patch: TablesUpdate<"plans"> = { draft: data.draft as unknown as Json };
+    if (data.name !== undefined) patch.name = data.name;
+    if (data.isComplete !== undefined) patch.is_complete = data.isComplete;
     const { error } = await context.supabase.from("plans").update(patch).eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true as const };
