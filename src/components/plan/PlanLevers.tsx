@@ -138,7 +138,7 @@ export function LeversPanel({
         />
         <Stat
           label="Your retirement goal"
-          value={`${money(Math.round(score.spendTarget / 12))}/mo`}
+          value={`${money(monthlyDisplay(score.spendTarget))}/mo`}
           note={`Today you are at ${(score.progress * 100).toFixed(0)}% of it.`}
         />
         <Stat
