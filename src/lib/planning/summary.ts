@@ -22,6 +22,54 @@ export interface PlanChartPoint {
   nonreg: number;
 }
 
+/**
+ * The full year-by-year detail the projection already computes.
+ *
+ * The chart series above is deliberately small; this is the ledger behind it,
+ * and it is what the tax, cash-flow and details views read.
+ */
+export interface PlanYearDetail {
+  age: number;
+  ages: number[];
+  year: number;
+  /** Guaranteed income */
+  cpp: number;
+  oas: number;
+  pension: number;
+  employment: number;
+  otherIncome: number;
+  /** Portfolio withdrawals by tax treatment */
+  registeredWithdraw: number;
+  tfsaWithdraw: number;
+  nonregWithdraw: number;
+  /** Tax detail */
+  taxableIncome: number;
+  tax: number;
+  oasClawback: number;
+  splitAmount: number;
+  averageRate: number;
+  marginalRate: number;
+  /** Cash flow */
+  afterTax: number;
+  spendTarget: number;
+  shortfall: number;
+  contributions: number;
+  debtPayment: number;
+  /** Balance sheet */
+  portfolio: number;
+  assetTotal: number;
+  liabTotal: number;
+  netWorth: number;
+  /** Flags */
+  lifRemaining: number;
+  lifBound: boolean;
+  depleted: boolean;
+  anyDeceased: boolean;
+  /** Closing balance per account id. */
+  balances: Record<string, number>;
+}
+
+
 export interface PlanSummary {
   /** Age money runs out, or null when the plan lasts. */
   depletionAge: number | null;
