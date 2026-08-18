@@ -524,8 +524,29 @@ function PropertyStep({ draft, onChange }: StepProps) {
                 onChange={(v) => updateAsset(h.id!, { apr: (v ?? 0) / 100 })}
               />
               <NumberField
-                label="Downsize or sell at your age"
-                hint="Leave blank to keep it for life."
+                label="Buy at your age"
+                hint="Only for something you plan to buy later. Leave blank if you already own it."
+                value={h.buyAge || null}
+                onChange={(v) => updateAsset(h.id!, { buyAge: v ?? 0 })}
+              />
+              {h.buyAge ? (
+                <NumberField
+                  label="Purchase price"
+                  hint="Today's dollars. It comes out of the plan in the year you buy."
+                  prefix="$"
+                  value={h.buyCost || null}
+                  onChange={(v) => updateAsset(h.id!, { buyCost: v ?? 0 })}
+                />
+              ) : null}
+              <NumberField
+                label="Sell it completely at your age"
+                hint="Proceeds go into your non-registered savings. Leave blank to keep it."
+                value={h.sale || null}
+                onChange={(v) => updateAsset(h.id!, { sale: v ?? 0 })}
+              />
+              <NumberField
+                label="Downsize at your age"
+                hint="Free up part of the value without selling outright."
                 value={h.dsAge || null}
                 onChange={(v) => updateAsset(h.id!, { dsAge: v ?? 0 })}
               />
@@ -693,6 +714,25 @@ function PropertyStep({ draft, onChange }: StepProps) {
 function SpendingStep({ draft, onChange }: StepProps) {
   return (
     <div className="space-y-4">
+      <SectionCard title="What you spend today">
+        <NumberField
+          label="Household spending (per month)"
+          hint="Everything the household actually spends now, after tax — housing, food, cars, travel, the lot. Debt payments are counted separately."
+          prefix="$"
+          step={100}
+          value={draft.currentSpend == null ? null : Math.round(draft.currentSpend / 12)}
+          onChange={(v) => onChange({ ...draft, currentSpend: v == null ? null : v * 12 })}
+        />
+        <NumberField
+          label="Household spending (per year)"
+          hint="The same figure annually, if that is easier."
+          prefix="$"
+          step={1000}
+          value={draft.currentSpend}
+          onChange={(v) => onChange({ ...draft, currentSpend: v })}
+        />
+      </SectionCard>
+
       <SectionCard title="Retirement spending">
         <NumberField
           label="Annual spending after tax"
