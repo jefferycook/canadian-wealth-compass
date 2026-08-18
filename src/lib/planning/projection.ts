@@ -765,12 +765,16 @@ export function projection(
       afterTax,
       spendTarget,
       shortfall,
-      depleted: totalPortfolio <= 1,
+      fundingShortfall: shortfall > 1,
+      portfolioEmpty: totalPortfolio <= 1,
+      portfolioExhausted: totalPortfolio <= 1 && everHadPortfolio,
     });
+    if (totalPortfolio > 1) everHadPortfolio = true;
   }
 
   return {
     rows,
+    hadInvestableAssets: everHadPortfolio,
     acctMeta: accts.map((a) => ({ id: a.id, name: a.name, type: a.type })),
     opts,
     taxYear: ty.year,
