@@ -1073,6 +1073,13 @@ function OtherIncomeStep({ draft, onChange }: StepProps) {
 }
 
 function AssumptionsStep({ draft, onChange }: StepProps) {
+  // The rate the whole portfolio is assumed to earn, weighted by balance.
+  const total = draft.accounts.reduce((t, a) => t + Math.max(0, a.bal), 0);
+  const blended = total
+    ? draft.accounts.reduce((t, a) => t + Math.max(0, a.bal) * effectiveReturn(a, draft), 0) / total
+    : null;
+  const simpleBlend = 0.6 * draft.eqRet + 0.4 * draft.fiRet;
+
   return (
     <div className="space-y-4">
       <SectionCard title="Modelling assumptions">
@@ -1118,6 +1125,32 @@ function AssumptionsStep({ draft, onChange }: StepProps) {
           ]}
         />
       </SectionCard>
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Your assumed total rate of return</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <p className="tabular text-3xl font-semibold">
+            {((blended ?? simpleBlend) * 100).toFixed(2)}%
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {blended != null
+              ? "Weighted across every account by its balance, using each account's own return where you set one."
+              : `A 60/40 blend of your equity and fixed-income assumptions. Add account balances and this becomes the weighted rate for your actual portfolio.`}
+          </p>
+          {blended != null ? (
+            <ul className="space-y-1 pt-1 text-sm">
+              {draft.accounts.map((a) => (
+                <li key={a.id} className="flex justify-between border-t pt-1">
+                  <span>{a.name || accountTypeLabel(a.type)}</span>
+                  <span className="tabular">{(effectiveReturn(a, draft) * 100).toFixed(2)}%</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </CardContent>
+      </Card>
+
       <p className="text-sm text-muted-foreground">
         Tax brackets, credits, CPP and OAS maximums, RRIF minimums and LIF maximums all come from
         the {draft.taxYear} statutory tables and are never entered by hand.
