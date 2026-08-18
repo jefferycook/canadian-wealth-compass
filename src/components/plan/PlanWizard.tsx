@@ -433,7 +433,7 @@ function PropertyStep({ draft, onChange }: StepProps) {
                 label="Expected growth"
                 suffix="%"
                 step={0.1}
-                value={Math.round(h.apr * 1000) / 10}
+                value={pct(h.apr)}
                 onChange={(v) => updateAsset(h.id!, { apr: (v ?? 0) / 100 })}
               />
               <NumberField
@@ -527,7 +527,7 @@ function PropertyStep({ draft, onChange }: StepProps) {
                 label="Interest rate"
                 suffix="%"
                 step={0.1}
-                value={Math.round(l.rate * 1000) / 10}
+                value={pct(l.rate)}
                 onChange={(v) => updateLiab(l.id!, { rate: (v ?? 0) / 100 })}
               />
               <NumberField
@@ -659,21 +659,21 @@ function AssumptionsStep({ draft, onChange }: StepProps) {
           label="Inflation"
           suffix="%"
           step={0.1}
-          value={Math.round(draft.inflation * 1000) / 10}
+          value={pct(draft.inflation)}
           onChange={(v) => onChange({ ...draft, inflation: (v ?? 2.1) / 100 })}
         />
         <NumberField
           label="Equity return"
           suffix="%"
           step={0.1}
-          value={Math.round(draft.eqRet * 1000) / 10}
+          value={pct(draft.eqRet)}
           onChange={(v) => onChange({ ...draft, eqRet: (v ?? 6.5) / 100 })}
         />
         <NumberField
           label="Fixed-income return"
           suffix="%"
           step={0.1}
-          value={Math.round(draft.fiRet * 1000) / 10}
+          value={pct(draft.fiRet)}
           onChange={(v) => onChange({ ...draft, fiRet: (v ?? 3.5) / 100 })}
         />
         <NumberField
