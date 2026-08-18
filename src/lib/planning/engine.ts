@@ -41,12 +41,42 @@ export function afterTaxEstate(P: ProjectionResult): number {
 
 /** Number of years the plan cannot fund the spending target. */
 export function shortfallYears(P: ProjectionResult): number {
-  return P.rows.filter((r) => r.shortfall > 1).length;
+  return P.rows.filter((r) => r.fundingShortfall).length;
 }
 
-/** The age money runs out, or null if the plan lasts the full projection. */
+/**
+ * The first age at which after-tax resources cannot fund the spending need.
+ * This — not an empty portfolio — is the plan-failure signal.
+ */
+export function firstShortfallAge(P: ProjectionResult): number | null {
+  return P.rows.find((r) => r.fundingShortfall)?.age ?? null;
+}
+
+/**
+ * The age investable assets that previously existed are drawn to zero.
+ * Null when the household never held investments, or still holds some.
+ */
+export function portfolioExhaustionAge(P: ProjectionResult): number | null {
+  return P.rows.find((r) => r.portfolioExhausted)?.age ?? null;
+}
+
+/** True when no investable assets exist anywhere in the projection. */
+export function noInvestableAssets(P: ProjectionResult): boolean {
+  return !P.hadInvestableAssets;
+}
+
+/** True when every year of the projection funds its spending need. */
+export function planFunded(P: ProjectionResult): boolean {
+  return shortfallYears(P) === 0;
+}
+
+/**
+ * @deprecated Backwards-compatible wrapper. Defined strictly as "the age a
+ * previously funded portfolio is exhausted" — it is NOT a funding-failure
+ * signal. Use `firstShortfallAge` for plan failure.
+ */
 export function depletionAge(P: ProjectionResult): number | null {
-  return P.rows.find((r) => r.depleted)?.age ?? null;
+  return portfolioExhaustionAge(P);
 }
 
 /** Total tax paid across the whole projection. */
