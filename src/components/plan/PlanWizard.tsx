@@ -397,11 +397,9 @@ function AccountsStep({ draft, onChange }: StepProps) {
               value={a.bal || null}
               onChange={(v) => update(a.id, { bal: v ?? 0 })}
             />
-            <div className="hidden" />
-
             <SelectField
               label="Expected return"
-              hint="Pick a preset, or let it follow the equity mix and your global return assumptions."
+              hint={`Assumed total return: ${(effectiveReturn(a, draft) * 100).toFixed(2)}%.`}
               value={presetKeyOf(a)}
               onChange={(k) => {
                 if (k === "blend") return update(a.id, { retOverride: null });
