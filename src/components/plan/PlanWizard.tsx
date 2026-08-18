@@ -817,13 +817,12 @@ function PropertyStep({ draft, onChange }: StepProps) {
                   value={l.amortYears ?? null}
                   onChange={(v) => updateLiab(l.id!, { amortYears: v ?? 0 })}
                 />
-                <NumberField
-                  label="Monthly payment"
+                <MonthlyMoneyField
+                  label="Payment (per month)"
                   hint="Principal and interest only — not property tax or insurance."
-                  prefix="$"
                   step={10}
-                  value={monthly}
-                  onChange={(v) => updateLiab(l.id!, { pay: (v ?? 0) * 12 })}
+                  annualValue={l.pay || null}
+                  onChangeAnnual={(v) => updateLiab(l.id!, { pay: v ?? 0 })}
                 />
                 <div className="flex flex-col justify-end gap-1">
                   <Button
