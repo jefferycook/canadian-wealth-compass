@@ -12,7 +12,21 @@ import type { Json, TablesUpdate } from "@/integrations/supabase/types";
 
 import { newPlanDraft } from "./planning/defaults";
 import type { PlanDraft } from "./planning/draft";
+import type {
+  GoalProgress,
+  NetWorthView,
+  Recommendation,
+  StrategyRow,
+} from "./planning/analysis";
 import type { PlanOutput } from "./planning/summary";
+
+export interface PlanAnalysis {
+  output: PlanOutput;
+  netWorth: NetWorthView;
+  strategies: StrategyRow[];
+  goal: GoalProgress;
+  recommendations: Recommendation[];
+}
 
 export interface PlanRow {
   id: string;
