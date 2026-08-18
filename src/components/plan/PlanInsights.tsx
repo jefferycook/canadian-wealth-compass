@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { money } from "@/components/plan/fields";
+import { perMonthWithYear } from "@/lib/planning/units";
 import type {
   GoalProgress,
   NetWorthView,
