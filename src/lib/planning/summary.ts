@@ -138,8 +138,47 @@ export function summarize(P: PlanResult): PlanOutput {
     };
   });
 
+  const round = (n: number) => Math.round(n);
+  const years: PlanYearDetail[] = P.rows.map((r) => ({
+    age: r.age,
+    ages: r.ages,
+    year: r.yr,
+    cpp: round(r.cpp),
+    oas: round(r.oas),
+    pension: round(r.pen),
+    employment: round(r.employ),
+    otherIncome: round(r.other),
+    registeredWithdraw: round(r.regWithdraw),
+    tfsaWithdraw: round(r.tfsaWithdraw),
+    nonregWithdraw: round(r.nonregWithdraw),
+    taxableIncome: round(r.taxable),
+    tax: round(r.tax),
+    oasClawback: round(r.oasClaw),
+    splitAmount: round(r.splitAmt),
+    averageRate: r.avgRate,
+    marginalRate: r.margRate,
+    afterTax: round(r.afterTax),
+    spendTarget: round(r.spendTarget),
+    shortfall: round(r.shortfall),
+    contributions: round(r.contribTotal),
+    debtPayment: round(r.liabPay),
+    portfolio: round(r.totalPortfolio),
+    assetTotal: round(r.assetTotal),
+    liabTotal: round(r.liabTotal),
+    netWorth: round(r.netWorth),
+    lifRemaining: round(r.lifRemaining),
+    lifBound: r.lifBound,
+    depleted: r.depleted,
+    anyDeceased: r.anyDeceased,
+    balances: Object.fromEntries(
+      Object.entries(r.balances).map(([id, b]) => [id, round(b)]),
+    ),
+  }));
+
   const last = P.rows[P.rows.length - 1];
   const first = P.rows[0];
+
+
 
   return {
     summary: {
