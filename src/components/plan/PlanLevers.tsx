@@ -135,7 +135,7 @@ export function LeversPanel({
         <Stat
           label="Monthly ability in retirement"
           value={`${money(score.sustainableMonthly)}/mo`}
-          note="What the plan can pay you, after tax, every year without running out."
+          note="What the plan can pay you each month, after tax, without running out."
         />
         <Stat
           label="Your retirement goal"
