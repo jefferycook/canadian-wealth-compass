@@ -332,7 +332,121 @@ function IncomeStep({ draft, onChange }: StepProps) {
   );
 }
 
+const JURISDICTIONS = Object.entries(UNLOCK_RULES).map(([value, r]) => ({
+  value: value as JurisdictionKey,
+  label: r.name,
+}));
+
+/**
+ * The account detail most people never touch — but which changes the answer
+ * materially when it applies: when contributions stop, when a plan converts,
+ * which pension law governs locked-in money, scheduled withdrawals, and how a
+ * taxable account's return is taxed.
+ */
+function AdvancedAccountFields({
+  account: a,
+  update,
+}: {
+  account: AccountInput;
+  update: (id: string, patch: Partial<AccountInput>) => void;
+}) {
+  const locked = a.type === "LIRA" || a.type === "LIF";
+  const mix = a.mix ?? { int: 0.3, div: 0.3, cg: 0.4 };
+  const setMix = (patch: Partial<typeof mix>) => update(a.id, { mix: { ...mix, ...patch } });
+
+  return (
+    <Collapsible>
+      <CollapsibleTrigger className="text-sm font-medium text-primary underline-offset-4 hover:underline">
+        More detail for this account
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mt-4 grid gap-4 sm:grid-cols-2">
+        <NumberField
+          label="Contribute until age"
+          hint="Leave blank to contribute until retirement."
+          value={a.contribEnd || null}
+          min={18}
+          max={95}
+          onChange={(v) => update(a.id, { contribEnd: v ?? 0 })}
+        />
+        {a.type === "RRSP" || locked || a.type === "DCPP" ? (
+          <NumberField
+            label="Convert at age"
+            hint={
+              a.type === "RRSP"
+                ? "Blank converts to a RRIF at 71, as the rules require."
+                : "Blank converts at retirement."
+            }
+            value={a.conv || null}
+            min={50}
+            max={71}
+            onChange={(v) => update(a.id, { conv: v ?? 0 })}
+          />
+        ) : null}
+        {locked ? (
+          <SelectField<JurisdictionKey>
+            label="Pension jurisdiction"
+            hint="Where the pension was earned — it governs unlocking and LIF limits, not where you live."
+            value={a.juris}
+            onChange={(v) => update(a.id, { juris: v })}
+            options={JURISDICTIONS}
+          />
+        ) : null}
+        <NumberField
+          label="Scheduled withdrawal (per year)"
+          hint="A withdrawal you take regardless of what the plan needs."
+          prefix="$"
+          value={a.wd || null}
+          onChange={(v) => update(a.id, { wd: v ?? 0 })}
+        />
+        {a.wd ? (
+          <>
+            <NumberField
+              label="Withdrawals start at age"
+              value={a.wdStart || null}
+              min={18}
+              max={100}
+              onChange={(v) => update(a.id, { wdStart: v ?? 0 })}
+            />
+            <NumberField
+              label="Withdrawals stop at age"
+              value={a.wdEnd || null}
+              min={18}
+              max={100}
+              onChange={(v) => update(a.id, { wdEnd: v ?? 0 })}
+            />
+          </>
+        ) : null}
+        {a.type === "NONREG" ? (
+          <>
+            <NumberField
+              label="Return that is interest"
+              hint="Taxed at your full rate each year."
+              suffix="%"
+              value={pct(mix.int)}
+              onChange={(v) => setMix({ int: (v ?? 0) / 100 })}
+            />
+            <NumberField
+              label="Return that is eligible dividends"
+              suffix="%"
+              value={pct(mix.div)}
+              onChange={(v) => setMix({ div: (v ?? 0) / 100 })}
+            />
+            <NumberField
+              label="Return that is capital gains"
+              hint="Only realized gains are taxed, at half inclusion."
+              suffix="%"
+              value={pct(mix.cg)}
+              onChange={(v) => setMix({ cg: (v ?? 0) / 100 })}
+            />
+          </>
+        ) : null}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 function AccountsStep({ draft, onChange }: StepProps) {
+
   const owners: { value: OwnerKey; label: string }[] = [
     { value: "A", label: draft.people[0]?.firstName || "You" },
     ...(draft.people.length > 1
