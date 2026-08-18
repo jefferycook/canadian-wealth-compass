@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { SliderField, money } from "@/components/plan/fields";
+import { monthlyDisplay, perMonthWithYear } from "@/lib/planning/units";
 import { simulatePlan } from "@/lib/plans.functions";
 import type { PlanDraft } from "@/lib/planning/draft";
 import type {
@@ -134,11 +135,11 @@ export function LeversPanel({
         <Stat
           label="Monthly ability in retirement"
           value={`${money(score.sustainableMonthly)}/mo`}
-          note="What the plan can pay you, after tax, every year without running out."
+          note="What the plan can pay you each month, after tax, without running out."
         />
         <Stat
           label="Your retirement goal"
-          value={`${money(Math.round(score.spendTarget / 12))}/mo`}
+          value={`${money(monthlyDisplay(score.spendTarget))}/mo`}
           note={`Today you are at ${(score.progress * 100).toFixed(0)}% of it.`}
         />
         <Stat
@@ -149,7 +150,7 @@ export function LeversPanel({
           note={
             cashflow.surplusMonthly == null
               ? "Add your current household spending to see what's left over."
-              : `${money(cashflow.afterTaxIncome)} after tax less spending and contributions.`
+              : `${money(monthlyDisplay(cashflow.afterTaxIncome))}/mo after tax, less spending and contributions.`
           }
         />
       </div>
@@ -194,7 +195,9 @@ export function LeversPanel({
           <div className="grid gap-3 pt-1 text-sm sm:grid-cols-3">
             <p>
               Sustainable spending{" "}
-              <span className="tabular font-medium">{money(combined.sustainableSpend)}</span>/yr
+              <span className="tabular font-medium">
+                {perMonthWithYear(combined.sustainableSpend)}
+              </span>
             </p>
             <p>
               Lifetime tax <span className="tabular font-medium">{money(combined.lifetimeTax)}</span>

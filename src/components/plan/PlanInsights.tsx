@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { money } from "@/components/plan/fields";
+import { perMonthWithYear } from "@/lib/planning/units";
 import type {
   GoalProgress,
   NetWorthView,
@@ -313,18 +314,25 @@ export function GoalPanel({ goal }: { goal: GoalProgress }) {
           <CardTitle className="text-base">Where retirement income comes from</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
+          <p className="text-xs text-muted-foreground">
+            Shown per month, with the annual figure in brackets.
+          </p>
           <div className="flex justify-between">
             <span>Spending target in the first year of retirement</span>
-            <span className="tabular">{money(goal.annualSpendTarget)}</span>
+            <span className="tabular">{perMonthWithYear(goal.annualSpendTarget)}</span>
           </div>
           <div className="flex justify-between">
             <span>CPP, OAS and workplace pensions</span>
-            <span className="tabular">{money(goal.guaranteedIncomeAtRetirement)}</span>
+            <span className="tabular">
+              {perMonthWithYear(goal.guaranteedIncomeAtRetirement)}
+            </span>
           </div>
           <div className="flex justify-between border-t pt-2 font-medium">
             <span>Left for your savings to cover</span>
             <span className="tabular">
-              {money(Math.max(0, goal.annualSpendTarget - goal.guaranteedIncomeAtRetirement))}
+              {perMonthWithYear(
+                Math.max(0, goal.annualSpendTarget - goal.guaranteedIncomeAtRetirement),
+              )}
             </span>
           </div>
         </CardContent>

@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { annualFromMonthly, money, monthlyFromAnnual } from "@/lib/planning/units";
 
 /**
  * Inputs that distinguish "not answered" from zero: an empty box stays empty
@@ -211,8 +212,45 @@ export function ageFromDob(dob: string | null): number | null {
   return age >= 0 && age <= 120 ? age : null;
 }
 
-export const money = (n: number) =>
-  n.toLocaleString("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 0 });
+export { money } from "@/lib/planning/units";
+
+/**
+ * A money field the client reads and types in MONTHLY dollars while the plan
+ * stores the ANNUAL figure the engine expects. The conversion lives in
+ * `@/lib/planning/units` and nowhere else.
+ */
+export function MonthlyMoneyField({
+  label,
+  hint,
+  annualValue,
+  onChangeAnnual,
+  step,
+  className,
+}: {
+  label: string;
+  hint?: string | undefined;
+  /** The stored annual amount, or null when unanswered. */
+  annualValue: number | null;
+  /** Receives the new annual amount, or null when the box is cleared. */
+  onChangeAnnual: (annual: number | null) => void;
+  step?: number | undefined;
+  className?: string | undefined;
+}) {
+  const annualNote =
+    annualValue == null || annualValue === 0 ? undefined : `${money(annualValue)} per year`;
+  return (
+    <NumberField
+      label={label}
+      hint={[hint, annualNote].filter(Boolean).join(" · ") || undefined}
+      prefix="$"
+      suffix="/mo"
+      step={step ?? 50}
+      value={monthlyFromAnnual(annualValue)}
+      onChange={(v) => onChangeAnnual(annualFromMonthly(v))}
+      className={className}
+    />
+  );
+}
 
 /** A labelled slider that reports its value on every drag. */
 export function SliderField({

@@ -11,12 +11,14 @@ import {
 
 import {
   DateField,
+  MonthlyMoneyField,
   NumberField,
   SelectField,
   TextField,
   ageFromDob,
   money,
 } from "@/components/plan/fields";
+import { annualFromMonthly } from "@/lib/planning/units";
 import { BenefitEstimator } from "@/components/plan/BenefitEstimator";
 import { monthlyMortgagePayment } from "@/lib/planning/estimates";
 import type { PersonDraft, PlanDraft } from "@/lib/planning/draft";
@@ -253,8 +255,9 @@ function IncomeStep({ draft, onChange }: StepProps) {
         <SectionCard key={p.id} title={p.firstName || (i === 0 ? "You" : "Your spouse")}>
           <NumberField
             label="Employment income (per year)"
-            hint="Today's dollars, before tax, until retirement."
+            hint="Today's dollars, before tax, until retirement. This is the one figure entered per year — everything else is monthly."
             prefix="$"
+            suffix="/yr"
             value={p.employ}
             onChange={(v) => onChange(patchPerson(draft, i, { employ: v }))}
           />
@@ -273,12 +276,13 @@ function IncomeStep({ draft, onChange }: StepProps) {
               }
             />
           </div>
-          <NumberField
-            label="CPP at 65 (per year)"
+          <MonthlyMoneyField
+            label="CPP at 65 (per month)"
             hint="From My Service Canada, or use the estimator above."
-            prefix="$"
-            value={p.cpp.amt}
-            onChange={(v) => onChange(patchPerson(draft, i, { cpp: { ...p.cpp, amt: v } }))}
+            annualValue={p.cpp.amt}
+            onChangeAnnual={(v) =>
+              onChange(patchPerson(draft, i, { cpp: { ...p.cpp, amt: v } }))
+            }
           />
           <NumberField
             label="Start CPP at age"
@@ -288,11 +292,12 @@ function IncomeStep({ draft, onChange }: StepProps) {
             max={70}
             onChange={(v) => onChange(patchPerson(draft, i, { cpp: { ...p.cpp, age: v } }))}
           />
-          <NumberField
-            label="OAS at 65 (per year)"
-            prefix="$"
-            value={p.oas.amt}
-            onChange={(v) => onChange(patchPerson(draft, i, { oas: { ...p.oas, amt: v } }))}
+          <MonthlyMoneyField
+            label="OAS at 65 (per month)"
+            annualValue={p.oas.amt}
+            onChangeAnnual={(v) =>
+              onChange(patchPerson(draft, i, { oas: { ...p.oas, amt: v } }))
+            }
           />
           <NumberField
             label="Start OAS at age"
@@ -302,12 +307,13 @@ function IncomeStep({ draft, onChange }: StepProps) {
             max={70}
             onChange={(v) => onChange(patchPerson(draft, i, { oas: { ...p.oas, age: v } }))}
           />
-          <NumberField
-            label="Workplace pension (per year)"
+          <MonthlyMoneyField
+            label="Workplace pension (per month)"
             hint="Defined-benefit pension only."
-            prefix="$"
-            value={p.pen.amt}
-            onChange={(v) => onChange(patchPerson(draft, i, { pen: { ...p.pen, amt: v } }))}
+            annualValue={p.pen.amt}
+            onChangeAnnual={(v) =>
+              onChange(patchPerson(draft, i, { pen: { ...p.pen, amt: v } }))
+            }
           />
           <NumberField
             label="Pension starts at age"
@@ -316,12 +322,13 @@ function IncomeStep({ draft, onChange }: StepProps) {
             max={75}
             onChange={(v) => onChange(patchPerson(draft, i, { pen: { ...p.pen, age: v } }))}
           />
-          <NumberField
-            label="Bridge benefit (per year)"
+          <MonthlyMoneyField
+            label="Bridge benefit (per month)"
             hint="Some pensions pay a top-up until 65."
-            prefix="$"
-            value={p.bridge.amt}
-            onChange={(v) => onChange(patchPerson(draft, i, { bridge: { ...p.bridge, amt: v } }))}
+            annualValue={p.bridge.amt}
+            onChangeAnnual={(v) =>
+              onChange(patchPerson(draft, i, { bridge: { ...p.bridge, amt: v } }))
+            }
           />
           {p.bridge.amt ? (
             <NumberField
@@ -413,12 +420,11 @@ function AdvancedAccountFields({
             options={JURISDICTIONS}
           />
         ) : null}
-        <NumberField
-          label="Scheduled withdrawal (per year)"
+        <MonthlyMoneyField
+          label="Scheduled withdrawal (per month)"
           hint="A withdrawal you take regardless of what the plan needs."
-          prefix="$"
-          value={a.wd || null}
-          onChange={(v) => update(a.id, { wd: v ?? 0 })}
+          annualValue={a.wd || null}
+          onChangeAnnual={(v) => update(a.id, { wd: v ?? 0 })}
         />
         {a.wd ? (
           <>
@@ -555,11 +561,11 @@ function AccountsStep({ draft, onChange }: StepProps) {
                 onChange={(v) => update(a.id, { retOverride: (v ?? 0) / 100 })}
               />
             ) : null}
-            <NumberField
-              label="Annual contribution"
-              prefix="$"
-              value={a.contrib || null}
-              onChange={(v) => update(a.id, { contrib: v ?? 0 })}
+            <MonthlyMoneyField
+              label="Contribution (per month)"
+              hint="What you put into this account each month."
+              annualValue={a.contrib || null}
+              onChangeAnnual={(v) => update(a.id, { contrib: v ?? 0 })}
             />
             {a.type === "NONREG" ? (
               <NumberField
@@ -761,7 +767,7 @@ function PropertyStep({ draft, onChange }: StepProps) {
       <div className="space-y-3">
         <h3 className="text-lg">Mortgages and other debt</h3>
         {draft.liabilities.map((l) => {
-          const monthly = l.pay ? Math.round((l.pay / 12) * 100) / 100 : null;
+          
           const suggested = monthlyMortgagePayment(l.bal, l.rate, l.amortYears ?? 0);
           return (
             <Card key={l.id}>
@@ -811,20 +817,23 @@ function PropertyStep({ draft, onChange }: StepProps) {
                   value={l.amortYears ?? null}
                   onChange={(v) => updateLiab(l.id!, { amortYears: v ?? 0 })}
                 />
-                <NumberField
-                  label="Monthly payment"
+                <MonthlyMoneyField
+                  label="Payment (per month)"
                   hint="Principal and interest only — not property tax or insurance."
-                  prefix="$"
                   step={10}
-                  value={monthly}
-                  onChange={(v) => updateLiab(l.id!, { pay: (v ?? 0) * 12 })}
+                  annualValue={l.pay || null}
+                  onChangeAnnual={(v) => updateLiab(l.id!, { pay: v ?? 0 })}
                 />
                 <div className="flex flex-col justify-end gap-1">
                   <Button
                     variant="outline"
                     type="button"
                     disabled={!suggested}
-                    onClick={() => updateLiab(l.id!, { pay: Math.round(suggested * 12) })}
+                    onClick={() =>
+                      updateLiab(l.id!, {
+                        pay: Math.round(annualFromMonthly(suggested) ?? 0),
+                      })
+                    }
                   >
                     <Calculator className="mr-2 size-4" />
                     {suggested
@@ -864,23 +873,22 @@ function SpendingStep({ draft, onChange }: StepProps) {
   return (
     <div className="space-y-4">
       <SectionCard title="What you spend today">
-        <NumberField
+        <MonthlyMoneyField
           label="Household spending (per month)"
           hint="Everything the household actually spends now, after tax — housing, food, cars, travel, the lot. Debt payments are counted separately."
-          prefix="$"
           step={100}
-          value={draft.currentSpend == null ? null : Math.round(draft.currentSpend / 12)}
-          onChange={(v) => onChange({ ...draft, currentSpend: v == null ? null : v * 12 })}
+          annualValue={draft.currentSpend ?? null}
+          onChangeAnnual={(v) => onChange({ ...draft, currentSpend: v })}
         />
       </SectionCard>
 
       <SectionCard title="Retirement spending">
-        <NumberField
-          label="Annual spending after tax"
+        <MonthlyMoneyField
+          label="Retirement spending after tax (per month)"
           hint="Today's dollars, for the whole household. Everything the plan has to fund."
-          prefix="$"
-          value={draft.spendNeed}
-          onChange={(v) => onChange({ ...draft, spendNeed: v })}
+          step={100}
+          annualValue={draft.spendNeed}
+          onChangeAnnual={(v) => onChange({ ...draft, spendNeed: v })}
         />
         <NumberField
           label="Survivor spending"
@@ -1051,12 +1059,11 @@ function OtherIncomeStep({ draft, onChange }: StepProps) {
                 value={s.name}
                 onChange={(v) => updateStream(i, { name: v })}
               />
-              <NumberField
-                label="Amount per year"
+              <MonthlyMoneyField
+                label="Amount per month"
                 hint="Today's dollars, before tax."
-                prefix="$"
-                value={s.amt || null}
-                onChange={(v) => updateStream(i, { amt: v ?? 0 })}
+                annualValue={s.amt || null}
+                onChangeAnnual={(v) => updateStream(i, { amt: v ?? 0 })}
               />
               <SelectField<OwnerKey>
                 label="Whose income is it?"

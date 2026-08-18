@@ -14,6 +14,7 @@ import {
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { money } from "@/components/plan/fields";
+import { monthlyDisplay, perMonth } from "@/lib/planning/units";
 import { strategyLabel, type PlanOutput } from "@/lib/planning/summary";
 
 const compact = (n: number) =>
@@ -50,6 +51,12 @@ function Stat({
 
 export function PlanResults({ output }: { output: PlanOutput }) {
   const { summary, chart } = output;
+  // Cash-flow lines are shown per month; the engine works in annual dollars.
+  const monthlyChart = chart.map((p) => ({
+    ...p,
+    afterTax: monthlyDisplay(p.afterTax),
+    spendTarget: monthlyDisplay(p.spendTarget),
+  }));
   const shortAge = summary.firstShortfallAge;
   const lasts = shortAge == null;
   const exhaustNote =
@@ -152,16 +159,22 @@ export function PlanResults({ output }: { output: PlanOutput }) {
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Spending funded vs. target</CardTitle>
+            <CardTitle className="text-base">Spending funded vs. target (per month)</CardTitle>
           </CardHeader>
           <CardContent className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chart} margin={{ left: 8, right: 8 }}>
+              <LineChart data={monthlyChart} margin={{ left: 8, right: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="age" tickLine={false} axisLine={false} fontSize={12} />
-                <YAxis tickFormatter={compact} tickLine={false} axisLine={false} fontSize={12} />
+                <YAxis
+                  tickFormatter={(v: number) => money(v)}
+                  tickLine={false}
+                  axisLine={false}
+                  fontSize={12}
+                  width={70}
+                />
                 <Tooltip
-                  formatter={(v: number, n: string) => [money(v), n]}
+                  formatter={(v: number, n: string) => [`${money(v)} / month`, n]}
                   labelFormatter={(l) => `Age ${l}`}
                 />
                 <Line
@@ -217,7 +230,7 @@ export function PlanResults({ output }: { output: PlanOutput }) {
                 <th className="p-3 font-medium">Age</th>
                 <th className="p-3 font-medium">Year</th>
                 <th className="p-3 text-right font-medium">Portfolio</th>
-                <th className="p-3 text-right font-medium">Spending funded</th>
+                <th className="p-3 text-right font-medium">Spending funded (per month)</th>
                 <th className="p-3 text-right font-medium">Tax</th>
                 <th className="p-3 text-right font-medium">Net worth</th>
               </tr>
@@ -233,7 +246,7 @@ export function PlanResults({ output }: { output: PlanOutput }) {
                       "tabular p-3 text-right " + (r.shortfall > 1 ? "text-destructive" : "")
                     }
                   >
-                    {money(r.afterTax)}
+                    {perMonth(r.afterTax)}
                   </td>
                   <td className="tabular p-3 text-right">{money(r.tax)}</td>
                   <td className="tabular p-3 text-right">{money(r.netWorth)}</td>
