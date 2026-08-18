@@ -73,6 +73,7 @@ export function newPlanDraft(taxYear: number = LATEST_TAX_YEAR): PlanDraft {
     survivorPct: PLANNING_ASSUMPTIONS.survivorPct,
     strategy: "auto",
     spendNeed: null,
+    currentSpend: null,
     tax: {
       provinceKey: null,
       fedBPA: null,

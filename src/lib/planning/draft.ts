@@ -12,6 +12,7 @@
 
 import type {
   AccountInput,
+  AccountType,
   ExpenseInput,
   HardAssetInput,
   LiabilityInput,
@@ -69,8 +70,10 @@ export interface PlanDraft {
   fiRet: number;
   survivorPct: number;
   strategy: WithdrawalStrategy;
-  /** Household after-tax spending need. Null until the client says. */
+  /** Household after-tax spending need in retirement. Null until they say. */
   spendNeed: number | null;
+  /** Household after-tax spending today, while working. Null until they say. */
+  currentSpend: number | null;
   tax: TaxSettingsDraft;
   people: PersonDraft[];
   accounts: AccountInput[];
@@ -79,6 +82,21 @@ export interface PlanDraft {
   lumpSums: LumpSumInput[];
   hardAssets: HardAssetInput[];
   liabilities: LiabilityInput[];
+}
+
+/** Display names for the account types, used when a client leaves it blank. */
+export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
+  RRSP: "RRSP",
+  RRIF: "RRIF",
+  TFSA: "TFSA",
+  NONREG: "Non-registered account",
+  LIRA: "LIRA",
+  LIF: "LIF",
+  DCPP: "Defined-contribution pension",
+};
+
+export function accountTypeLabel(t: AccountType): string {
+  return ACCOUNT_TYPE_LABELS[t] ?? t;
 }
 
 const num = (v: number | null | undefined, fallback: number) =>
@@ -121,6 +139,7 @@ export function normalizeDraft(d: PlanDraft): PlanInputs {
     endAge: d.endAge,
     inflation: d.inflation,
     spendNeed: num(d.spendNeed, 0),
+    currentSpend: d.currentSpend,
     eqRet: d.eqRet,
     fiRet: d.fiRet,
     survivorPct: d.survivorPct,
@@ -133,7 +152,10 @@ export function normalizeDraft(d: PlanDraft): PlanInputs {
       lifRate: num(d.tax.lifRate, 6.0),
     },
     people: d.people.map(normalizePerson),
-    accounts: d.accounts,
+    accounts: d.accounts.map((a) => ({
+      ...a,
+      name: a.name?.trim() || accountTypeLabel(a.type),
+    })),
     expenses: d.expenses,
     otherIncome: d.otherIncome,
     lumpSums: d.lumpSums,
@@ -154,6 +176,7 @@ export function draftFromInputs(p: PlanInputs): PlanDraft {
     survivorPct: p.survivorPct,
     strategy: p.strategy,
     spendNeed: p.spendNeed,
+    currentSpend: p.currentSpend ?? null,
     tax: { ...p.tax },
     people: p.people.map((x) => ({
       id: x.id,
