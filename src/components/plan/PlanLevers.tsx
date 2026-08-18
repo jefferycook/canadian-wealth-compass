@@ -150,7 +150,7 @@ export function LeversPanel({
           note={
             cashflow.surplusMonthly == null
               ? "Add your current household spending to see what's left over."
-              : `${money(cashflow.afterTaxIncome)} after tax less spending and contributions.`
+              : `${money(monthlyDisplay(cashflow.afterTaxIncome))}/mo after tax, less spending and contributions.`
           }
         />
       </div>
