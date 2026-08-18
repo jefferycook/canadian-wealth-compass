@@ -60,6 +60,15 @@ const PLAN_TYPES: { value: PlanType; label: string }[] = [
   { value: "partners", label: "Partners (not spouses for tax)" },
 ];
 
+/** Starting points for the hard assets people actually own. */
+const ASSET_PRESETS: { label: string; name: string; apr: number; taxable: boolean }[] = [
+  { label: "home", name: "Home", apr: 0.03, taxable: false },
+  { label: "cottage or rental", name: "Cottage", apr: 0.03, taxable: true },
+  { label: "vehicle", name: "Vehicle", apr: -0.15, taxable: false },
+  { label: "boat or RV", name: "Boat", apr: -0.08, taxable: false },
+  { label: "other asset", name: "Other asset", apr: 0, taxable: true },
+];
+
 /** A stored fraction shown as a percentage, without losing typed decimals. */
 const pct = (v: number) => Number((v * 100).toFixed(4));
 
