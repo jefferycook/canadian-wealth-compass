@@ -157,12 +157,18 @@ export function PlanResults({ output }: { output: PlanOutput }) {
           </CardHeader>
           <CardContent className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chart} margin={{ left: 8, right: 8 }}>
+              <LineChart data={monthlyChart} margin={{ left: 8, right: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="age" tickLine={false} axisLine={false} fontSize={12} />
-                <YAxis tickFormatter={compact} tickLine={false} axisLine={false} fontSize={12} />
+                <YAxis
+                  tickFormatter={(v: number) => money(v)}
+                  tickLine={false}
+                  axisLine={false}
+                  fontSize={12}
+                  width={70}
+                />
                 <Tooltip
-                  formatter={(v: number, n: string) => [money(v), n]}
+                  formatter={(v: number, n: string) => [`${money(v)} / month`, n]}
                   labelFormatter={(l) => `Age ${l}`}
                 />
                 <Line
