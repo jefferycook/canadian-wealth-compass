@@ -561,11 +561,11 @@ function AccountsStep({ draft, onChange }: StepProps) {
                 onChange={(v) => update(a.id, { retOverride: (v ?? 0) / 100 })}
               />
             ) : null}
-            <NumberField
-              label="Annual contribution"
-              prefix="$"
-              value={a.contrib || null}
-              onChange={(v) => update(a.id, { contrib: v ?? 0 })}
+            <MonthlyMoneyField
+              label="Contribution (per month)"
+              hint="What you put into this account each month."
+              annualValue={a.contrib || null}
+              onChangeAnnual={(v) => update(a.id, { contrib: v ?? 0 })}
             />
             {a.type === "NONREG" ? (
               <NumberField
