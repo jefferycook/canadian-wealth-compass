@@ -292,11 +292,12 @@ function IncomeStep({ draft, onChange }: StepProps) {
             max={70}
             onChange={(v) => onChange(patchPerson(draft, i, { cpp: { ...p.cpp, age: v } }))}
           />
-          <NumberField
-            label="OAS at 65 (per year)"
-            prefix="$"
-            value={p.oas.amt}
-            onChange={(v) => onChange(patchPerson(draft, i, { oas: { ...p.oas, amt: v } }))}
+          <MonthlyMoneyField
+            label="OAS at 65 (per month)"
+            annualValue={p.oas.amt}
+            onChangeAnnual={(v) =>
+              onChange(patchPerson(draft, i, { oas: { ...p.oas, amt: v } }))
+            }
           />
           <NumberField
             label="Start OAS at age"
