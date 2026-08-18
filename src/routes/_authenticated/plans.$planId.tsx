@@ -203,7 +203,30 @@ function PlanBuilder() {
         ) : results.isPending ? (
           <p className="text-muted-foreground">Running the projection…</p>
         ) : results.data ? (
-          <PlanResults output={results.data} />
+          <Tabs defaultValue="projection">
+            <TabsList className="mb-6 flex h-auto flex-wrap justify-start">
+              <TabsTrigger value="projection">Projection</TabsTrigger>
+              <TabsTrigger value="networth">Net worth</TabsTrigger>
+              <TabsTrigger value="goal">Goal progress</TabsTrigger>
+              <TabsTrigger value="strategies">Strategies</TabsTrigger>
+              <TabsTrigger value="advice">Recommendations</TabsTrigger>
+            </TabsList>
+            <TabsContent value="projection">
+              <PlanResults output={results.data.output} />
+            </TabsContent>
+            <TabsContent value="networth">
+              <NetWorthPanel view={results.data.netWorth} />
+            </TabsContent>
+            <TabsContent value="goal">
+              <GoalPanel goal={results.data.goal} />
+            </TabsContent>
+            <TabsContent value="strategies">
+              <StrategyPanel rows={results.data.strategies} />
+            </TabsContent>
+            <TabsContent value="advice">
+              <RecommendationsPanel items={results.data.recommendations} />
+            </TabsContent>
+          </Tabs>
         ) : (
           <p className="text-destructive">The projection could not be run.</p>
         )}
