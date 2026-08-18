@@ -103,8 +103,8 @@ function PlanBuilder() {
   const ready = gaps.length === 0;
 
   const results = useQuery({
-    queryKey: ["projection", planId, draft],
-    queryFn: () => project({ data: { draft: draft! } }),
+    queryKey: ["analysis", planId, draft],
+    queryFn: () => analyze({ data: { draft: draft! } }),
     enabled: Boolean(draft) && ready,
   });
 
