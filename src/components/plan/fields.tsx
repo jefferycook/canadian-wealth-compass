@@ -61,6 +61,23 @@ export function NumberField({
   step?: number | undefined;
   className?: string | undefined;
 }) {
+  /**
+   * The box keeps whatever the person typed, including an empty box. Without
+   * this, a parent that stores 0 re-renders "0" the instant the field is
+   * cleared and the zero becomes impossible to delete.
+   */
+  const [text, setText] = useState(value == null ? "" : String(value));
+  const typing = useRef(false);
+
+  useEffect(() => {
+    if (typing.current) {
+      typing.current = false;
+      return;
+    }
+    const current = text === "" ? null : Number(text);
+    if (current !== value) setText(value == null ? "" : String(value));
+  }, [value, text]);
+
   return (
     <Field label={label} hint={hint} className={className}>
       <div className="relative">
@@ -73,16 +90,19 @@ export function NumberField({
           type="number"
           inputMode="decimal"
           className={cn("tabular", prefix && "pl-7", suffix && "pr-10")}
-          value={value ?? ""}
+          value={text}
           placeholder={placeholder ?? ""}
           min={min}
           max={max}
           step={step ?? 1}
           onChange={(e) => {
             const raw = e.target.value;
+            typing.current = true;
+            setText(raw);
             onChange(raw === "" ? null : Number(raw));
           }}
         />
+
         {suffix ? (
           <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
             {suffix}
