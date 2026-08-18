@@ -11,7 +11,15 @@
  * client says they want to spend.
  */
 
-import { afterTaxEstate, depletionAge, lifetimeTax, runPlan, shortfallYears } from "./engine";
+import {
+  afterTaxEstate,
+  firstShortfallAge,
+  lifetimeTax,
+  planFunded,
+  portfolioExhaustionAge,
+  runPlan,
+  shortfallYears,
+} from "./engine";
 import { projection } from "./projection";
 import type {
   AccountType,
@@ -55,7 +63,10 @@ export interface PlanScore {
   /** Sustainable spending over the target, 0-2. */
   progress: number;
   shortfallYears: number;
-  depletionAge: number | null;
+  /** Age a previously funded portfolio is exhausted. Not a failure signal. */
+  portfolioExhaustionAge: number | null;
+  /** First age spending is not fully funded. */
+  firstShortfallAge: number | null;
   lifetimeTax: number;
   afterTaxEstate: number;
   finalNetWorth: number;
@@ -115,7 +126,7 @@ export function leverOverride(levers: LeverSettings): ProjectionOverride {
 }
 
 function lasts(P: ProjectionResult): boolean {
-  return shortfallYears(P) === 0 && depletionAge(P) == null;
+  return planFunded(P);
 }
 
 /**
@@ -159,7 +170,8 @@ export function scorePlan(inputs: PlanInputs, levers: LeverSettings = NO_LEVERS)
     spendTarget: Math.round(spendTarget),
     progress: spendTarget > 0 ? Math.min(2, sustainable / spendTarget) : 1,
     shortfallYears: shortfallYears(P),
-    depletionAge: depletionAge(P),
+    portfolioExhaustionAge: portfolioExhaustionAge(P),
+    firstShortfallAge: firstShortfallAge(P),
     lifetimeTax: Math.round(lifetimeTax(P)),
     afterTaxEstate: Math.round(afterTaxEstate(P)),
     finalNetWorth: Math.round(last?.netWorth ?? 0),
