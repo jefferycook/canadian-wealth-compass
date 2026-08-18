@@ -505,6 +505,9 @@ describe("couples and survivorship", () => {
 
   it("rolls the deceased's accounts to the survivor rather than liquidating them", () => {
     const i = couple();
+    // Modest spending so the accounts are not already drawn down by the death
+    // year — otherwise this asserts nothing about the rollover itself.
+    i.spendNeed = 40000;
     i.accounts.push({
       ...i.accounts[0]!,
       id: "acc_rrif_b",
@@ -517,11 +520,17 @@ describe("couples and survivorship", () => {
     const P = runPlan(i);
     const before = P.rows.find((r) => r.ages[1] === 74)!;
     const after = P.rows.find((r) => r.ages[1] === 76)!;
-    // Nothing is lost at the moment of passing: the household portfolio is
-    // still there, it simply belongs to the survivor now.
-    expect(after.totalPortfolio).toBeGreaterThan(before.totalPortfolio * 0.5);
+    // The deceased's account is still on the household balance sheet after the
+    // death — it changed owner, it was not cashed out.
+    expect(before.balances["acc_rrif_b"]!).toBeGreaterThan(1000);
+    expect(after.balances["acc_rrif_b"]!).toBeGreaterThan(1000);
+    // And the household portfolio does not collapse by the size of that account.
+    expect(after.totalPortfolio).toBeGreaterThan(
+      before.totalPortfolio - before.balances["acc_rrif_b"]! * 0.5,
+    );
   });
 });
+
 
 describe("LIRA unlocking", () => {
   it("moves the unlocked share into an RRSP and leaves the rest locked", () => {
