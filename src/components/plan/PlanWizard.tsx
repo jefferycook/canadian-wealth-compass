@@ -869,23 +869,22 @@ function SpendingStep({ draft, onChange }: StepProps) {
   return (
     <div className="space-y-4">
       <SectionCard title="What you spend today">
-        <NumberField
+        <MonthlyMoneyField
           label="Household spending (per month)"
           hint="Everything the household actually spends now, after tax — housing, food, cars, travel, the lot. Debt payments are counted separately."
-          prefix="$"
           step={100}
-          value={draft.currentSpend == null ? null : Math.round(draft.currentSpend / 12)}
-          onChange={(v) => onChange({ ...draft, currentSpend: v == null ? null : v * 12 })}
+          annualValue={draft.currentSpend ?? null}
+          onChangeAnnual={(v) => onChange({ ...draft, currentSpend: v })}
         />
       </SectionCard>
 
       <SectionCard title="Retirement spending">
-        <NumberField
-          label="Annual spending after tax"
+        <MonthlyMoneyField
+          label="Retirement spending after tax (per month)"
           hint="Today's dollars, for the whole household. Everything the plan has to fund."
-          prefix="$"
-          value={draft.spendNeed}
-          onChange={(v) => onChange({ ...draft, spendNeed: v })}
+          step={100}
+          annualValue={draft.spendNeed}
+          onChangeAnnual={(v) => onChange({ ...draft, spendNeed: v })}
         />
         <NumberField
           label="Survivor spending"
