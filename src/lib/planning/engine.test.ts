@@ -327,7 +327,6 @@ describe("the default plan (regression fixture)", () => {
     const R = runPlan({
       ...defaultPlanInputs(),
       accounts: [],
-      assets: [],
       liabilities: [],
     });
     expect(R.hadInvestableAssets).toBe(false);
