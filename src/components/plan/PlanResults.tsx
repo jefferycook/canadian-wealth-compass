@@ -51,6 +51,12 @@ function Stat({
 
 export function PlanResults({ output }: { output: PlanOutput }) {
   const { summary, chart } = output;
+  // Cash-flow lines are shown per month; the engine works in annual dollars.
+  const monthlyChart = chart.map((p) => ({
+    ...p,
+    afterTax: monthlyDisplay(p.afterTax),
+    spendTarget: monthlyDisplay(p.spendTarget),
+  }));
   const shortAge = summary.firstShortfallAge;
   const lasts = shortAge == null;
   const exhaustNote =
