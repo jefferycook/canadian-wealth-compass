@@ -81,7 +81,12 @@ export interface PlanYearDetail {
 
 export interface PlanSummary {
   /** Age money runs out, or null when the plan lasts. */
-  depletionAge: number | null;
+  /** Age a previously funded portfolio is drawn to zero. Not a failure signal. */
+  portfolioExhaustionAge: number | null;
+  /** First age the plan cannot fund spending. This is the failure signal. */
+  firstShortfallAge: number | null;
+  /** True when the household holds no investable assets at all. */
+  noInvestableAssets: boolean;
   /** Years the plan cannot fund the spending target. */
   shortfallYears: number;
   lifetimeTax: number;
