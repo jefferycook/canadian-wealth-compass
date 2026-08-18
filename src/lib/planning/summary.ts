@@ -195,5 +195,8 @@ export function summarize(P: PlanResult): PlanOutput {
       peakMarginalRate: P.rows.reduce((m, r) => Math.max(m, r.margRate), 0),
     },
     chart,
+    years,
+    accounts: P.acctMeta,
   };
+
 }
