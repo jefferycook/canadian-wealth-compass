@@ -177,7 +177,9 @@ export function summarize(P: PlanResult): PlanOutput {
     netWorth: round(r.netWorth),
     lifRemaining: round(r.lifRemaining),
     lifBound: r.lifBound,
-    depleted: r.depleted,
+    fundingShortfall: r.fundingShortfall,
+    portfolioEmpty: r.portfolioEmpty,
+    portfolioExhausted: r.portfolioExhausted,
     anyDeceased: r.anyDeceased,
     balances: Object.fromEntries(
       Object.entries(r.balances).map(([id, b]) => [id, round(b)]),
