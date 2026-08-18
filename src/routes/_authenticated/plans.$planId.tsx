@@ -9,10 +9,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PlanResults } from "@/components/plan/PlanResults";
+import {
+  GoalPanel,
+  NetWorthPanel,
+  RecommendationsPanel,
+  StrategyPanel,
+} from "@/components/plan/PlanInsights";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlanWizard, WIZARD_STEPS, type WizardStepKey } from "@/components/plan/PlanWizard";
 import { isPlanReady, missingRequiredInputs } from "@/lib/planning/defaults";
 import type { PlanDraft } from "@/lib/planning/draft";
-import { getPlan, runProjection, savePlan } from "@/lib/plans.functions";
+import { analyzePlan, getPlan, savePlan } from "@/lib/plans.functions";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/plans/$planId")({
@@ -49,7 +56,7 @@ function PlanBuilder() {
   const { planId } = Route.useParams();
   const fetchPlan = useServerFn(getPlan);
   const persist = useServerFn(savePlan);
-  const project = useServerFn(runProjection);
+  const analyze = useServerFn(analyzePlan);
 
   const planQuery = useQuery({
     queryKey: ["plan", planId],
@@ -96,8 +103,8 @@ function PlanBuilder() {
   const ready = gaps.length === 0;
 
   const results = useQuery({
-    queryKey: ["projection", planId, draft],
-    queryFn: () => project({ data: { draft: draft! } }),
+    queryKey: ["analysis", planId, draft],
+    queryFn: () => analyze({ data: { draft: draft! } }),
     enabled: Boolean(draft) && ready,
   });
 
@@ -196,7 +203,30 @@ function PlanBuilder() {
         ) : results.isPending ? (
           <p className="text-muted-foreground">Running the projection…</p>
         ) : results.data ? (
-          <PlanResults output={results.data} />
+          <Tabs defaultValue="projection">
+            <TabsList className="mb-6 flex h-auto flex-wrap justify-start">
+              <TabsTrigger value="projection">Projection</TabsTrigger>
+              <TabsTrigger value="networth">Net worth</TabsTrigger>
+              <TabsTrigger value="goal">Goal progress</TabsTrigger>
+              <TabsTrigger value="strategies">Strategies</TabsTrigger>
+              <TabsTrigger value="advice">Recommendations</TabsTrigger>
+            </TabsList>
+            <TabsContent value="projection">
+              <PlanResults output={results.data.output} />
+            </TabsContent>
+            <TabsContent value="networth">
+              <NetWorthPanel view={results.data.netWorth} />
+            </TabsContent>
+            <TabsContent value="goal">
+              <GoalPanel goal={results.data.goal} />
+            </TabsContent>
+            <TabsContent value="strategies">
+              <StrategyPanel rows={results.data.strategies} />
+            </TabsContent>
+            <TabsContent value="advice">
+              <RecommendationsPanel items={results.data.recommendations} />
+            </TabsContent>
+          </Tabs>
         ) : (
           <p className="text-destructive">The projection could not be run.</p>
         )}

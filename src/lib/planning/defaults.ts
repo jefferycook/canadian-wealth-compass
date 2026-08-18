@@ -99,7 +99,7 @@ export function missingRequiredInputs(d: PlanDraft): string[] {
   if (!d.tax.provinceKey) gaps.push("province of residence");
   for (const person of d.people) {
     const who = person.firstName || (person.id === "A" ? "you" : "your spouse");
-    if (person.curAge == null) gaps.push(`current age for ${who}`);
+    if (person.curAge == null) gaps.push(`date of birth for ${who}`);
     if (person.retAge == null) gaps.push(`retirement age for ${who}`);
   }
   if (d.spendNeed == null) gaps.push("annual spending target");

@@ -3,7 +3,14 @@ import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { NumberField, SelectField, TextField, money } from "@/components/plan/fields";
+import {
+  DateField,
+  NumberField,
+  SelectField,
+  TextField,
+  ageFromDob,
+  money,
+} from "@/components/plan/fields";
 import type { PersonDraft, PlanDraft } from "@/lib/planning/draft";
 import { emptyPerson } from "@/lib/planning/defaults";
 import { getProvince, getTaxYear, provinceKeys } from "@/lib/planning/taxYears";
@@ -50,6 +57,9 @@ const PLAN_TYPES: { value: PlanType; label: string }[] = [
   { value: "commonlaw", label: "Common-law" },
   { value: "partners", label: "Partners (not spouses for tax)" },
 ];
+
+/** A stored fraction shown as a percentage, without losing typed decimals. */
+const pct = (v: number) => Number((v * 100).toFixed(4));
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
@@ -145,13 +155,20 @@ function HouseholdStep({ draft, onChange }: StepProps) {
             placeholder="Optional"
             onChange={(v) => onChange(patchPerson(draft, i, { firstName: v }))}
           />
-          <NumberField
-            label="Current age"
-            value={p.curAge}
-            min={18}
-            max={110}
-            onChange={(v) => onChange(patchPerson(draft, i, { curAge: v }))}
+          <DateField
+            label="Date of birth"
+            hint={
+              p.curAge != null
+                ? `Age ${p.curAge} today. Drives CPP, OAS, RRIF and LIF timing.`
+                : "Drives CPP, OAS, RRIF conversion and LIF timing."
+            }
+            value={p.dob}
+            max={new Date().toISOString().slice(0, 10)}
+            onChange={(v) =>
+              onChange(patchPerson(draft, i, { dob: v, curAge: ageFromDob(v) }))
+            }
           />
+
           <NumberField
             label="Retirement age"
             hint="Leave blank if already retired."
@@ -317,7 +334,7 @@ function AccountsStep({ draft, onChange }: StepProps) {
             <NumberField
               label="Current balance"
               prefix="$"
-              value={a.bal}
+              value={a.bal || null}
               onChange={(v) => update(a.id, { bal: v ?? 0 })}
             />
             <NumberField
@@ -332,7 +349,7 @@ function AccountsStep({ draft, onChange }: StepProps) {
             <NumberField
               label="Annual contribution"
               prefix="$"
-              value={a.contrib}
+              value={a.contrib || null}
               onChange={(v) => update(a.id, { contrib: v ?? 0 })}
             />
             {a.type === "NONREG" ? (
@@ -340,7 +357,7 @@ function AccountsStep({ draft, onChange }: StepProps) {
                 label="Adjusted cost base"
                 hint="What you paid. Used for capital-gains tax on withdrawals."
                 prefix="$"
-                value={a.acb}
+                value={a.acb || null}
                 onChange={(v) => update(a.id, { acb: v ?? 0 })}
               />
             ) : null}
@@ -351,7 +368,7 @@ function AccountsStep({ draft, onChange }: StepProps) {
                 suffix="%"
                 min={0}
                 max={100}
-                value={a.unlock}
+                value={a.unlock || null}
                 onChange={(v) => update(a.id, { unlock: v ?? 0 })}
               />
             ) : null}
@@ -412,14 +429,14 @@ function PropertyStep({ draft, onChange }: StepProps) {
               <NumberField
                 label="Current value"
                 prefix="$"
-                value={h.val}
+                value={h.val || null}
                 onChange={(v) => updateAsset(h.id!, { val: v ?? 0 })}
               />
               <NumberField
                 label="Expected growth"
                 suffix="%"
                 step={0.1}
-                value={Math.round(h.apr * 1000) / 10}
+                value={pct(h.apr)}
                 onChange={(v) => updateAsset(h.id!, { apr: (v ?? 0) / 100 })}
               />
               <NumberField
@@ -433,7 +450,7 @@ function PropertyStep({ draft, onChange }: StepProps) {
                 suffix="%"
                 min={0}
                 max={100}
-                value={h.dsPct}
+                value={h.dsPct || null}
                 onChange={(v) => updateAsset(h.id!, { dsPct: v ?? 0 })}
               />
               <div className="flex items-center justify-between rounded-md border p-3">
@@ -506,20 +523,20 @@ function PropertyStep({ draft, onChange }: StepProps) {
               <NumberField
                 label="Balance owing"
                 prefix="$"
-                value={l.bal}
+                value={l.bal || null}
                 onChange={(v) => updateLiab(l.id!, { bal: v ?? 0 })}
               />
               <NumberField
                 label="Interest rate"
                 suffix="%"
                 step={0.1}
-                value={Math.round(l.rate * 1000) / 10}
+                value={pct(l.rate)}
                 onChange={(v) => updateLiab(l.id!, { rate: (v ?? 0) / 100 })}
               />
               <NumberField
                 label="Annual payment"
                 prefix="$"
-                value={l.pay}
+                value={l.pay || null}
                 onChange={(v) => updateLiab(l.id!, { pay: v ?? 0 })}
               />
             </CardContent>
@@ -587,7 +604,7 @@ function SpendingStep({ draft, onChange }: StepProps) {
               />
               <NumberField
                 label="At your age"
-                value={e.age}
+                value={e.age || null}
                 onChange={(v) =>
                   onChange({
                     ...draft,
@@ -598,7 +615,7 @@ function SpendingStep({ draft, onChange }: StepProps) {
               <NumberField
                 label="Amount"
                 prefix="$"
-                value={e.amt}
+                value={e.amt || null}
                 onChange={(v) =>
                   onChange({
                     ...draft,
@@ -645,21 +662,21 @@ function AssumptionsStep({ draft, onChange }: StepProps) {
           label="Inflation"
           suffix="%"
           step={0.1}
-          value={Math.round(draft.inflation * 1000) / 10}
+          value={pct(draft.inflation)}
           onChange={(v) => onChange({ ...draft, inflation: (v ?? 2.1) / 100 })}
         />
         <NumberField
           label="Equity return"
           suffix="%"
           step={0.1}
-          value={Math.round(draft.eqRet * 1000) / 10}
+          value={pct(draft.eqRet)}
           onChange={(v) => onChange({ ...draft, eqRet: (v ?? 6.5) / 100 })}
         />
         <NumberField
           label="Fixed-income return"
           suffix="%"
           step={0.1}
-          value={Math.round(draft.fiRet * 1000) / 10}
+          value={pct(draft.fiRet)}
           onChange={(v) => onChange({ ...draft, fiRet: (v ?? 3.5) / 100 })}
         />
         <NumberField
