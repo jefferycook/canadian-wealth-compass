@@ -158,10 +158,21 @@ export function householdTax(
   };
   if (canSplit === false) return best;
 
-  const tryDir = (from: number, to: number, maxT: number) => {
-    if (maxT <= 0) return;
-    for (let f = 0.05; f <= 0.5001; f += 0.05) {
-      const T = maxT * f;
+  /**
+   * Search transfers from one spouse to the other.
+   *
+   * @param eligible The transferor's eligible pension income. The statutory
+   *                 50% ceiling is applied here, once, and the search fraction
+   *                 sweeps the whole 0-50% range beneath it.
+   */
+  const tryDir = (from: number, to: number, eligible: number) => {
+    if (!(eligible > 0)) return;
+    const STEP = 0.01;
+    for (let f = STEP; f <= 0.5 + 1e-9; f += STEP) {
+      // Never transfer more than the transferor's ordinary income, so the
+      // transferor's income cannot go negative.
+      const T = Math.min(eligible * f, Math.max(0, incs[from]!.ordinary));
+      if (T <= 0) continue;
       const fi = { ...incs[from]! };
       const ti = { ...incs[to]! };
       fi.ordinary -= T;
@@ -171,7 +182,7 @@ export function householdTax(
       const rf = computeTax(fi, opts, ty);
       const rt = computeTax(ti, opts, ty);
       const tot = rf.tax + rt.tax;
-      if (tot < best.tax) {
+      if (tot < best.tax - 1e-9) {
         best = {
           tax: tot,
           perPerson: from === 0 ? [rf, rt] : [rt, rf],
@@ -182,8 +193,9 @@ export function householdTax(
     }
   };
 
-  tryDir(0, 1, 0.5 * (a.pensionEligible || 0));
-  tryDir(1, 0, 0.5 * (b.pensionEligible || 0));
+  tryDir(0, 1, a.pensionEligible || 0);
+  tryDir(1, 0, b.pensionEligible || 0);
+
   return best;
 }
 
