@@ -471,6 +471,14 @@ function PropertyStep({ draft, onChange }: StepProps) {
       liabilities: draft.liabilities.map((x) => (x.id === id ? { ...x, ...patch } : x)),
     });
 
+  // Assets are entered as calendar years; the engine works in Person A's ages.
+  const me = draft.people[0];
+  const meAge = me?.curAge ?? ageFromDob(me?.dob ?? null);
+  const nowYear = new Date().getFullYear();
+  const toYear = (age: number) => (meAge == null || !age ? null : nowYear + (age - meAge));
+  const toAge = (year: number | null) =>
+    year == null || meAge == null ? 0 : Math.max(0, Math.round(meAge + (year - nowYear)));
+
   return (
     <div className="space-y-6">
       <div className="space-y-3">
