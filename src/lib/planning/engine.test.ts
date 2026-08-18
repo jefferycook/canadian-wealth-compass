@@ -161,7 +161,54 @@ describe("pension income splitting", () => {
     const b = income({ ordinary: 0 });
     expect(householdTax([a, b], ON, true, TY).splitAmt).toBeLessThanOrEqual(50000 + 1e-9);
   });
+
+  /* --- Batch 0.1: the search must reach the full statutory 50%, not 25% --- */
+
+  it("reaches approximately the full 50% when that is the optimum", () => {
+    // One spouse with a large eligible pension, the other with nothing: the
+    // optimum is at or near the statutory maximum.
+    const a = income({ ordinary: 120000, pensionEligible: 120000, age: 68 });
+    const b = income({ ordinary: 0, age: 68 });
+    const r = householdTax([a, b], ON, true, TY);
+    expect(r.splitAmt).toBeGreaterThan(0.45 * 120000);
+    expect(r.splitAmt).toBeLessThanOrEqual(0.5 * 120000 + 1e-9);
+  });
+
+  it("beats the old 25%-capped search on a lopsided couple", () => {
+    const a = income({ ordinary: 120000, pensionEligible: 120000, age: 68 });
+    const b = income({ ordinary: 0, age: 68 });
+    const r = householdTax([a, b], ON, true, TY);
+
+    // Reproduce the pre-fix behaviour: the best transfer reachable at 25%.
+    let capped = computeTax(a, ON, TY).tax + computeTax(b, ON, TY).tax;
+    for (let f = 0.05; f <= 0.5001; f += 0.05) {
+      const T = 0.5 * 120000 * f; // the old double-50% arithmetic
+      const fi = { ...a, ordinary: a.ordinary - T, pensionEligible: 120000 - T };
+      const ti = { ...b, ordinary: b.ordinary + T, pensionEligible: T };
+      capped = Math.min(capped, computeTax(fi, ON, TY).tax + computeTax(ti, ON, TY).tax);
+    }
+    expect(r.tax).toBeLessThan(capped);
+  });
+
+  it("splits nothing meaningful when both spouses have equal income", () => {
+    const a = income({ ordinary: 60000, pensionEligible: 40000, age: 68 });
+    const b = income({ ordinary: 60000, pensionEligible: 40000, age: 68 });
+    const noSplit = computeTax(a, ON, TY).tax + computeTax(b, ON, TY).tax;
+    const r = householdTax([a, b], ON, true, TY);
+    expect(r.tax).toBeCloseTo(noSplit, 6);
+  });
+
+  it("never drives the transferor's ordinary income negative", () => {
+    // Eligible pension exceeds ordinary income (a degenerate input): the
+    // transfer must still be bounded by ordinary income.
+    const a = income({ ordinary: 10000, pensionEligible: 90000, age: 68 });
+    const b = income({ ordinary: 0, age: 68 });
+    const r = householdTax([a, b], ON, true, TY);
+    expect(r.splitAmt).toBeLessThanOrEqual(10000 + 1e-9);
+    expect(r.perPerson.every((p) => p.taxable >= 0)).toBe(true);
+  });
 });
+
 
 describe("CPP and OAS timing", () => {
   it("reduces CPP 0.6%/month before 65 and increases it 0.7%/month after", () => {
