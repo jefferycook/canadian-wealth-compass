@@ -234,7 +234,7 @@ export function PlanResults({ output }: { output: PlanOutput }) {
                       "tabular p-3 text-right " + (r.shortfall > 1 ? "text-destructive" : "")
                     }
                   >
-                    {money(r.afterTax)}
+                    {perMonth(r.afterTax)}
                   </td>
                   <td className="tabular p-3 text-right">{money(r.tax)}</td>
                   <td className="tabular p-3 text-right">{money(r.netWorth)}</td>
