@@ -14,13 +14,16 @@ import {
 import { BenefitEstimator } from "@/components/plan/BenefitEstimator";
 import { monthlyMortgagePayment } from "@/lib/planning/estimates";
 import type { PersonDraft, PlanDraft } from "@/lib/planning/draft";
-import { emptyPerson } from "@/lib/planning/defaults";
+import { accountTypeLabel } from "@/lib/planning/draft";
+import { RETURN_PRESETS, emptyPerson } from "@/lib/planning/defaults";
 import { getProvince, getTaxYear, provinceKeys } from "@/lib/planning/taxYears";
 import type {
   AccountInput,
   AccountType,
   HardAssetInput,
   LiabilityInput,
+  LumpSumInput,
+  OtherIncomeInput,
   OwnerKey,
   PlanType,
   ProvinceKey,
@@ -29,9 +32,14 @@ import type {
 export const WIZARD_STEPS = [
   { key: "household", title: "About you", blurb: "Where you live and who the plan covers." },
   { key: "income", title: "Income", blurb: "Work income, CPP, OAS and workplace pensions." },
+  {
+    key: "other",
+    title: "Other income",
+    blurb: "Rent, bonuses, inheritances and anything else that comes in.",
+  },
   { key: "accounts", title: "Savings", blurb: "RRSPs, TFSAs, LIRAs and investment accounts." },
   { key: "property", title: "Property & debt", blurb: "Your home, other assets and what you owe." },
-  { key: "spending", title: "Spending", blurb: "What retirement needs to pay for." },
+  { key: "spending", title: "Spending", blurb: "What you spend now and what retirement has to fund." },
   { key: "assumptions", title: "Assumptions", blurb: "Returns, inflation and horizon." },
 ] as const;
 
@@ -79,7 +87,7 @@ function uid() {
 function newAccount(owner: OwnerKey, type: AccountType = "RRSP"): AccountInput {
   return {
     id: uid(),
-    name: type === "NONREG" ? "Investment account" : type,
+    name: "",
     type,
     owner,
     bal: 0,
@@ -88,6 +96,7 @@ function newAccount(owner: OwnerKey, type: AccountType = "RRSP"): AccountInput {
     conv: 0,
     unlock: 0,
     juris: "ON",
+    retOverride: null,
     contrib: 0,
     contribEnd: 0,
     wd: 0,
@@ -96,6 +105,25 @@ function newAccount(owner: OwnerKey, type: AccountType = "RRSP"): AccountInput {
     mix: { int: 0.3, div: 0.3, cg: 0.4 },
   };
 }
+
+/** The return an account is assumed to earn, given its mix or its override. */
+function effectiveReturn(a: AccountInput, draft: PlanDraft): number {
+  if (a.retOverride != null) return a.retOverride;
+  const eq = Math.max(0, Math.min(100, a.eq)) / 100;
+  return eq * draft.eqRet + (1 - eq) * draft.fiRet;
+}
+
+function presetKeyOf(a: AccountInput): string {
+  if (a.retOverride == null) return "blend";
+  const hit = RETURN_PRESETS.find((p) => Math.abs(p.rate - a.retOverride!) < 0.0001);
+  return hit ? hit.key : "custom";
+}
+
+const RETURN_OPTIONS = [
+  { value: "blend", label: "From my equity mix" },
+  ...RETURN_PRESETS.map((p) => ({ value: p.key as string, label: p.label })),
+  { value: "custom", label: "Custom rate" },
+];
 
 interface StepProps {
   draft: PlanDraft;
