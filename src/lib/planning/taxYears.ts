@@ -72,6 +72,8 @@ export interface TaxYear {
 
   /** Annual CPP maximum at 65. */
   cppMax65: number;
+  /** Average new CPP retirement pension taken at 65, annualized. */
+  cppAvgNew65: number;
   /** Survivor's pension flat-rate portion, annualized (under 65). */
   cppSurvFlat: number;
   /** Maximum survivor's pension, under 65, annualized. */
