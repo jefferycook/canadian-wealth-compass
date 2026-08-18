@@ -359,7 +359,7 @@ function AccountsStep({ draft, onChange }: StepProps) {
       {draft.accounts.map((a) => (
         <Card key={a.id}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-            <CardTitle className="text-base">{a.name || a.type}</CardTitle>
+            <CardTitle className="text-base">{a.name || accountTypeLabel(a.type)}</CardTitle>
             <Button
               variant="ghost"
               size="icon"
@@ -372,7 +372,13 @@ function AccountsStep({ draft, onChange }: StepProps) {
             </Button>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
-            <TextField label="Nickname" value={a.name} onChange={(v) => update(a.id, { name: v })} />
+            <TextField
+              label="Account name"
+              placeholder={accountTypeLabel(a.type)}
+              hint="Leave it blank and we'll use the account type."
+              value={a.name}
+              onChange={(v) => update(a.id, { name: v })}
+            />
             <SelectField<AccountType>
               label="Account type"
               value={a.type}
@@ -393,13 +399,37 @@ function AccountsStep({ draft, onChange }: StepProps) {
             />
             <NumberField
               label="Equity allocation"
-              hint="The rest is treated as fixed income."
+              hint={`The rest is treated as fixed income. Assumed total return: ${(
+                effectiveReturn(a, draft) * 100
+              ).toFixed(2)}%.`}
               suffix="%"
               min={0}
               max={100}
               value={a.eq}
               onChange={(v) => update(a.id, { eq: v ?? 0 })}
             />
+            <SelectField
+              label="Expected return"
+              hint="Pick a preset, or let it follow the equity mix and your global return assumptions."
+              value={presetKeyOf(a)}
+              onChange={(k) => {
+                if (k === "blend") return update(a.id, { retOverride: null });
+                if (k === "custom")
+                  return update(a.id, { retOverride: effectiveReturn(a, draft) });
+                const preset = RETURN_PRESETS.find((p) => p.key === k);
+                if (preset) update(a.id, { retOverride: preset.rate, eq: preset.eq });
+              }}
+              options={RETURN_OPTIONS}
+            />
+            {a.retOverride != null ? (
+              <NumberField
+                label="Return for this account"
+                suffix="%"
+                step={0.1}
+                value={pct(a.retOverride)}
+                onChange={(v) => update(a.id, { retOverride: (v ?? 0) / 100 })}
+              />
+            ) : null}
             <NumberField
               label="Annual contribution"
               prefix="$"
