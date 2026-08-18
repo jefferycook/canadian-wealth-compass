@@ -323,6 +323,19 @@ function IncomeStep({ draft, onChange }: StepProps) {
             value={p.bridge.amt}
             onChange={(v) => onChange(patchPerson(draft, i, { bridge: { ...p.bridge, amt: v } }))}
           />
+          {p.bridge.amt ? (
+            <NumberField
+              label="Bridge ends at age"
+              hint="Usually 65, when CPP and OAS begin."
+              value={p.bridge.end}
+              min={55}
+              max={71}
+              onChange={(v) =>
+                onChange(patchPerson(draft, i, { bridge: { ...p.bridge, end: v } }))
+              }
+            />
+          ) : null}
+
           <NumberField
             label="TFSA room available"
             prefix="$"
