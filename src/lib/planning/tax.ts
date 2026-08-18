@@ -125,12 +125,15 @@ export function computeTax(
 /**
  * Household tax with pension-income-splitting optimization.
  *
- * Rather than assuming a 50/50 split, this searches transfer amounts in 5%
- * steps up to the statutory 50% limit, in both directions, and keeps whichever
- * produces the lowest combined tax.
+ * CRA (Form T1032) permits allocating up to 50% of eligible pension income to
+ * the other spouse. Rather than assuming 50/50, this searches the full 0-50%
+ * range in both directions in 1% steps and keeps whichever transfer produces
+ * the lowest combined tax. The step is fine enough that credit phase-outs and
+ * bracket edges are not stepped over.
  *
  * @param canSplit False for partners who are neither married nor common-law.
  */
+
 export function householdTax(
   incs: IncomeComponents[],
   opts: TaxSettings,
