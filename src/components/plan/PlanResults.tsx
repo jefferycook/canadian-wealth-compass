@@ -63,13 +63,13 @@ export function PlanResults({ output }: { output: PlanOutput }) {
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat
-          label="Money lasts to"
-          value={lasts ? `Age ${summary.endAge}+` : `Age ${summary.depletionAge}`}
+          label="Spending funded to"
+          value={lasts ? `Age ${summary.endAge}+` : `Age ${shortAge}`}
           tone={lasts ? "good" : "bad"}
           note={
-            lasts
+            (lasts
               ? "Your plan funds every year of the projection."
-              : "Savings run out before the end of the projection."
+              : "Spending is not fully funded from this age onward.") + exhaustNote
           }
         />
         <Stat label="Lifetime tax" value={money(summary.lifetimeTax)} />
