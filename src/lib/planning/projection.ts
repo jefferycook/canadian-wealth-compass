@@ -479,8 +479,10 @@ export function projection(
         }
       }
       if (as.sale && ages[0] === as.sale) {
-        const proceeds = as.val;
-        if (as.taxable) saleGainTaxA += Math.max(0, as.val - as.acb) * 0.5;
+        // Selling costs come off the cheque and off the taxable gain.
+        const cost = Math.min(as.val, (as.sellCost ?? 0) * infFac);
+        const proceeds = as.val - cost;
+        if (as.taxable) saleGainTaxA += Math.max(0, as.val - as.acb - cost) * 0.5;
         const target =
           accts.find((a) => a.type === "NONREG" && oi(a) === 0) ??
           accts.find((a) => a.type === "NONREG");
