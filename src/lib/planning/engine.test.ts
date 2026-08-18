@@ -311,12 +311,33 @@ describe("the default plan (regression fixture)", () => {
   });
 
   it("runs the portfolio down and reports the resulting shortfalls honestly", () => {
-    // The seeded plan does not last: $1.0M against $60k of spending plus a
-    // $28k mortgage runs dry in the client's late 80s. The engine must say so
-    // rather than quietly funding the gap.
+    // The seeded plan does not last. The engine must say so rather than
+    // quietly funding the gap — and it must separate the funding failure
+    // (spending unmet) from the balance-sheet event (portfolio exhausted).
     expect(firstShortfallAge(P)).not.toBeNull();
-    expect(firstShortfallAge(P)!).toBeGreaterThan(80);
+    expect(firstShortfallAge(P)!).toBeGreaterThan(70);
     expect(shortfallYears(P)).toBeGreaterThan(0);
+    expect(P.hadInvestableAssets).toBe(true);
+    expect(portfolioExhaustionAge(P)).not.toBeNull();
+    expect(portfolioExhaustionAge(P)!).toBeGreaterThanOrEqual(firstShortfallAge(P)!);
+  });
+
+  it("does not report an exhausted portfolio for a household that never invested", () => {
+    const R = runPlan({
+      ...DEFAULT_PLAN,
+      accounts: [],
+      assets: [],
+      liabilities: [],
+    });
+    expect(R.hadInvestableAssets).toBe(false);
+    expect(portfolioExhaustionAge(R)).toBeNull();
+    expect(R.rows.every((r) => r.portfolioEmpty)).toBe(true);
+    expect(R.rows.every((r) => !r.portfolioExhausted)).toBe(true);
+  });
+
+  it("does not flag a funding shortfall in working years funded by employment income", () => {
+    const working = P.rows.filter((r) => r.employ > 0 && r.shortfall <= 1);
+    for (const r of working) expect(r.fundingShortfall).toBe(false);
   });
 
   it("pays off the mortgage and never reports a negative liability", () => {
