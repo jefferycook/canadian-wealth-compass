@@ -195,7 +195,9 @@ export function LeversPanel({
           <div className="grid gap-3 pt-1 text-sm sm:grid-cols-3">
             <p>
               Sustainable spending{" "}
-              <span className="tabular font-medium">{money(combined.sustainableSpend)}</span>/yr
+              <span className="tabular font-medium">
+                {perMonthWithYear(combined.sustainableSpend)}
+              </span>
             </p>
             <p>
               Lifetime tax <span className="tabular font-medium">{money(combined.lifetimeTax)}</span>
