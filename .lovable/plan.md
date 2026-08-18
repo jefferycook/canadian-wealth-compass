@@ -58,45 +58,75 @@ Must land before any sweep or deduction work. No unbounded contributions anywher
 `types.ts`, `defaults.ts` for the new inputs.
 
 **Definition (binding):** entered `rrspRoom` and `tfsaRoom` are **available room as of the
-plan start date** — i.e. they already include all prior-year accrual and carry-forward.
-The engine therefore accrues **only from the first projected year forward** and never
-re-accrues the start year. This is documented in the field help text and enforced by test.
+plan start date** — they already include all prior-year accrual and carry-forward. The
+engine accrues **only from the next calendar year forward** and never re-accrues the start
+year. Documented in the field help text and enforced by test.
 
-**TFSA ledger, per person per year:**
-opening available room (entered, or 0 if blank) + annual statutory amount
-(from the rules table) + withdrawals made in the **prior** calendar year
-− contributions made = running remaining room. Never negative.
+**TFSA room (binding methodology):**
+- **Start year:** use the entered opening room **as-is**. Do not add the current calendar
+  year's statutory TFSA amount on top — it is already represented in the entered figure.
+- **Each following year:** `prior-year unused room + next year's statutory TFSA limit +
+  withdrawals made in the prior calendar year − contributions made`. Never negative.
+- **Unknown opening room:** do **not** assume the current year's statutory amount is
+  unused. Current-year available room is treated as **unknown → zero for recommendation
+  purposes** unless the client confirms it; the UI asks for confirmation and the figure is
+  listed as unverified. Statutory room may still accrue from the **next** calendar year
+  forward, subject to stated eligibility/residency assumptions (age 18+, Canadian
+  residency) which are surfaced as assumptions, not silently applied.
+
+**RRSP room (binding methodology):**
+- **Start year:** if the client enters their **CRA RRSP deduction limit**, that is the
+  authoritative opening-year figure. Do **not** recreate the same year's room from
+  prior-year earned income and PA — that would double-count.
+- Current-year earned income and current-year PA generate/affect the **following** year's
+  deduction limit, not the current one.
+- Opening **unused RRSP contributions** (contributed but not yet deducted) are a
+  **separate input** from the deduction limit, so that contribution made ≠ deduction
+  claimed ≠ deduction limit from the very first projected year.
+- The **$2,000 lifetime over-contribution cushion is never treated as usable room** and is
+  never included in any recommended contribution amount.
 
 **RRSP ledger, per person per year — required fields:**
-- `openingRoom` — available room at plan start
-- `priorYearEarnedIncome` — drives accrual
+- `openingDeductionLimit` — CRA deduction limit at plan start (authoritative if entered)
+- `openingUnusedContributions` — contributed but undeducted at plan start
+- `priorYearEarnedIncome` — drives the following year's accrual
 - `annualStatutoryMax` — the year's RRSP dollar limit (rules table)
-- `pensionAdjustment` (PA) — per person per year, entered or derived from DB/DCPP
-  membership; **required**, not optional
+- `pensionAdjustment` (PA)
 - `contributionsMade`
 - `deductionsClaimed`
 - `unclaimedDeductionCarryforward`
 - `remainingRoom` (running)
 
-Accrual = `min(0.18 × priorYearEarnedIncome, annualStatutoryMax) − PA`, floored at 0,
-added to opening room, less contributions made.
+Accrual applied to the **following** year =
+`min(0.18 × priorYearEarnedIncome, annualStatutoryMax) − PA`, floored at 0.
+
+**Pension adjustment (binding):** PA is **never inferred from the eventual DB pension
+benefit amount**. It comes from an explicit PA input (the client's T4 box 52 / CRA notice)
+or from a calculation with sufficient underlying pension-plan data. Where a future year's
+PA is unknown, the projected RRSP room for that year is **flagged as unreliable** and
+surfaced in the disclosure list — never silently assumed to be zero, and never used to
+justify a "contribute more to your RRSP" recommendation.
 
 **Explicitly unsupported for now (flagged, not silently ignored):** PSPA and PAR. Both
-appear in the `approximations[]`/unsupported list surfaced by Batch 0.8, and the UI states
-that a client with a past-service buyback or a pension termination should not rely on the
-room figure.
+appear in the unsupported list surfaced by Batch 0.8, with a plain-language note that a
+client with a past-service buyback or a pension termination should not rely on the room
+figure.
 
-**Types/schema:** per-person `pensionAdjustment: number | null` and
-`priorYearEarnedIncome: number | null` on `PlanDraft`; `rrspRoom`/`tfsaRoom` keep their
-names but gain the start-date definition. `ProjectionRow` gains `roomBy` for audit.
-**Tests:** blank TFSA room → only the annual statutory amount is contributable each year;
-entered $50k → $50k plus forward accrual only (never start-year double-accrual); a 10-year
-save never exceeds cumulative room; couple uses two independent TFSA rooms; RRSP accrual
-reduced dollar-for-dollar by PA; PA equal to the accrual → zero new room; room never
-negative.
-**Compatibility:** new fields default null → treated as "unknown", which caps
-contributions at accrual-only. Saved plans load; contribution-heavy plans may now
-contribute less. **Blast radius:** contribution years only.
+**Types/schema:** per-person `pensionAdjustment: number | null`,
+`priorYearEarnedIncome: number | null`, `rrspUnusedContributions: number | null` on
+`PlanDraft`; `rrspRoom`/`tfsaRoom` keep their names but gain the start-date definition
+(`rrspRoom` = CRA deduction limit). `ProjectionRow` gains `roomBy` for audit.
+**Tests:** entered TFSA room is used as-is in year one with no extra statutory top-up;
+year two adds the statutory limit plus prior-year withdrawals; blank TFSA room → zero
+usable room in year one, accrual from year two; entered RRSP deduction limit is not
+re-derived from earned income and PA in year one; current-year earned income affects only
+the following year's limit; RRSP accrual reduced dollar-for-dollar by PA; unknown future
+PA sets the unreliable flag; the $2,000 cushion never appears in usable room; room never
+negative; a 10-year save never exceeds cumulative room; couple uses two independent rooms.
+**Compatibility:** new fields default null → "unknown", which caps contributions
+conservatively. Saved plans load; contribution-heavy plans may now contribute less.
+**Blast radius:** contribution years only.
+
 
 ---
 
