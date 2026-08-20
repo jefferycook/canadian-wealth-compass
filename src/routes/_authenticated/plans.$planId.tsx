@@ -235,7 +235,7 @@ function PlanBuilder() {
               <NetWorthPanel view={results.data.netWorth} />
             </TabsContent>
             <TabsContent value="goal">
-              <GoalPanel goal={results.data.goal} />
+              <GoalPanel goal={results.data.goal} couple={draft.people.length > 1} />
             </TabsContent>
             <TabsContent value="strategies">
               <StrategiesWorkspace draft={draft} patch={patch} onApplyToScenario={setPatch} />
