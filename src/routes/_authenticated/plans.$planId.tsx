@@ -9,18 +9,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PlanResults } from "@/components/plan/PlanResults";
-import {
-  GoalPanel,
-  NetWorthPanel,
-  RecommendationsPanel,
-  StrategyPanel,
-} from "@/components/plan/PlanInsights";
+import { GoalPanel, NetWorthPanel } from "@/components/plan/PlanInsights";
+import { StrategiesWorkspace } from "@/components/plan/PlanStrategies";
+import { WhatIfWorkspace } from "@/components/plan/PlanWhatIf";
+import { OpportunitiesWorkspace } from "@/components/plan/PlanOpportunities";
+import type { ScenarioPatch } from "@/lib/planning/scenario";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlanWizard, WIZARD_STEPS, type WizardStepKey } from "@/components/plan/PlanWizard";
 import { isPlanReady, missingRequiredInputs } from "@/lib/planning/defaults";
 import type { PlanDraft } from "@/lib/planning/draft";
-import { LeversPanel } from "@/components/plan/PlanLevers";
-import { analyzePlan, getPlan, savePlan } from "@/lib/plans.functions";
+import { analyzePlan, getPlan, runScenarioFn, savePlan } from "@/lib/plans.functions";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/plans/$planId")({
@@ -68,6 +66,7 @@ function PlanBuilder() {
   const [name, setName] = useState("");
   const [stepIndex, setStepIndex] = useState(0);
   const [saved, setSaved] = useState(true);
+  const [patch, setPatch] = useState<ScenarioPatch>({});
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -106,6 +105,13 @@ function PlanBuilder() {
   const results = useQuery({
     queryKey: ["analysis", planId, draft],
     queryFn: () => analyze({ data: { draft: draft! } }),
+    enabled: Boolean(draft) && ready,
+  });
+
+  const runBaseline = useServerFn(runScenarioFn);
+  const baselineRun = useQuery({
+    queryKey: ["scenario-baseline", planId, draft],
+    queryFn: () => runBaseline({ data: { draft: draft!, patch: {} } }),
     enabled: Boolean(draft) && ready,
   });
 
