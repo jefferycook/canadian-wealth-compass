@@ -14,7 +14,7 @@ const patch: ScenarioPatch = {
   savingAccount: "TFSA",
   savingOwner: "A",
   cppAgeByPerson: { A: 70 },
-  strategy: "TFSA_FIRST",
+  strategy: "tfsa_nonreg_reg",
 };
 
 describe("scenario persistence", () => {
