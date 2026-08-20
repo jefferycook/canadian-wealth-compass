@@ -606,3 +606,32 @@ export function patchToDraft(
 
   return { draft: d, unsupported };
 }
+
+export interface PromotionLever {
+  key: PatchLeverKey;
+  label: string;
+}
+
+export interface PromotionPreflight {
+  /** Scenario settings that will be written into the baseline answers. */
+  applied: PromotionLever[];
+  /** Scenario-only settings with no baseline answer to write to. */
+  unsupported: PromotionLever[];
+}
+
+/**
+ * What "Make this my baseline" would do, computed without writing anything.
+ * The client shows this before the confirmation action.
+ */
+export function promotionPreflight(draft: PlanDraft, patch: ScenarioPatch): PromotionPreflight {
+  const { unsupported } = patchToDraft(draft, patch);
+  const active = activeLevers(patch, draft);
+  const toLever = (key: PatchLeverKey): PromotionLever => ({
+    key,
+    label: PATCH_LEVER_LABELS[key],
+  });
+  return {
+    applied: active.filter((k) => !unsupported.includes(k)).map(toLever),
+    unsupported: unsupported.map(toLever),
+  };
+}
