@@ -15,15 +15,15 @@ import { summarize, strategyLabel, type PlanOutput } from "./summary";
 import { FIXED_STRATEGIES } from "./strategy";
 import { normalizeDraft } from "./draft";
 import { sustainableSpendFor } from "./levers";
-import { isUnlockRuleVerified } from "./registered";
 import type { PlanDraft } from "./draft";
 import type {
-  AccountType,
+  PersonKey,
   PlanInputs,
   ProjectionOverride,
   WithdrawalStrategy,
 } from "./types";
 import { annualFromMonthly } from "./units";
+
 
 /* ------------------------------------------------------------------ */
 /* The patch                                                           */
