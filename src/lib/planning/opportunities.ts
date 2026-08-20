@@ -53,7 +53,7 @@ export function buildOpportunities(draft: PlanDraft): Opportunity[] {
       change: "CPP start age set to 70 for everyone in the plan.",
       tradeoffs:
         "The portfolio funds the gap years instead, so early balances fall. Poor health or a short life expectancy usually argues the other way.",
-      patch: { cppAge: 70 },
+      patch: { cppAgeByPerson: byPerson(draft, 70) },
     });
   }
 
@@ -65,19 +65,33 @@ export function buildOpportunities(draft: PlanDraft): Opportunity[] {
       why: "Deferring OAS raises the monthly amount permanently and can move income out of clawback years.",
       change: "OAS start age set to 70 for everyone in the plan.",
       tradeoffs: "No OAS between 65 and 70; the portfolio covers that spending instead.",
-      patch: { oasAge: 70 },
+      patch: { oasAgeByPerson: byPerson(draft, 70) },
     });
   }
 
-  out.push({
-    id: "save-more",
-    theme: "Funding",
-    title: "Save $500 / month more until retirement",
-    why: "Extra saving before retirement changes both the balance at retirement and the years it has to last.",
-    change: "An extra $500 / month contributed to a TFSA until retirement.",
-    tradeoffs: "$500 / month less to spend today.",
-    patch: { extraMonthlySaving: 500, savingAccount: "TFSA" },
-  });
+  if (isExtraSavingSupported(draft)) {
+    out.push({
+      id: "save-more",
+      theme: "Funding",
+      title: "Save $500 / month more until retirement",
+      why: "Extra saving before retirement changes both the balance at retirement and the years it has to last.",
+      change: "An extra $500 / month contributed to your non-registered account until retirement.",
+      tradeoffs:
+        "$500 / month less to spend today. Extra TFSA and RRSP saving is not offered yet: contribution-room enforcement is still pending in the engine, so a registered result would be unreliable.",
+      patch: { extraMonthlySaving: 500, savingAccount: "NONREG" },
+    });
+  } else {
+    out.push({
+      id: "save-more",
+      theme: "Funding",
+      title: "Save more each month (not testable yet)",
+      why: "Extra saving before retirement changes both the balance at retirement and the years it has to last.",
+      change: "No change is applied.",
+      tradeoffs:
+        "Extra TFSA and RRSP saving is disabled until contribution-room enforcement lands in the engine, and there is no non-registered account in this plan to receive the money. Add one to test this change.",
+    });
+  }
+
 
   if (retMonthly != null && retMonthly > 0) {
     const trimmed = Math.round(retMonthly * 0.9);
