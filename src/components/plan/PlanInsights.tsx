@@ -297,16 +297,18 @@ export function GoalPanel({ goal, couple = false }: { goal: GoalProgress; couple
           note="To fund every year of the plan"
         />
         <Stat
-          label="Savings at retirement"
+          label={couple ? "Savings at first retirement" : "Savings at retirement"}
           value={money(goal.projectedAtRetirement)}
           note={
             goal.retirementAge != null
-              ? `Projected at age ${goal.retirementAge}`
-              : "No retirement age set"
+              ? couple
+                ? `Projected at first retirement, age ${goal.retirementAge}`
+                : `Projected at age ${goal.retirementAge}`
+              : `No ${retLabel} age set`
           }
         />
         <Stat
-          label="Years to retirement"
+          label={couple ? "Years to first retirement" : "Years to retirement"}
           value={goal.yearsToRetirement == null ? "—" : String(goal.yearsToRetirement)}
           note={goal.firstShortfallAge != null ? `First shortfall at ${goal.firstShortfallAge}` : ""}
         />
