@@ -133,7 +133,7 @@ function lasts(P: ProjectionResult): boolean {
  * The most the household could spend after tax, every year, and still have the
  * plan last. Found by bisection on the spending target.
  */
-function sustainableSpend(
+export function sustainableSpendFor(
   inputs: PlanInputs,
   strategy: WithdrawalStrategy,
   override: ProjectionOverride,
@@ -162,7 +162,7 @@ export function scorePlan(inputs: PlanInputs, levers: LeverSettings = NO_LEVERS)
   const P = runPlan(base, override);
   const strategy = P.chosenStrategy;
   const spendTarget = Math.max(0, inputs.spendNeed - levers.retSpendCutMonthly * 12);
-  const sustainable = sustainableSpend(base, strategy, override, spendTarget);
+  const sustainable = sustainableSpendFor(base, strategy, override, spendTarget);
   const last = P.rows[P.rows.length - 1];
   return {
     sustainableSpend: sustainable,
