@@ -350,7 +350,10 @@ export interface ScenarioMetrics {
   /** The retirement spending target under this scenario, ANNUAL. */
   spendTarget: number;
   portfolioAtRetirement: number;
+  /** First retirement in the household, on person A's age timeline. */
   retirementAge: number | null;
+  /** Age (person A's timeline) at which everyone in the household is retired. */
+  lastRetirementAge: number | null;
   lifetimeTax: number;
   afterTaxEstate: number;
   endingAssets: number;
@@ -403,6 +406,7 @@ export function runScenario(draft: PlanDraft, patch: ScenarioPatch = {}): Scenar
     .map((p) => Math.max(0, p.retAge - p.curAge));
   const ageA = P.people[0]?.curAge ?? P.curAge;
   const retirementAge = offsets.length ? ageA + Math.min(...offsets) : null;
+  const lastRetirementAge = offsets.length ? ageA + Math.max(...offsets) : null;
   const atRet =
     retirementAge != null
       ? (P.rows.find((r) => r.age >= retirementAge) ?? P.rows[P.rows.length - 1])
@@ -427,6 +431,7 @@ export function runScenario(draft: PlanDraft, patch: ScenarioPatch = {}): Scenar
       spendTarget: Math.round(atRet?.spendTarget ?? inputs.spendNeed),
       portfolioAtRetirement: Math.round(atRet?.totalPortfolio ?? 0),
       retirementAge,
+      lastRetirementAge,
       lifetimeTax: s.lifetimeTax,
       afterTaxEstate: s.afterTaxEstate,
       endingAssets: s.finalNetWorth,
@@ -533,4 +538,71 @@ export function runStrategyComparison(draft: PlanDraft): StrategyComparison {
   }));
 
   return { current, cards, autoRule: AUTO_RULE_TEXT, currentSeries: currentRun.series };
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Promoting a scenario to the baseline                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The draft a scenario describes, for the explicit "Make this my baseline"
+ * action only. Nothing else writes the baseline.
+ *
+ * Some levers are projection-time overrides with no baseline answer to write
+ * to (an across-the-board return adjustment, extra saving, a blanket defer in
+ * years is folded into each person's retirement age). Anything that cannot be
+ * expressed as an answer is reported back rather than silently dropped.
+ */
+export function patchToDraft(
+  draft: PlanDraft,
+  patch: ScenarioPatch,
+): { draft: PlanDraft; unsupported: PatchLeverKey[] } {
+  const d: PlanDraft = { ...draft };
+  const unsupported: PatchLeverKey[] = [];
+
+  if (patch.retSpendMonthly != null) d.spendNeed = annualFromMonthly(patch.retSpendMonthly);
+  if (patch.currentSpendMonthly != null)
+    d.currentSpend = annualFromMonthly(patch.currentSpendMonthly);
+  if (patch.strategy != null) d.strategy = patch.strategy;
+  if (patch.eqRet != null) d.eqRet = patch.eqRet;
+  if (patch.fiRet != null) d.fiRet = patch.fiRet;
+  if (patch.inflation != null) d.inflation = patch.inflation;
+
+  if (patch.oneTimeExpense && patch.oneTimeExpense.amt > 0) {
+    d.expenses = [
+      ...draft.expenses,
+      {
+        id: `scenario_expense_${Date.now()}`,
+        name: patch.oneTimeExpense.name || "Scenario one-time expense",
+        age: patch.oneTimeExpense.age,
+        amt: patch.oneTimeExpense.amt,
+      },
+    ];
+  }
+  if (patch.propertySale) {
+    const { index, saleAge } = patch.propertySale;
+    d.hardAssets = draft.hardAssets.map((a, i) => (i === index ? { ...a, sale: saleAge } : a));
+  }
+
+  const defer = patch.retireDeferYears ?? 0;
+  d.people = draft.people.map((p) => {
+    const retAbs = patch.retireAgeByPerson?.[p.id];
+    const retAge =
+      retAbs != null ? retAbs : p.retAge != null && defer ? p.retAge + defer : p.retAge;
+    const cppAge = patch.cppAgeByPerson?.[p.id];
+    const oasAge = patch.oasAgeByPerson?.[p.id];
+    return {
+      ...p,
+      retAge,
+      cpp: cppAge != null ? { ...p.cpp, age: cppAge } : p.cpp,
+      oas: oasAge != null ? { ...p.oas, age: oasAge } : p.oas,
+    };
+  });
+
+  if (patch.returnAdjustment) unsupported.push("returnAdjustment");
+  if (patch.extraMonthlySaving && patch.extraMonthlySaving > 0)
+    unsupported.push("extraMonthlySaving");
+
+  return { draft: d, unsupported };
 }
