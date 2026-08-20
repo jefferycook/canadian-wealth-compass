@@ -168,7 +168,7 @@ export function WhatIfWorkspace({
             <Label>Destination account</Label>
             <Select
               value={patch.savingAccount ?? "TFSA"}
-              onValueChange={(v) => set({ savingAccount: v as ScenarioPatch["savingAccount"] })}
+              onValueChange={(v) => set({ savingAccount: v as NonNullable<ScenarioPatch["savingAccount"]> })}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -230,7 +230,7 @@ export function WhatIfWorkspace({
             <Label>Withdrawal order</Label>
             <Select
               value={String(patch.strategy ?? draft.strategy)}
-              onValueChange={(v) => set({ strategy: v as ScenarioPatch["strategy"] })}
+              onValueChange={(v) => set({ strategy: v as NonNullable<ScenarioPatch["strategy"]> })}
             >
               <SelectTrigger>
                 <SelectValue />
