@@ -262,8 +262,11 @@ export function RecommendationsPanel({ items }: { items: Recommendation[] }) {
 
 /* ------------------------------------------------------------------ */
 
-export function GoalPanel({ goal }: { goal: GoalProgress }) {
+export function GoalPanel({ goal, couple = false }: { goal: GoalProgress; couple?: boolean }) {
   const pct = Math.round(Math.min(1, goal.fundedRatio) * 100);
+  // The household convention is the earliest retirement in the household, so
+  // couples see "first retirement" wording instead of a single joint age.
+  const retLabel = couple ? "first retirement" : "retirement";
   return (
     <div className="space-y-6">
       <Card>
