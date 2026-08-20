@@ -44,37 +44,55 @@ export interface PropertySalePatch {
   saleAge: number;
 }
 
+/** Per-person timing, keyed by the person's slot in the plan. */
+export type ByPerson = Partial<Record<PersonKey, number>>;
+
+/**
+ * The only extra-saving destination the scenario layer currently supports.
+ *
+ * TFSA and RRSP extra saving is deliberately NOT offered: contribution-room
+ * enforcement is still a pending engine item, so a registered "save more"
+ * result would be knowingly wrong. Non-registered saving has no room limit,
+ * so it is the one destination whose tax treatment is valid today.
+ */
+export type SavingAccountType = "NONREG";
+
 /**
  * Every supported scenario change, in one serializable object.
  * `null`/absent means "leave the baseline answer alone".
  */
 export interface ScenarioPatch {
   retireDeferYears?: number;
-  cppAge?: number | null;
-  oasAge?: number | null;
+  /** Per-person retirement age, absolute. Overrides retireDeferYears for that person. */
+  retireAgeByPerson?: ByPerson | null;
+  /** Per-person CPP start age. */
+  cppAgeByPerson?: ByPerson | null;
+  /** Per-person OAS start age. */
+  oasAgeByPerson?: ByPerson | null;
   /** Absolute retirement spending, MONTHLY (UI unit). */
   retSpendMonthly?: number | null;
   /** Absolute pre-retirement spending, MONTHLY (UI unit). */
   currentSpendMonthly?: number | null;
-  /** Extra saving per month on top of what the plan already contributes. */
+  /** Extra saving per month, into an existing non-registered account only. */
   extraMonthlySaving?: number;
-  savingAccount?: AccountType;
+  savingAccount?: SavingAccountType;
+  /** Whose non-registered account receives the extra saving. */
+  savingOwner?: PersonKey;
   strategy?: WithdrawalStrategy | null;
   /** Absolute expected equity return, as a fraction. */
   eqRet?: number | null;
   /** Absolute expected fixed-income return, as a fraction. */
   fiRet?: number | null;
   /**
-   * Percentage-point adjustment applied to every account's return.
-   * The engine models one net return, so this is an investment-return
-   * adjustment — it is not a fee calculation.
+   * Percentage-POINT adjustment applied to every account's return
+   * (+1 means +1.00 pp). Converted to the engine's decimal fraction at the
+   * scenario boundary. The engine models one net return, so this is an
+   * investment-return adjustment — it is not a fee calculation.
    */
   returnAdjustment?: number;
   inflation?: number | null;
   oneTimeExpense?: OneTimeExpensePatch | null;
   propertySale?: PropertySalePatch | null;
-  /** Locked-in unlocking, only honoured where the rule is VERIFIED. */
-  unlockAll?: number | null;
 }
 
 export const EMPTY_PATCH: ScenarioPatch = {};
@@ -84,8 +102,9 @@ export type ScenarioPatchKey = keyof ScenarioPatch;
 /** Changes that count as "active" for isolation and for Δ labelling. */
 export const PATCH_LEVERS = [
   "retireDeferYears",
-  "cppAge",
-  "oasAge",
+  "retireAgeByPerson",
+  "cppAgeByPerson",
+  "oasAgeByPerson",
   "retSpendMonthly",
   "currentSpendMonthly",
   "extraMonthlySaving",
@@ -96,15 +115,15 @@ export const PATCH_LEVERS = [
   "inflation",
   "oneTimeExpense",
   "propertySale",
-  "unlockAll",
 ] as const satisfies readonly ScenarioPatchKey[];
 
 export type PatchLeverKey = (typeof PATCH_LEVERS)[number];
 
 export const PATCH_LEVER_LABELS: Record<PatchLeverKey, string> = {
   retireDeferYears: "Retire later",
-  cppAge: "CPP start age",
-  oasAge: "OAS start age",
+  retireAgeByPerson: "Retirement age",
+  cppAgeByPerson: "CPP start age",
+  oasAgeByPerson: "OAS start age",
   retSpendMonthly: "Retirement spending",
   currentSpendMonthly: "Spending before retirement",
   extraMonthlySaving: "Save more each month",
@@ -115,8 +134,37 @@ export const PATCH_LEVER_LABELS: Record<PatchLeverKey, string> = {
   inflation: "Inflation",
   oneTimeExpense: "One-time future expense",
   propertySale: "Property sale",
-  unlockAll: "Unlock locked-in money",
 };
+
+/** Percentage points -> the decimal fraction the engine's retDelta expects. */
+export function returnAdjustmentFraction(pp: number | undefined | null): number {
+  return (pp ?? 0) / 100;
+}
+
+/**
+ * Extra saving is only offered where a real non-registered account already
+ * exists to receive it. The scenario layer never manufactures an account, and
+ * never invents a pension jurisdiction.
+ */
+export function extraSavingTargets(draft: PlanDraft): PersonKey[] {
+  const owners = draft.accounts
+    .filter((a) => a.type === "NONREG")
+    .map((a) => a.owner)
+    .filter((o): o is PersonKey => o === "A" || o === "B");
+  return [...new Set(owners)];
+}
+
+export function isExtraSavingSupported(draft: PlanDraft): boolean {
+  return extraSavingTargets(draft).length > 0;
+}
+
+function byPersonDiffers(v: ByPerson, read: (id: PersonKey) => number | null | undefined,
+  draft: PlanDraft): boolean {
+  return draft.people.some((p) => {
+    const want = v[p.id];
+    return want != null && want !== read(p.id);
+  });
+}
 
 /** Is this lever actually doing anything, against the baseline draft? */
 export function isLeverActive(
@@ -127,10 +175,24 @@ export function isLeverActive(
   const v = patch[key];
   if (v == null) return false;
   switch (key) {
-    case "cppAge":
-      return draft.people.some((p) => p.cpp.age !== v);
-    case "oasAge":
-      return draft.people.some((p) => p.oas.age !== v);
+    case "cppAgeByPerson":
+      return byPersonDiffers(
+        v as ByPerson,
+        (id) => draft.people.find((p) => p.id === id)?.cpp.age,
+        draft,
+      );
+    case "oasAgeByPerson":
+      return byPersonDiffers(
+        v as ByPerson,
+        (id) => draft.people.find((p) => p.id === id)?.oas.age,
+        draft,
+      );
+    case "retireAgeByPerson":
+      return byPersonDiffers(
+        v as ByPerson,
+        (id) => draft.people.find((p) => p.id === id)?.retAge,
+        draft,
+      );
     case "strategy":
       return v !== draft.strategy;
     case "eqRet":
@@ -147,6 +209,8 @@ export function isLeverActive(
       return (v as OneTimeExpensePatch).amt > 0;
     case "propertySale":
       return true;
+    case "extraMonthlySaving":
+      return (v as number) > 0 && isExtraSavingSupported(draft);
     default:
       return typeof v === "number" && v !== 0;
   }
@@ -160,10 +224,12 @@ export function activeLevers(patch: ScenarioPatch, draft: PlanDraft): PatchLever
 export function isolatePatch(patch: ScenarioPatch, key: PatchLeverKey): ScenarioPatch {
   const out: ScenarioPatch = {};
   if (patch.savingAccount) out.savingAccount = patch.savingAccount;
+  if (patch.savingOwner) out.savingOwner = patch.savingOwner;
   // Index assignment is safe: key is a literal key of ScenarioPatch.
   (out as Record<string, unknown>)[key] = patch[key];
   return out;
 }
+
 
 /* ------------------------------------------------------------------ */
 /* Applying the patch                                                  */
