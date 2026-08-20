@@ -11,7 +11,8 @@
  */
 
 import { runPlan } from "./engine";
-import { summarize, type PlanOutput } from "./summary";
+import { summarize, strategyLabel, type PlanOutput } from "./summary";
+import { FIXED_STRATEGIES } from "./strategy";
 import { normalizeDraft } from "./draft";
 import { sustainableSpendFor } from "./levers";
 import { isUnlockRuleVerified } from "./registered";
@@ -410,4 +411,29 @@ export function runScenarioSet(draft: PlanDraft, patch: ScenarioPatch): Scenario
     combinedOutput: combined.output,
     isolated,
   };
+}
+
+/**
+ * Every supported withdrawal order, each re-run through the same path, plus
+ * the plan's current run. No ordering is labelled optimal: Auto is reported as
+ * the engine's current selection under the rule stated above.
+ */
+export function runStrategyComparison(draft: PlanDraft): StrategyComparison {
+  const currentRun = runScenario(draft, {});
+  const current: StrategyCard = {
+    key: draft.strategy,
+    label: draft.strategy === "auto" ? "Current Auto selection" : strategyLabel(draft.strategy),
+    metrics: currentRun.metrics,
+    current: true,
+  };
+
+  const keys: WithdrawalStrategy[] = [...FIXED_STRATEGIES, "auto"];
+  const cards = keys.map<StrategyCard>((key) => ({
+    key,
+    label: key === "auto" ? "Auto (engine-selected)" : strategyLabel(key),
+    metrics: key === draft.strategy ? currentRun.metrics : runScenario(draft, { strategy: key }).metrics,
+    current: key === draft.strategy,
+  }));
+
+  return { current, cards, autoRule: AUTO_RULE_TEXT, currentSeries: currentRun.series };
 }
