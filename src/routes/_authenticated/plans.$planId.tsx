@@ -13,6 +13,7 @@ import { GoalPanel, NetWorthPanel } from "@/components/plan/PlanInsights";
 import { StrategiesWorkspace } from "@/components/plan/PlanStrategies";
 import { WhatIfWorkspace } from "@/components/plan/PlanWhatIf";
 import { OpportunitiesWorkspace } from "@/components/plan/PlanOpportunities";
+import { ScenariosWorkspace } from "@/components/plan/PlanScenarios";
 import type { ScenarioPatch } from "@/lib/planning/scenario";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlanWizard, WIZARD_STEPS, type WizardStepKey } from "@/components/plan/PlanWizard";
@@ -227,6 +228,7 @@ function PlanBuilder() {
               <TabsTrigger value="strategies">Strategies</TabsTrigger>
               <TabsTrigger value="advice">Recommendations</TabsTrigger>
               <TabsTrigger value="whatif">What if</TabsTrigger>
+              <TabsTrigger value="scenarios">Saved scenarios</TabsTrigger>
             </TabsList>
             <TabsContent value="projection">
               <PlanResults output={results.data.output} />
@@ -250,6 +252,15 @@ function PlanBuilder() {
             </TabsContent>
             <TabsContent value="whatif">
               <WhatIfWorkspace draft={draft} patch={patch} onChange={setPatch} />
+            </TabsContent>
+            <TabsContent value="scenarios">
+              <ScenariosWorkspace
+                planId={planId}
+                draft={draft}
+                patch={patch}
+                onOpenScenario={setPatch}
+                onReset={() => setPatch({})}
+              />
             </TabsContent>
           </Tabs>
         ) : (
