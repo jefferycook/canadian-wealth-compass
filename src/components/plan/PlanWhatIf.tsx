@@ -51,8 +51,22 @@ export function WhatIfWorkspace({
 
   const baseRetSpend = monthlyFromAnnual(draft.spendNeed) ?? 0;
   const baseCurSpend = monthlyFromAnnual(draft.currentSpend) ?? 0;
-  const baseCpp = draft.people[0]?.cpp.age ?? 65;
-  const baseOas = draft.people[0]?.oas.age ?? 65;
+  // Mirrors extraSavingTargets() in scenario.ts; kept local so the engine
+  // module never reaches the browser bundle. No arithmetic, just a filter.
+  const savingOwners = useMemo(
+    () =>
+      [
+        ...new Set(
+          draft.accounts
+            .filter((a) => a.type === "NONREG")
+            .map((a) => a.owner)
+            .filter((o): o is "A" | "B" => o === "A" || o === "B"),
+        ),
+      ],
+    [draft.accounts],
+  );
+
+
 
   const set = (p: Partial<ScenarioPatch>) => onChange({ ...patch, ...p });
 
@@ -81,7 +95,7 @@ export function WhatIfWorkspace({
       <div className="grid gap-6 lg:grid-cols-2">
         <ControlCard title="Timing">
           <SliderRow
-            label="Retire later"
+            label="Retire later (everyone)"
             value={patch.retireDeferYears ?? 0}
             min={0}
             max={10}
@@ -89,25 +103,50 @@ export function WhatIfWorkspace({
             display={(v) => (v === 0 ? "No change" : `+${v} years`)}
             onChange={(v) => set({ retireDeferYears: v })}
           />
-          <SliderRow
-            label="CPP start age"
-            value={patch.cppAge ?? baseCpp}
-            min={60}
-            max={70}
-            step={1}
-            display={(v) => `Age ${v}`}
-            onChange={(v) => set({ cppAge: v })}
-          />
-          <SliderRow
-            label="OAS start age"
-            value={patch.oasAge ?? baseOas}
-            min={65}
-            max={70}
-            step={1}
-            display={(v) => `Age ${v}`}
-            onChange={(v) => set({ oasAge: v })}
-          />
+          {draft.people.map((p) => {
+            const who = draft.people.length > 1 ? `${p.firstName || `Person ${p.id}`} — ` : "";
+            return (
+              <div key={p.id} className="space-y-5">
+                <SliderRow
+                  label={`${who}CPP start age`}
+                  value={patch.cppAgeByPerson?.[p.id] ?? p.cpp.age ?? 65}
+                  min={60}
+                  max={70}
+                  step={1}
+                  display={(v) => `Age ${v}`}
+                  onChange={(v) =>
+                    set({ cppAgeByPerson: { ...(patch.cppAgeByPerson ?? {}), [p.id]: v } })
+                  }
+                />
+                <SliderRow
+                  label={`${who}OAS start age`}
+                  value={patch.oasAgeByPerson?.[p.id] ?? p.oas.age ?? 65}
+                  min={65}
+                  max={70}
+                  step={1}
+                  display={(v) => `Age ${v}`}
+                  onChange={(v) =>
+                    set({ oasAgeByPerson: { ...(patch.oasAgeByPerson ?? {}), [p.id]: v } })
+                  }
+                />
+                {p.retAge != null ? (
+                  <SliderRow
+                    label={`${who}Retirement age`}
+                    value={patch.retireAgeByPerson?.[p.id] ?? p.retAge}
+                    min={Math.max(45, (p.curAge ?? 45))}
+                    max={80}
+                    step={1}
+                    display={(v) => `Age ${v}`}
+                    onChange={(v) =>
+                      set({ retireAgeByPerson: { ...(patch.retireAgeByPerson ?? {}), [p.id]: v } })
+                    }
+                  />
+                ) : null}
+              </div>
+            );
+          })}
         </ControlCard>
+
 
         <ControlCard title="Spending">
           <SliderRow
@@ -155,32 +194,51 @@ export function WhatIfWorkspace({
         </ControlCard>
 
         <ControlCard title="Saving">
-          <SliderRow
-            label="Extra saving"
-            value={patch.extraMonthlySaving ?? 0}
-            min={0}
-            max={5000}
-            step={50}
-            display={(v) => (v === 0 ? "No change" : `${money(v)} / month`)}
-            onChange={(v) => set({ extraMonthlySaving: v })}
-          />
-          <div className="space-y-2">
-            <Label>Destination account</Label>
-            <Select
-              value={patch.savingAccount ?? "TFSA"}
-              onValueChange={(v) => set({ savingAccount: v as NonNullable<ScenarioPatch["savingAccount"]> })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="TFSA">TFSA</SelectItem>
-                <SelectItem value="RRSP">RRSP</SelectItem>
-                <SelectItem value="NONREG">Non-registered</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          {savingOwners.length > 0 ? (
+            <>
+              <SliderRow
+                label="Extra saving (non-registered)"
+                value={patch.extraMonthlySaving ?? 0}
+                min={0}
+                max={5000}
+                step={50}
+                display={(v) => (v === 0 ? "No change" : `${money(v)} / month`)}
+                onChange={(v) => set({ extraMonthlySaving: v, savingAccount: "NONREG" })}
+              />
+              {savingOwners.length > 1 ? (
+                <div className="space-y-2">
+                  <Label>Whose account receives it</Label>
+                  <Select
+                    value={patch.savingOwner ?? savingOwners[0] ?? "A"}
+                    onValueChange={(v) => set({ savingOwner: v as "A" | "B" })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {savingOwners.map((o) => (
+                        <SelectItem key={o} value={o}>
+                          {draft.people.find((p) => p.id === o)?.firstName || `Person ${o}`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              This plan has no non-registered account to receive extra saving, so there is nothing
+              to test here yet.
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Extra TFSA and RRSP saving is temporarily unavailable: the engine does not yet enforce
+            contribution room, so a registered result could exceed what you are legally allowed to
+            contribute. Only non-registered saving, which has no room limit, is offered for now.
+          </p>
         </ControlCard>
+
 
         <ControlCard title="Assumptions">
           <SliderRow

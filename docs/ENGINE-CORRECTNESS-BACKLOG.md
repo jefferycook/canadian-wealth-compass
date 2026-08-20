@@ -93,3 +93,26 @@ excluded from scenario surfaces until marked `verified: true`.
 3. **Silent jurisdiction defaults exist in two places** (B0-2, B0-3). Removing
    them turns plans that currently produce numbers into plans that require an
    answer — an intake/wizard change accompanies the engine change.
+
+## UX1 fixes — scenario-layer gating (2026-08-20)
+
+These are scenario-boundary corrections, not engine methodology changes.
+
+- **Return adjustment units.** The What If control is in percentage points;
+  `ProjectionOverride.retDelta` is a decimal fraction. Conversion now happens
+  once, in `returnAdjustmentFraction()` in `src/lib/planning/scenario.ts`.
+- **Extra saving gated to non-registered.** TFSA and RRSP extra-saving
+  scenarios are disabled until the contribution-room ledger lands. The scenario
+  layer no longer manufactures accounts and never assigns a default pension
+  jurisdiction. Extra saving is offered only where a real NONREG account exists,
+  and its owner is taken from that account.
+  **Unblocks when:** contribution-room enforcement ([C]/[L]) is implemented.
+- **Per-person timing.** `ScenarioPatch` carries `cppAgeByPerson`,
+  `oasAgeByPerson` and `retireAgeByPerson`. The old household-wide `cppAge` /
+  `oasAge` fields are removed. This is plumbing only — not a CPP/OAS optimizer.
+- **Unlocking is informational only.** The generic `unlockAll: 50` scenario is
+  removed. VERIFIED status alone is not sufficient authority: Manitoba, Federal,
+  Ontario and Quebec differ in destination vehicle, age conditions, percentage
+  limits and reusability. Unlocking becomes actionable only per jurisdiction,
+  once that jurisdiction's exact mechanism is encoded against the canonical
+  specification and tested.

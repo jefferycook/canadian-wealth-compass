@@ -9,9 +9,17 @@
  */
 
 import type { PlanDraft } from "./draft";
-import { isUnlockRuleVerified } from "./registered";
-import type { ScenarioPatch } from "./scenario";
+import { unlockRule } from "./registered";
+import { isExtraSavingSupported, type ByPerson, type ScenarioPatch } from "./scenario";
 import { monthlyFromAnnual } from "./units";
+
+/** The same age for every person in the plan, expressed per person. */
+function byPerson(draft: PlanDraft, age: number): ByPerson {
+  const out: ByPerson = {};
+  for (const p of draft.people) out[p.id] = age;
+  return out;
+}
+
 
 export type OpportunityTheme = "Funding" | "Timing" | "Tax" | "Assumptions" | "Locked-in money";
 
@@ -53,7 +61,7 @@ export function buildOpportunities(draft: PlanDraft): Opportunity[] {
       change: "CPP start age set to 70 for everyone in the plan.",
       tradeoffs:
         "The portfolio funds the gap years instead, so early balances fall. Poor health or a short life expectancy usually argues the other way.",
-      patch: { cppAge: 70 },
+      patch: { cppAgeByPerson: byPerson(draft, 70) },
     });
   }
 
@@ -65,19 +73,33 @@ export function buildOpportunities(draft: PlanDraft): Opportunity[] {
       why: "Deferring OAS raises the monthly amount permanently and can move income out of clawback years.",
       change: "OAS start age set to 70 for everyone in the plan.",
       tradeoffs: "No OAS between 65 and 70; the portfolio covers that spending instead.",
-      patch: { oasAge: 70 },
+      patch: { oasAgeByPerson: byPerson(draft, 70) },
     });
   }
 
-  out.push({
-    id: "save-more",
-    theme: "Funding",
-    title: "Save $500 / month more until retirement",
-    why: "Extra saving before retirement changes both the balance at retirement and the years it has to last.",
-    change: "An extra $500 / month contributed to a TFSA until retirement.",
-    tradeoffs: "$500 / month less to spend today.",
-    patch: { extraMonthlySaving: 500, savingAccount: "TFSA" },
-  });
+  if (isExtraSavingSupported(draft)) {
+    out.push({
+      id: "save-more",
+      theme: "Funding",
+      title: "Save $500 / month more until retirement",
+      why: "Extra saving before retirement changes both the balance at retirement and the years it has to last.",
+      change: "An extra $500 / month contributed to your non-registered account until retirement.",
+      tradeoffs:
+        "$500 / month less to spend today. Extra TFSA and RRSP saving is not offered yet: contribution-room enforcement is still pending in the engine, so a registered result would be unreliable.",
+      patch: { extraMonthlySaving: 500, savingAccount: "NONREG" },
+    });
+  } else {
+    out.push({
+      id: "save-more",
+      theme: "Funding",
+      title: "Save more each month (not testable yet)",
+      why: "Extra saving before retirement changes both the balance at retirement and the years it has to last.",
+      change: "No change is applied.",
+      tradeoffs:
+        "Extra TFSA and RRSP saving is disabled until contribution-room enforcement lands in the engine, and there is no non-registered account in this plan to receive the money. Add one to test this change.",
+    });
+  }
+
 
   if (retMonthly != null && retMonthly > 0) {
     const trimmed = Math.round(retMonthly * 0.9);
@@ -126,23 +148,19 @@ export function buildOpportunities(draft: PlanDraft): Opportunity[] {
 
   const locked = draft.accounts.filter((a) => a.type === "LIRA" || a.type === "LIF");
   if (locked.length > 0) {
-    const verified = locked.every((a) => isUnlockRuleVerified(a.juris));
+    const names = [
+      ...new Set(locked.map((a) => (a.juris ? unlockRule(a.juris).name : "not yet specified"))),
+    ].join(", ");
     out.push({
       id: "unlock",
       theme: "Locked-in money",
-      title: verified
-        ? "Test unlocking part of your locked-in money"
-        : "Unlocking locked-in money (informational)",
-      why: "Unlocked money moves to an RRSP or RRIF, which removes the annual maximum-withdrawal limit that applies to a LIF.",
-      change: verified
-        ? "50% of locked-in balances unlocked where the governing rule permits it."
-        : "No change is applied.",
-      tradeoffs: verified
-        ? "Unlocking is a one-time right in most jurisdictions and gives up creditor protection features of locked-in money."
-        : "The unlocking rule for this pension jurisdiction has not been verified against current statute in this app, so it is shown for information only and cannot be tested as a change.",
-      ...(verified ? { patch: { unlockAll: 50 } as ScenarioPatch } : {}),
+      title: "Unlocking locked-in money (informational)",
+      why: "Unlocking can remove the annual maximum-withdrawal limit that applies to a LIF, but the mechanism is set by the pension jurisdiction, not by a general rule.",
+      change: "No change is applied.",
+      tradeoffs: `Pension jurisdiction on file: ${names}. Manitoba, Federal, Ontario and Quebec differ materially in the destination vehicle (for example a prescribed RRIF versus an RRSP), the qualifying ages, the percentage limits and whether the right can be used more than once. Until each jurisdiction's exact mechanism is implemented and tested in this app, unlocking is shown for information only and is never simulated as a generic percentage.`,
     });
   }
+
 
   return out;
 }
