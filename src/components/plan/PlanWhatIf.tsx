@@ -209,7 +209,7 @@ export function WhatIfWorkspace({
                 <div className="space-y-2">
                   <Label>Whose account receives it</Label>
                   <Select
-                    value={patch.savingOwner ?? savingOwners[0]}
+                    value={patch.savingOwner ?? savingOwners[0] ?? "A"}
                     onValueChange={(v) => set({ savingOwner: v as "A" | "B" })}
                   >
                     <SelectTrigger>
