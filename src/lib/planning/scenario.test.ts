@@ -64,7 +64,7 @@ function baseDraft(): PlanDraft {
 
 function coupleDraft(): PlanDraft {
   const d = baseDraft();
-  d.planType = "couple";
+  d.planType = "married";
   d.people = [
     d.people[0]!,
     {
