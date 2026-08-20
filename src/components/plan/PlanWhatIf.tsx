@@ -51,8 +51,8 @@ export function WhatIfWorkspace({
 
   const baseRetSpend = monthlyFromAnnual(draft.spendNeed) ?? 0;
   const baseCurSpend = monthlyFromAnnual(draft.currentSpend) ?? 0;
-  const baseCpp = draft.people[0]?.cpp.age ?? 65;
-  const baseOas = draft.people[0]?.oas.age ?? 65;
+  const savingOwners = useMemo(() => extraSavingTargets(draft), [draft]);
+
 
   const set = (p: Partial<ScenarioPatch>) => onChange({ ...patch, ...p });
 
