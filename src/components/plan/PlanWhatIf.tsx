@@ -180,32 +180,51 @@ export function WhatIfWorkspace({
         </ControlCard>
 
         <ControlCard title="Saving">
-          <SliderRow
-            label="Extra saving"
-            value={patch.extraMonthlySaving ?? 0}
-            min={0}
-            max={5000}
-            step={50}
-            display={(v) => (v === 0 ? "No change" : `${money(v)} / month`)}
-            onChange={(v) => set({ extraMonthlySaving: v })}
-          />
-          <div className="space-y-2">
-            <Label>Destination account</Label>
-            <Select
-              value={patch.savingAccount ?? "TFSA"}
-              onValueChange={(v) => set({ savingAccount: v as NonNullable<ScenarioPatch["savingAccount"]> })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="TFSA">TFSA</SelectItem>
-                <SelectItem value="RRSP">RRSP</SelectItem>
-                <SelectItem value="NONREG">Non-registered</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          {savingOwners.length > 0 ? (
+            <>
+              <SliderRow
+                label="Extra saving (non-registered)"
+                value={patch.extraMonthlySaving ?? 0}
+                min={0}
+                max={5000}
+                step={50}
+                display={(v) => (v === 0 ? "No change" : `${money(v)} / month`)}
+                onChange={(v) => set({ extraMonthlySaving: v, savingAccount: "NONREG" })}
+              />
+              {savingOwners.length > 1 ? (
+                <div className="space-y-2">
+                  <Label>Whose account receives it</Label>
+                  <Select
+                    value={patch.savingOwner ?? savingOwners[0]}
+                    onValueChange={(v) => set({ savingOwner: v as "A" | "B" })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {savingOwners.map((o) => (
+                        <SelectItem key={o} value={o}>
+                          {draft.people.find((p) => p.id === o)?.firstName || `Person ${o}`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              This plan has no non-registered account to receive extra saving, so there is nothing
+              to test here yet.
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Extra TFSA and RRSP saving is temporarily unavailable: the engine does not yet enforce
+            contribution room, so a registered result could exceed what you are legally allowed to
+            contribute. Only non-registered saving, which has no room limit, is offered for now.
+          </p>
         </ControlCard>
+
 
         <ControlCard title="Assumptions">
           <SliderRow
