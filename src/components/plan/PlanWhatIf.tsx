@@ -209,11 +209,11 @@ export function WhatIfWorkspace({
                 <div className="space-y-2">
                   <Label>Whose account receives it</Label>
                   <Select
-                    value={patch.savingOwner ?? savingOwners[0] ?? "A"}
+                    value={patch.savingOwner ?? ""}
                     onValueChange={(v) => set({ savingOwner: v as "A" | "B" })}
                   >
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue placeholder="Choose an account owner" />
                     </SelectTrigger>
                     <SelectContent>
                       {savingOwners.map((o) => (
@@ -223,8 +223,15 @@ export function WhatIfWorkspace({
                       ))}
                     </SelectContent>
                   </Select>
+                  {(patch.extraMonthlySaving ?? 0) > 0 && !patch.savingOwner ? (
+                    <p className="text-xs text-muted-foreground">
+                      Both of you have a non-registered account, so choose whose account receives
+                      the extra saving. Until you do, this change is not applied.
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
+
             </>
           ) : (
             <p className="text-sm text-muted-foreground">
