@@ -148,23 +148,19 @@ export function buildOpportunities(draft: PlanDraft): Opportunity[] {
 
   const locked = draft.accounts.filter((a) => a.type === "LIRA" || a.type === "LIF");
   if (locked.length > 0) {
-    const verified = locked.every((a) => isUnlockRuleVerified(a.juris));
+    const names = [
+      ...new Set(locked.map((a) => (a.juris ? unlockRule(a.juris).name : "not yet specified"))),
+    ].join(", ");
     out.push({
       id: "unlock",
       theme: "Locked-in money",
-      title: verified
-        ? "Test unlocking part of your locked-in money"
-        : "Unlocking locked-in money (informational)",
-      why: "Unlocked money moves to an RRSP or RRIF, which removes the annual maximum-withdrawal limit that applies to a LIF.",
-      change: verified
-        ? "50% of locked-in balances unlocked where the governing rule permits it."
-        : "No change is applied.",
-      tradeoffs: verified
-        ? "Unlocking is a one-time right in most jurisdictions and gives up creditor protection features of locked-in money."
-        : "The unlocking rule for this pension jurisdiction has not been verified against current statute in this app, so it is shown for information only and cannot be tested as a change.",
-      ...(verified ? { patch: { unlockAll: 50 } as ScenarioPatch } : {}),
+      title: "Unlocking locked-in money (informational)",
+      why: "Unlocking can remove the annual maximum-withdrawal limit that applies to a LIF, but the mechanism is set by the pension jurisdiction, not by a general rule.",
+      change: "No change is applied.",
+      tradeoffs: `Pension jurisdiction on file: ${names}. Manitoba, Federal, Ontario and Quebec differ materially in the destination vehicle (for example a prescribed RRIF versus an RRSP), the qualifying ages, the percentage limits and whether the right can be used more than once. Until each jurisdiction's exact mechanism is implemented and tested in this app, unlocking is shown for information only and is never simulated as a generic percentage.`,
     });
   }
+
 
   return out;
 }
