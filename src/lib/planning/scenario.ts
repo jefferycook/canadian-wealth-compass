@@ -279,20 +279,31 @@ export function scenarioOverride(patch: ScenarioPatch, inputs: PlanInputs): Proj
   if (patch.returnAdjustment) o.retDelta = returnAdjustmentFraction(patch.returnAdjustment);
 
   if (patch.extraMonthlySaving && patch.extraMonthlySaving > 0) {
-    const owners = inputs.accounts
-      .filter((a) => a.type === "NONREG")
-      .map((a) => a.owner)
-      .filter((ow): ow is PersonKey => ow === "A" || ow === "B");
-    const owner = patch.savingOwner && owners.includes(patch.savingOwner)
-      ? patch.savingOwner
-      : owners[0];
-    // No non-registered account exists → the change is simply not applied.
+    const owners = [
+      ...new Set(
+        inputs.accounts
+          .filter((a) => a.type === "NONREG")
+          .map((a) => a.owner)
+          .filter((ow): ow is PersonKey => ow === "A" || ow === "B"),
+      ),
+    ];
+    // UX1-FIX G: never silently pick an owner. One eligible owner is an
+    // unambiguous destination; more than one requires an explicit choice, or
+    // the change is not applied at all.
+    const owner =
+      patch.savingOwner && owners.includes(patch.savingOwner)
+        ? patch.savingOwner
+        : owners.length === 1
+          ? owners[0]
+          : undefined;
+    // No eligible (or no chosen) non-registered account → not applied.
     if (owner) {
       o.goalSaves = [
         { amt: annualFromMonthly(patch.extraMonthlySaving) ?? 0, type: "NONREG", owner },
       ];
     }
   }
+
 
   const cppBy = patch.cppAgeByPerson ?? undefined;
   const oasBy = patch.oasAgeByPerson ?? undefined;
