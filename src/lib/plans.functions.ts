@@ -20,6 +20,13 @@ import type {
 } from "./planning/analysis";
 import type { PlanOutput } from "./planning/summary";
 import type {
+  ScenarioPatch,
+  ScenarioRun,
+  ScenarioSet,
+  StrategyComparison,
+} from "./planning/scenario";
+
+import type {
   CashflowView,
   LeverSettings,
   LeverSimulation,
