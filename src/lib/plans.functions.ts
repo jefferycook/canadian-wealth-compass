@@ -8,7 +8,8 @@
 
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import type { Json, TablesUpdate } from "@/integrations/supabase/types";
+import type { Database, Json, TablesUpdate } from "@/integrations/supabase/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { newPlanDraft } from "./planning/defaults";
 import type { PlanDraft } from "./planning/draft";
@@ -25,6 +26,7 @@ import type {
   ScenarioRun,
   ScenarioSet,
   StrategyComparison,
+  PromotionPreflight,
 } from "./planning/scenario";
 import type { Opportunity } from "./planning/opportunities";
 
@@ -269,9 +271,6 @@ async function toSaved(row: ScenarioRowShape): Promise<SavedScenario> {
 }
 
 const SCENARIO_COLUMNS = "id, name, overrides, schema_version, created_at, updated_at";
-
-type OwnedSupabase = { from: SupabaseFrom };
-type SupabaseFrom = SupabaseClient<Database>["from"];
 
 /**
  * Every scenario operation is scoped to a plan the caller owns. RLS already
