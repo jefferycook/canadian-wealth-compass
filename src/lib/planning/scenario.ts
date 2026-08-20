@@ -264,36 +264,10 @@ export function scenarioInputs(draft: PlanDraft, patch: ScenarioPatch): PlanInpu
     d.hardAssets = draft.hardAssets.map((a, i) => (i === index ? { ...a, sale: saleAge } : a));
   }
 
-  const inputs = normalizeDraft(d);
-
-  if (patch.extraMonthlySaving && patch.extraMonthlySaving > 0) {
-    const type = patch.savingAccount ?? "TFSA";
-    if (!inputs.accounts.some((a) => a.type === type)) {
-      inputs.accounts = [
-        ...inputs.accounts,
-        {
-          id: `scenario_${type}`,
-          name: type,
-          type,
-          owner: "A",
-          bal: 0,
-          eq: 60,
-          acb: 0,
-          conv: 0,
-          unlock: 0,
-          juris: "ON",
-          contrib: 0,
-          contribEnd: 0,
-          wd: 0,
-          wdStart: 0,
-          wdEnd: 0,
-          mix: { int: 0.3, div: 0.3, cg: 0.4 },
-        },
-      ];
-    }
-  }
-
-  return inputs;
+  // The scenario layer never manufactures an account and never assigns a
+  // pension jurisdiction. Extra saving only lands in an account the client
+  // actually has (see extraSavingTargets).
+  return normalizeDraft(d);
 }
 
 /** Projection-level overrides implied by the patch. */
@@ -301,36 +275,50 @@ export function scenarioOverride(patch: ScenarioPatch, inputs: PlanInputs): Proj
   const o: ProjectionOverride = {};
 
   if (patch.retireDeferYears) o.retAdj = patch.retireDeferYears;
-  if (patch.returnAdjustment) o.retDelta = patch.returnAdjustment;
+  // retDelta is a decimal fraction; the control is in percentage points.
+  if (patch.returnAdjustment) o.retDelta = returnAdjustmentFraction(patch.returnAdjustment);
+
   if (patch.extraMonthlySaving && patch.extraMonthlySaving > 0) {
-    o.goalSaves = [
-      {
-        amt: annualFromMonthly(patch.extraMonthlySaving) ?? 0,
-        type: patch.savingAccount ?? "TFSA",
-        owner: "A",
-      },
-    ];
+    const owners = inputs.accounts
+      .filter((a) => a.type === "NONREG")
+      .map((a) => a.owner)
+      .filter((ow): ow is PersonKey => ow === "A" || ow === "B");
+    const owner = patch.savingOwner && owners.includes(patch.savingOwner)
+      ? patch.savingOwner
+      : owners[0];
+    // No non-registered account exists → the change is simply not applied.
+    if (owner) {
+      o.goalSaves = [
+        { amt: annualFromMonthly(patch.extraMonthlySaving) ?? 0, type: "NONREG", owner },
+      ];
+    }
   }
-  if (patch.cppAge != null || patch.oasAge != null) {
-    const cppAge = patch.cppAge;
-    const oasAge = patch.oasAge;
+
+  const cppBy = patch.cppAgeByPerson ?? undefined;
+  const oasBy = patch.oasAgeByPerson ?? undefined;
+  const retBy = patch.retireAgeByPerson ?? undefined;
+  if (cppBy || oasBy || retBy) {
     o.mods = (people) => {
       for (const p of people) {
-        if (cppAge != null) p.cpp.age = cppAge;
-        if (oasAge != null) p.oas.age = oasAge;
+        const cpp = cppBy?.[p.id];
+        const oas = oasBy?.[p.id];
+        const ret = retBy?.[p.id];
+        if (cpp != null) p.cpp.age = cpp;
+        if (oas != null) p.oas.age = oas;
+        if (ret != null) p.retAge = ret;
       }
     };
   }
-  // Unlocking is only honoured where the governing rule is verified.
-  if (patch.unlockAll != null) {
-    const allVerified = inputs.accounts
-      .filter((a) => a.type === "LIRA" || a.type === "LIF")
-      .every((a) => isUnlockRuleVerified(a.juris));
-    if (allVerified) o.unlockAll = patch.unlockAll;
-  }
+
+  // Unlocking locked-in money is INFORMATIONAL ONLY. A generic percentage
+  // override is not a lawful mechanism: Manitoba, Federal, Ontario and Quebec
+  // differ in destination vehicle, age conditions and limits. No unlocking
+  // scenario is applied until the jurisdiction-specific mechanisms from the
+  // canonical specification are implemented and tested.
 
   return o;
 }
+
 
 /* ------------------------------------------------------------------ */
 /* Running                                                             */
