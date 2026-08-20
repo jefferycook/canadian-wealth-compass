@@ -81,7 +81,7 @@ export function WhatIfWorkspace({
       <div className="grid gap-6 lg:grid-cols-2">
         <ControlCard title="Timing">
           <SliderRow
-            label="Retire later"
+            label="Retire later (everyone)"
             value={patch.retireDeferYears ?? 0}
             min={0}
             max={10}
@@ -89,25 +89,50 @@ export function WhatIfWorkspace({
             display={(v) => (v === 0 ? "No change" : `+${v} years`)}
             onChange={(v) => set({ retireDeferYears: v })}
           />
-          <SliderRow
-            label="CPP start age"
-            value={patch.cppAge ?? baseCpp}
-            min={60}
-            max={70}
-            step={1}
-            display={(v) => `Age ${v}`}
-            onChange={(v) => set({ cppAge: v })}
-          />
-          <SliderRow
-            label="OAS start age"
-            value={patch.oasAge ?? baseOas}
-            min={65}
-            max={70}
-            step={1}
-            display={(v) => `Age ${v}`}
-            onChange={(v) => set({ oasAge: v })}
-          />
+          {draft.people.map((p) => {
+            const who = draft.people.length > 1 ? `${p.firstName || `Person ${p.id}`} — ` : "";
+            return (
+              <div key={p.id} className="space-y-5">
+                <SliderRow
+                  label={`${who}CPP start age`}
+                  value={patch.cppAgeByPerson?.[p.id] ?? p.cpp.age ?? 65}
+                  min={60}
+                  max={70}
+                  step={1}
+                  display={(v) => `Age ${v}`}
+                  onChange={(v) =>
+                    set({ cppAgeByPerson: { ...(patch.cppAgeByPerson ?? {}), [p.id]: v } })
+                  }
+                />
+                <SliderRow
+                  label={`${who}OAS start age`}
+                  value={patch.oasAgeByPerson?.[p.id] ?? p.oas.age ?? 65}
+                  min={65}
+                  max={70}
+                  step={1}
+                  display={(v) => `Age ${v}`}
+                  onChange={(v) =>
+                    set({ oasAgeByPerson: { ...(patch.oasAgeByPerson ?? {}), [p.id]: v } })
+                  }
+                />
+                {p.retAge != null ? (
+                  <SliderRow
+                    label={`${who}Retirement age`}
+                    value={patch.retireAgeByPerson?.[p.id] ?? p.retAge}
+                    min={Math.max(45, (p.curAge ?? 45))}
+                    max={80}
+                    step={1}
+                    display={(v) => `Age ${v}`}
+                    onChange={(v) =>
+                      set({ retireAgeByPerson: { ...(patch.retireAgeByPerson ?? {}), [p.id]: v } })
+                    }
+                  />
+                ) : null}
+              </div>
+            );
+          })}
         </ControlCard>
+
 
         <ControlCard title="Spending">
           <SliderRow
