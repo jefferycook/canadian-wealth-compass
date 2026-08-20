@@ -25,6 +25,7 @@ import type {
   ScenarioSet,
   StrategyComparison,
 } from "./planning/scenario";
+import type { Opportunity } from "./planning/opportunities";
 
 import type {
   CashflowView,
@@ -209,3 +210,12 @@ export const simulateScenario = createServerFn({ method: "POST" })
     return runScenarioSet(data.draft, data.patch ?? {});
   });
 
+
+/** The changes a client can test. Proposals only — impacts come from re-runs. */
+export const planOpportunities = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { draft: PlanDraft }) => input)
+  .handler(async ({ data }): Promise<Opportunity[]> => {
+    const { buildOpportunities } = await import("./planning/opportunities");
+    return buildOpportunities(data.draft);
+  });
