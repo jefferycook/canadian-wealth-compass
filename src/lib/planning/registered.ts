@@ -128,6 +128,12 @@ export interface UnlockRule {
   full65?: boolean;
   /** Jurisdictions that removed the LIF maximum for 55+ (Quebec). */
   noMax55?: boolean;
+  /**
+   * True only once the jurisdiction's unlocking rule has been checked against
+   * the current statute. Unverified rules stay informational: the planner may
+   * describe them, but must not present unlocking as an actionable change.
+   */
+  verified?: boolean;
 }
 
 /**
@@ -145,6 +151,11 @@ export const UNLOCK_RULES: Record<JurisdictionKey, UnlockRule> = {
   BC: { name: "British Columbia", pct: 0, minAge: 999 },
   QC: { name: "Quebec", pct: 0, minAge: 999, noMax55: true },
 };
+
+/** Unlocking may only be offered as an action where the rule is VERIFIED. */
+export function isUnlockRuleVerified(juris: JurisdictionKey | undefined): boolean {
+  return unlockRule(juris).verified === true;
+}
 
 export function unlockRule(juris: JurisdictionKey | undefined): UnlockRule {
   return UNLOCK_RULES[juris ?? "ON"] ?? UNLOCK_RULES.ON;
