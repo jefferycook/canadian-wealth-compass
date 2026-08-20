@@ -13,6 +13,7 @@ import { buildOpportunities } from "./opportunities";
 import {
   extraSavingTargets,
   isExtraSavingSupported,
+  isLeverActive,
   returnAdjustmentFraction,
   runScenario,
   scenarioOverride,
@@ -227,5 +228,122 @@ describe("locked-in unlocking is informational only", () => {
   it("no scenario override applies unlockAll", () => {
     const o = scenarioOverride({}, scenarioInputs(lockedDraft("MB"), {}));
     expect(o.unlockAll).toBeUndefined();
+  });
+});
+
+/* ---------------- UX1-FIX E: metrics follow the executed scenario ---- */
+
+describe("retirement metrics come from the executed scenario", () => {
+  it("reports the people the engine actually ran (A 60 / B 68)", () => {
+    const d = coupleDraft();
+    const run = runScenario(d, { retireAgeByPerson: { A: 60, B: 68 } });
+    expect(run.people.map((p) => p.retAge)).toEqual([60, 68]);
+  });
+
+  it("reports the household retirement age from the first retirement, on A's timeline", () => {
+    const d = coupleDraft(); // A is 60 today, B is 58
+    const base = runScenario(d, {});
+    expect(base.metrics.retirementAge).toBe(65);
+
+    const run = runScenario(d, { retireAgeByPerson: { A: 60, B: 68 } });
+    // A retires immediately (age 60); the household is retired from then on.
+    expect(run.metrics.retirementAge).toBe(60);
+  });
+
+  it("takes portfolio-at-retirement from the scenario year, not baseline age 65", () => {
+    const d = coupleDraft();
+    const base = runScenario(d, {});
+    const run = runScenario(d, { retireAgeByPerson: { A: 60, B: 68 } });
+    const row = run.output.chart.find((c) => c.age >= run.metrics.retirementAge!);
+    expect(run.metrics.portfolioAtRetirement).toBe(Math.round(row!.portfolio));
+    expect(run.metrics.portfolioAtRetirement).not.toBe(base.metrics.portfolioAtRetirement);
+  });
+
+  it("still follows retireDeferYears through the executed people", () => {
+    const run = runScenario(coupleDraft(), { retireDeferYears: 2 });
+    expect(run.people.map((p) => p.retAge)).toEqual([67, 67]);
+    expect(run.metrics.retirementAge).toBe(67);
+  });
+});
+
+/* ---------------- UX1-FIX F: per-person CPP / OAS opportunities ------ */
+
+describe("CPP and OAS opportunities are individual", () => {
+  it("produces one CPP and one OAS opportunity per person in a couple", () => {
+    const opps = buildOpportunities(coupleDraft());
+    expect(opps.filter((o) => o.id.startsWith("cpp-70-")).map((o) => o.id)).toEqual([
+      "cpp-70-A",
+      "cpp-70-B",
+    ]);
+    expect(opps.filter((o) => o.id.startsWith("oas-70-")).map((o) => o.id)).toEqual([
+      "oas-70-A",
+      "oas-70-B",
+    ]);
+    expect(opps.find((o) => o.id === "cpp-70-A")!.title).toContain("Alex");
+    expect(opps.find((o) => o.id === "cpp-70-B")!.title).toContain("Bailey");
+  });
+
+  it("an A-only CPP recommendation leaves B untouched when executed", () => {
+    const d = coupleDraft();
+    const opp = buildOpportunities(d).find((o) => o.id === "cpp-70-A")!;
+    expect(opp.patch).toEqual({ cppAgeByPerson: { A: 70 } });
+    const run = runScenario(d, opp.patch!);
+    expect(run.people.map((p) => p.cppAge)).toEqual([70, 65]);
+  });
+
+  it("never describes a start age as optimal", () => {
+    for (const o of buildOpportunities(coupleDraft())) {
+      expect(`${o.title} ${o.why} ${o.change} ${o.tradeoffs}`.toLowerCase()).not.toContain(
+        "optimal",
+      );
+    }
+  });
+});
+
+/* ---------------- UX1-FIX G: no silent savings owner ----------------- */
+
+describe("extra saving never picks an owner silently", () => {
+  function twoOwnerDraft(): PlanDraft {
+    const d = coupleDraft();
+    d.accounts = [
+      account({ id: "nrA", owner: "A" }),
+      account({ id: "nrB", owner: "B", name: "Non-registered (B)" }),
+    ];
+    return d;
+  }
+
+  it("sees both owners as eligible", () => {
+    expect(extraSavingTargets(twoOwnerDraft())).toEqual(["A", "B"]);
+  });
+
+  it("applies nothing when two owners qualify and none was chosen", () => {
+    const d = twoOwnerDraft();
+    const o = scenarioOverride({ extraMonthlySaving: 500 }, scenarioInputs(d, {}));
+    expect(o.goalSaves).toBeUndefined();
+    expect(isLeverActive({ extraMonthlySaving: 500 }, "extraMonthlySaving", d)).toBe(false);
+  });
+
+  it("applies the chosen owner's account when one is named", () => {
+    const d = twoOwnerDraft();
+    const o = scenarioOverride(
+      { extraMonthlySaving: 500, savingOwner: "B" },
+      scenarioInputs(d, {}),
+    );
+    expect(o.goalSaves).toEqual([{ amt: 6000, type: "NONREG", owner: "B" }]);
+    expect(
+      isLeverActive({ extraMonthlySaving: 500, savingOwner: "B" }, "extraMonthlySaving", d),
+    ).toBe(true);
+  });
+
+  it("offers one owner-specific saving opportunity per eligible owner", () => {
+    const opps = buildOpportunities(twoOwnerDraft()).filter((o) => o.id.startsWith("save-more"));
+    expect(opps.map((o) => o.id)).toEqual(["save-more-A", "save-more-B"]);
+    expect(opps.every((o) => o.patch?.savingOwner != null)).toBe(true);
+  });
+
+  it("a single eligible owner still needs no choice", () => {
+    const opps = buildOpportunities(baseDraft()).filter((o) => o.id.startsWith("save-more"));
+    expect(opps.map((o) => o.id)).toEqual(["save-more"]);
+    expect(opps[0]!.patch!.savingOwner).toBe("A");
   });
 });

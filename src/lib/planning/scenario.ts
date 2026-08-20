@@ -209,8 +209,13 @@ export function isLeverActive(
       return (v as OneTimeExpensePatch).amt > 0;
     case "propertySale":
       return true;
-    case "extraMonthlySaving":
-      return (v as number) > 0 && isExtraSavingSupported(draft);
+    case "extraMonthlySaving": {
+      if (!((v as number) > 0)) return false;
+      const owners = extraSavingTargets(draft);
+      if (owners.length === 0) return false;
+      // More than one eligible owner: an explicit choice is required.
+      return owners.length === 1 || (patch.savingOwner != null && owners.includes(patch.savingOwner));
+    }
     default:
       return typeof v === "number" && v !== 0;
   }
@@ -279,20 +284,31 @@ export function scenarioOverride(patch: ScenarioPatch, inputs: PlanInputs): Proj
   if (patch.returnAdjustment) o.retDelta = returnAdjustmentFraction(patch.returnAdjustment);
 
   if (patch.extraMonthlySaving && patch.extraMonthlySaving > 0) {
-    const owners = inputs.accounts
-      .filter((a) => a.type === "NONREG")
-      .map((a) => a.owner)
-      .filter((ow): ow is PersonKey => ow === "A" || ow === "B");
-    const owner = patch.savingOwner && owners.includes(patch.savingOwner)
-      ? patch.savingOwner
-      : owners[0];
-    // No non-registered account exists → the change is simply not applied.
+    const owners = [
+      ...new Set(
+        inputs.accounts
+          .filter((a) => a.type === "NONREG")
+          .map((a) => a.owner)
+          .filter((ow): ow is PersonKey => ow === "A" || ow === "B"),
+      ),
+    ];
+    // UX1-FIX G: never silently pick an owner. One eligible owner is an
+    // unambiguous destination; more than one requires an explicit choice, or
+    // the change is not applied at all.
+    const owner =
+      patch.savingOwner && owners.includes(patch.savingOwner)
+        ? patch.savingOwner
+        : owners.length === 1
+          ? owners[0]
+          : undefined;
+    // No eligible (or no chosen) non-registered account → not applied.
     if (owner) {
       o.goalSaves = [
         { amt: annualFromMonthly(patch.extraMonthlySaving) ?? 0, type: "NONREG", owner },
       ];
     }
   }
+
 
   const cppBy = patch.cppAgeByPerson ?? undefined;
   const oasBy = patch.oasAgeByPerson ?? undefined;
@@ -343,6 +359,15 @@ export interface ScenarioMetrics {
   autoSelected: boolean;
 }
 
+/** A read-only view of one person as the engine ran them. */
+export interface ExecutedPerson {
+  id: PersonKey;
+  curAge: number;
+  retAge: number;
+  cppAge: number;
+  oasAge: number;
+}
+
 export interface ScenarioSeriesPoint {
   age: number;
   year: number;
@@ -352,6 +377,8 @@ export interface ScenarioSeriesPoint {
 
 export interface ScenarioRun {
   metrics: ScenarioMetrics;
+  /** The people the engine actually ran, after every override was applied. */
+  people: ExecutedPerson[];
   output: PlanOutput;
   series: ScenarioSeriesPoint[];
 }
@@ -364,18 +391,34 @@ export function runScenario(draft: PlanDraft, patch: ScenarioPatch = {}): Scenar
   const output = summarize(P);
   const s = output.summary;
 
-  const retAges = inputs.people
-    .map((p) => p.retAge + (patch.retireDeferYears ?? 0))
-    .filter((a) => a > 0 && a < 999);
-  const retirementAge = retAges.length ? Math.min(...retAges) : null;
+  // UX1-FIX E: retirement metrics come from the people the engine actually
+  // ran (retAdj and every per-person override already applied), never from a
+  // second reconstruction of the baseline draft.
+  //
+  // Household convention: the household is treated as retired at the FIRST
+  // retirement in it, reported on person A's age timeline (the timeline every
+  // projection row uses).
+  const offsets = P.people
+    .filter((p) => p.retAge > 0 && p.retAge < 900)
+    .map((p) => Math.max(0, p.retAge - p.curAge));
+  const ageA = P.people[0]?.curAge ?? P.curAge;
+  const retirementAge = offsets.length ? ageA + Math.min(...offsets) : null;
   const atRet =
     retirementAge != null
       ? (P.rows.find((r) => r.age >= retirementAge) ?? P.rows[P.rows.length - 1])
       : P.rows[0];
 
+
   const sustainable = sustainableSpendFor(inputs, P.chosenStrategy, override, inputs.spendNeed);
 
   return {
+    people: P.people.map((p) => ({
+      id: p.id,
+      curAge: p.curAge,
+      retAge: p.retAge,
+      cppAge: p.cpp.age,
+      oasAge: p.oas.age,
+    })),
     metrics: {
       fundedToAge: s.firstShortfallAge != null ? s.firstShortfallAge - 1 : s.endAge,
       firstShortfallAge: s.firstShortfallAge,

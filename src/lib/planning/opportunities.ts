@@ -8,16 +8,14 @@
  * the best choice.
  */
 
-import type { PlanDraft } from "./draft";
+import type { PlanDraft, PersonDraft } from "./draft";
 import { unlockRule } from "./registered";
-import { isExtraSavingSupported, type ByPerson, type ScenarioPatch } from "./scenario";
+import { extraSavingTargets, isExtraSavingSupported, type ScenarioPatch } from "./scenario";
 import { monthlyFromAnnual } from "./units";
 
-/** The same age for every person in the plan, expressed per person. */
-function byPerson(draft: PlanDraft, age: number): ByPerson {
-  const out: ByPerson = {};
-  for (const p of draft.people) out[p.id] = age;
-  return out;
+/** How a person is referred to in opportunity copy. */
+function personLabel(p: PersonDraft): string {
+  return p.firstName?.trim() || (p.id === "A" ? "Person A" : "Person B");
 }
 
 
@@ -41,6 +39,7 @@ export function buildOpportunities(draft: PlanDraft): Opportunity[] {
   const out: Opportunity[] = [];
   const people = draft.people;
   const retMonthly = monthlyFromAnnual(draft.spendNeed);
+  const single = people.length < 2;
 
   out.push({
     id: "retire-later",
@@ -52,42 +51,66 @@ export function buildOpportunities(draft: PlanDraft): Opportunity[] {
     patch: { retireDeferYears: 2 },
   });
 
-  if (people.some((p) => (p.cpp.age ?? 65) < 70)) {
-    out.push({
-      id: "cpp-70",
-      theme: "Timing",
-      title: "Start CPP at 70 instead",
-      why: "CPP is permanently larger the later it starts, and it is indexed and paid for life, so it can carry more of late-retirement spending.",
-      change: "CPP start age set to 70 for everyone in the plan.",
-      tradeoffs:
-        "The portfolio funds the gap years instead, so early balances fall. Poor health or a short life expectancy usually argues the other way.",
-      patch: { cppAgeByPerson: byPerson(draft, 70) },
-    });
+  // UX1-FIX F: one opportunity per person. Each patch moves only that
+  // person's start age; testing combinations is an optimizer's job, not a
+  // recommendation's, and no start age is described as optimal.
+  for (const p of people) {
+    if ((p.cpp.age ?? 65) < 70) {
+      const who = personLabel(p);
+      out.push({
+        id: `cpp-70-${p.id}`,
+        theme: "Timing",
+        title: single ? "Start CPP at 70 instead" : `Test ${who} starting CPP at 70`,
+        why: "CPP is permanently larger the later it starts, and it is indexed and paid for life, so it can carry more of late-retirement spending.",
+        change: single
+          ? "CPP start age set to 70."
+          : `CPP start age set to 70 for ${who} only. Everyone else keeps their current start age.`,
+        tradeoffs:
+          "The portfolio funds the gap years instead, so early balances fall. Poor health or a short life expectancy usually argues the other way.",
+        patch: { cppAgeByPerson: { [p.id]: 70 } },
+      });
+    }
   }
 
-  if (people.some((p) => (p.oas.age ?? 65) < 70)) {
-    out.push({
-      id: "oas-70",
-      theme: "Timing",
-      title: "Start OAS at 70 instead",
-      why: "Deferring OAS raises the monthly amount permanently and can move income out of clawback years.",
-      change: "OAS start age set to 70 for everyone in the plan.",
-      tradeoffs: "No OAS between 65 and 70; the portfolio covers that spending instead.",
-      patch: { oasAgeByPerson: byPerson(draft, 70) },
-    });
+  for (const p of people) {
+    if ((p.oas.age ?? 65) < 70) {
+      const who = personLabel(p);
+      out.push({
+        id: `oas-70-${p.id}`,
+        theme: "Timing",
+        title: single ? "Start OAS at 70 instead" : `Test ${who} starting OAS at 70`,
+        why: "Deferring OAS raises the monthly amount permanently and can move income out of clawback years.",
+        change: single
+          ? "OAS start age set to 70."
+          : `OAS start age set to 70 for ${who} only. Everyone else keeps their current start age.`,
+        tradeoffs: "No OAS between 65 and 70; the portfolio covers that spending instead.",
+        patch: { oasAgeByPerson: { [p.id]: 70 } },
+      });
+    }
   }
 
+  // UX1-FIX G: the destination owner is never chosen silently. With one
+  // eligible non-registered owner the destination is unambiguous; with two,
+  // one owner-specific opportunity is offered for each.
+  const savingOwners = extraSavingTargets(draft);
   if (isExtraSavingSupported(draft)) {
-    out.push({
-      id: "save-more",
-      theme: "Funding",
-      title: "Save $500 / month more until retirement",
-      why: "Extra saving before retirement changes both the balance at retirement and the years it has to last.",
-      change: "An extra $500 / month contributed to your non-registered account until retirement.",
-      tradeoffs:
-        "$500 / month less to spend today. Extra TFSA and RRSP saving is not offered yet: contribution-room enforcement is still pending in the engine, so a registered result would be unreliable.",
-      patch: { extraMonthlySaving: 500, savingAccount: "NONREG" },
-    });
+    for (const owner of savingOwners) {
+      const p = people.find((x) => x.id === owner);
+      const who = p ? personLabel(p) : owner === "A" ? "Person A" : "Person B";
+      const suffix = savingOwners.length > 1 ? ` into ${who}'s account` : "";
+      out.push({
+        id: savingOwners.length > 1 ? `save-more-${owner}` : "save-more",
+        theme: "Funding",
+        title: `Save $500 / month more until retirement${suffix}`,
+        why: "Extra saving before retirement changes both the balance at retirement and the years it has to last.",
+        change: `An extra $500 / month contributed to ${
+          savingOwners.length > 1 ? `${who}'s` : "your"
+        } non-registered account until retirement.`,
+        tradeoffs:
+          "$500 / month less to spend today. Extra TFSA and RRSP saving is not offered yet: contribution-room enforcement is still pending in the engine, so a registered result would be unreliable.",
+        patch: { extraMonthlySaving: 500, savingAccount: "NONREG", savingOwner: owner },
+      });
+    }
   } else {
     out.push({
       id: "save-more",
