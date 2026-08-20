@@ -209,8 +209,13 @@ export function isLeverActive(
       return (v as OneTimeExpensePatch).amt > 0;
     case "propertySale":
       return true;
-    case "extraMonthlySaving":
-      return (v as number) > 0 && isExtraSavingSupported(draft);
+    case "extraMonthlySaving": {
+      if (!((v as number) > 0)) return false;
+      const owners = extraSavingTargets(draft);
+      if (owners.length === 0) return false;
+      // More than one eligible owner: an explicit choice is required.
+      return owners.length === 1 || (patch.savingOwner != null && owners.includes(patch.savingOwner));
+    }
     default:
       return typeof v === "number" && v !== 0;
   }
