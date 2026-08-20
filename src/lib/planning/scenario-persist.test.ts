@@ -11,7 +11,7 @@ import type { ScenarioPatch } from "./scenario";
 const patch: ScenarioPatch = {
   retSpendMonthly: 5200,
   extraMonthlySaving: 400,
-  savingAccount: "TFSA",
+  savingAccount: "NONREG",
   savingOwner: "A",
   cppAgeByPerson: { A: 70 },
   strategy: "tfsa_nonreg_reg",
