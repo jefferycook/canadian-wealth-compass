@@ -8,7 +8,8 @@
 
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import type { Json, TablesUpdate } from "@/integrations/supabase/types";
+import type { Database, Json, TablesUpdate } from "@/integrations/supabase/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { newPlanDraft } from "./planning/defaults";
 import type { PlanDraft } from "./planning/draft";
@@ -25,6 +26,7 @@ import type {
   ScenarioRun,
   ScenarioSet,
   StrategyComparison,
+  PromotionPreflight,
 } from "./planning/scenario";
 import type { Opportunity } from "./planning/opportunities";
 
@@ -270,10 +272,47 @@ async function toSaved(row: ScenarioRowShape): Promise<SavedScenario> {
 
 const SCENARIO_COLUMNS = "id, name, overrides, schema_version, created_at, updated_at";
 
+/**
+ * Every scenario operation is scoped to a plan the caller owns. RLS already
+ * limits rows to the caller; this additionally proves the parent-plan
+ * relationship instead of trusting the client's plan id.
+ */
+async function requireOwnedPlan(
+  supabase: SupabaseClient<Database>,
+  planId: string,
+): Promise<{ draft: PlanDraft }> {
+  const { data, error } = await supabase
+    .from("plans")
+    .select("id, draft")
+    .eq("id", planId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("Plan not found");
+  return { draft: data.draft as unknown as PlanDraft };
+}
+
+/** Load one scenario, refusing anything that does not belong to this plan. */
+async function requireScenarioOfPlan(
+  supabase: SupabaseClient<Database>,
+  planId: string,
+  scenarioId: string,
+): Promise<ScenarioRowShape & { plan_id: string }> {
+  const { data, error } = await supabase
+    .from("plan_scenarios")
+    .select(`${SCENARIO_COLUMNS}, plan_id`)
+    .eq("id", scenarioId)
+    .eq("plan_id", planId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("Scenario not found for this plan");
+  return data as unknown as ScenarioRowShape & { plan_id: string };
+}
+
 export const listScenarios = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { planId: string }) => input)
   .handler(async ({ data, context }): Promise<SavedScenario[]> => {
+    await requireOwnedPlan(context.supabase, data.planId);
     const { data: rows, error } = await context.supabase
       .from("plan_scenarios")
       .select(SCENARIO_COLUMNS)
@@ -290,6 +329,7 @@ export const createScenario = createServerFn({ method: "POST" })
     const { serializeScenarioPatch, SCENARIO_SCHEMA_VERSION } = await import(
       "./planning/scenario-persist"
     );
+    await requireOwnedPlan(context.supabase, data.planId);
     const { data: row, error } = await context.supabase
       .from("plan_scenarios")
       .insert({
@@ -308,11 +348,15 @@ export const createScenario = createServerFn({ method: "POST" })
 /** Rename and/or overwrite a scenario's patch. The plan itself is untouched. */
 export const updateScenario = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { id: string; name?: string; patch?: ScenarioPatch }) => input)
+  .inputValidator(
+    (input: { planId: string; id: string; name?: string; patch?: ScenarioPatch }) => input,
+  )
   .handler(async ({ data, context }): Promise<SavedScenario> => {
     const { serializeScenarioPatch, SCENARIO_SCHEMA_VERSION } = await import(
       "./planning/scenario-persist"
     );
+    await requireOwnedPlan(context.supabase, data.planId);
+    await requireScenarioOfPlan(context.supabase, data.planId, data.id);
     const patch: Record<string, unknown> = {};
     if (data.name !== undefined) patch['name'] = data.name.trim() || "Untitled scenario";
     if (data.patch !== undefined) {
@@ -323,6 +367,7 @@ export const updateScenario = createServerFn({ method: "POST" })
       .from("plan_scenarios")
       .update(patch as TablesUpdate<"plan_scenarios">)
       .eq("id", data.id)
+      .eq("plan_id", data.planId)
       .select(SCENARIO_COLUMNS)
       .single();
     if (error) throw new Error(error.message);
@@ -331,32 +376,32 @@ export const updateScenario = createServerFn({ method: "POST" })
 
 export const deleteScenario = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { id: string }) => input)
+  .inputValidator((input: { planId: string; id: string }) => input)
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase.from("plan_scenarios").delete().eq("id", data.id);
+    await requireOwnedPlan(context.supabase, data.planId);
+    const { error } = await context.supabase
+      .from("plan_scenarios")
+      .delete()
+      .eq("id", data.id)
+      .eq("plan_id", data.planId);
     if (error) throw new Error(error.message);
     return { ok: true as const };
   });
 
 export const duplicateScenario = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { id: string; name?: string }) => input)
+  .inputValidator((input: { planId: string; id: string; name?: string }) => input)
   .handler(async ({ data, context }): Promise<SavedScenario> => {
-    const { data: src, error } = await context.supabase
-      .from("plan_scenarios")
-      .select("plan_id, name, overrides, schema_version")
-      .eq("id", data.id)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!src) throw new Error("Scenario not found");
+    await requireOwnedPlan(context.supabase, data.planId);
+    const src = await requireScenarioOfPlan(context.supabase, data.planId, data.id);
     const { data: row, error: insErr } = await context.supabase
       .from("plan_scenarios")
       .insert({
-        plan_id: src.plan_id,
+        plan_id: data.planId,
         user_id: context.userId,
         name: data.name?.trim() || `${src.name} (copy)`,
-        overrides: src.overrides,
-        schema_version: (src as { schema_version: number }).schema_version,
+        overrides: src.overrides as unknown as Json,
+        schema_version: src.schema_version,
       })
       .select(SCENARIO_COLUMNS)
       .single();
@@ -367,18 +412,13 @@ export const duplicateScenario = createServerFn({ method: "POST" })
 /**
  * Compare saved scenarios against the baseline. Every number here comes from a
  * fresh engine run of `baseline draft + stored patch`; no result is stored.
+ * Scenarios belonging to another plan are never included.
  */
 export const compareScenarios = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { planId: string; scenarioIds: string[] }) => input)
   .handler(async ({ data, context }): Promise<ScenarioComparison> => {
-    const { data: plan, error: planErr } = await context.supabase
-      .from("plans")
-      .select("draft")
-      .eq("id", data.planId)
-      .maybeSingle();
-    if (planErr) throw new Error(planErr.message);
-    if (!plan) throw new Error("Plan not found");
+    const { draft } = await requireOwnedPlan(context.supabase, data.planId);
 
     const { data: rows, error } = await context.supabase
       .from("plan_scenarios")
@@ -388,7 +428,6 @@ export const compareScenarios = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
 
     const { runScenario } = await import("./planning/scenario");
-    const draft = plan.draft as unknown as PlanDraft;
     const saved = await Promise.all(((rows ?? []) as ScenarioRowShape[]).map(toSaved));
 
     const scenarios: ScenarioComparison["scenarios"] = [];
@@ -404,8 +443,28 @@ export const compareScenarios = createServerFn({ method: "POST" })
   });
 
 /**
+ * What promoting a scenario would do to the baseline, computed without
+ * writing anything. The client shows this before the confirmation action.
+ */
+export const previewScenarioPromotion = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { planId: string; scenarioId: string }) => input)
+  .handler(async ({ data, context }): Promise<PromotionPreflight> => {
+    const [{ promotionPreflight }, { parseStoredScenario }] = await Promise.all([
+      import("./planning/scenario"),
+      import("./planning/scenario-persist"),
+    ]);
+    const { draft } = await requireOwnedPlan(context.supabase, data.planId);
+    const row = await requireScenarioOfPlan(context.supabase, data.planId, data.scenarioId);
+    const parsed = parseStoredScenario(row.overrides, row.schema_version);
+    if (!parsed.ok) throw new Error(parsed.reason);
+    return promotionPreflight(draft, parsed.patch);
+  });
+
+/**
  * The one and only way a saved scenario changes the baseline plan. The client
- * asks for it explicitly and confirms it; nothing else writes the draft.
+ * asks for it explicitly and confirms it; nothing else writes the draft. The
+ * scenario must belong to the plan being changed.
  */
 export const promoteScenarioToBaseline = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -417,29 +476,13 @@ export const promoteScenarioToBaseline = createServerFn({ method: "POST" })
       import("./planning/scenario-persist"),
     ]);
 
-    const { data: plan, error: planErr } = await context.supabase
-      .from("plans")
-      .select("draft")
-      .eq("id", data.planId)
-      .maybeSingle();
-    if (planErr) throw new Error(planErr.message);
-    if (!plan) throw new Error("Plan not found");
+    const { draft } = await requireOwnedPlan(context.supabase, data.planId);
+    const row = await requireScenarioOfPlan(context.supabase, data.planId, data.scenarioId);
 
-    const { data: row, error } = await context.supabase
-      .from("plan_scenarios")
-      .select(SCENARIO_COLUMNS)
-      .eq("id", data.scenarioId)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!row) throw new Error("Scenario not found");
-
-    const parsed = parseStoredScenario(
-      (row as ScenarioRowShape).overrides,
-      (row as ScenarioRowShape).schema_version,
-    );
+    const parsed = parseStoredScenario(row.overrides, row.schema_version);
     if (!parsed.ok) throw new Error(parsed.reason);
 
-    const promoted = patchToDraft(plan.draft as unknown as PlanDraft, parsed.patch);
+    const promoted = patchToDraft(draft, parsed.patch);
     const { error: upErr } = await context.supabase
       .from("plans")
       .update({ draft: promoted.draft as unknown as Json })
@@ -447,3 +490,4 @@ export const promoteScenarioToBaseline = createServerFn({ method: "POST" })
     if (upErr) throw new Error(upErr.message);
     return { ok: true as const, unsupported: promoted.unsupported };
   });
+

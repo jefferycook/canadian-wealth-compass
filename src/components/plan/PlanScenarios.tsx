@@ -34,6 +34,7 @@ import {
   deleteScenario,
   duplicateScenario,
   listScenarios,
+  previewScenarioPromotion,
   promoteScenarioToBaseline,
   updateScenario,
   type SavedScenario,
@@ -65,6 +66,7 @@ export function ScenariosWorkspace({
   const clone = useServerFn(duplicateScenario);
   const compare = useServerFn(compareScenarios);
   const promote = useServerFn(promoteScenarioToBaseline);
+  const preview = useServerFn(previewScenarioPromotion);
 
   const [newName, setNewName] = useState("");
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
@@ -93,7 +95,7 @@ export function ScenariosWorkspace({
   });
 
   const overwrite = useMutation({
-    mutationFn: (id: string) => update({ data: { id, patch } }),
+    mutationFn: (id: string) => update({ data: { planId, id, patch } }),
     onSuccess: () => {
       toast.success("Scenario updated.");
       refreshAll();
@@ -102,7 +104,7 @@ export function ScenariosWorkspace({
   });
 
   const rename = useMutation({
-    mutationFn: (v: { id: string; name: string }) => update({ data: v }),
+    mutationFn: (v: { id: string; name: string }) => update({ data: { planId, ...v } }),
     onSuccess: () => {
       setRenaming(null);
       refreshAll();
@@ -111,7 +113,7 @@ export function ScenariosWorkspace({
   });
 
   const del = useMutation({
-    mutationFn: (id: string) => remove({ data: { id } }),
+    mutationFn: (id: string) => remove({ data: { planId, id } }),
     onSuccess: (_r, id) => {
       setSelected((s) => s.filter((x) => x !== id));
       toast.success("Scenario deleted. Your plan is unchanged.");
@@ -121,7 +123,7 @@ export function ScenariosWorkspace({
   });
 
   const dup = useMutation({
-    mutationFn: (id: string) => clone({ data: { id } }),
+    mutationFn: (id: string) => clone({ data: { planId, id } }),
     onSuccess: () => refreshAll(),
     onError: (e: Error) => toast.error(e.message),
   });
@@ -139,6 +141,12 @@ export function ScenariosWorkspace({
       );
     },
     onError: (e: Error) => toast.error(e.message),
+  });
+
+  const preflight = useQuery({
+    queryKey: ["scenario-preflight", planId, confirmBaseline?.id],
+    queryFn: () => preview({ data: { planId, scenarioId: confirmBaseline!.id } }),
+    enabled: confirmBaseline != null,
   });
 
   const comparison = useQuery({
@@ -387,9 +395,55 @@ export function ScenariosWorkspace({
               Saved scenarios stay where they are. This cannot be undone automatically.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-3 text-sm">
+            {preflight.isPending ? (
+              <p className="text-muted-foreground">Checking what would change…</p>
+            ) : preflight.error ? (
+              <p className="text-destructive">
+                This scenario could not be checked: {(preflight.error as Error).message}
+              </p>
+            ) : preflight.data ? (
+              <>
+                <div>
+                  <p className="font-medium">
+                    The following scenario settings will become part of your baseline:
+                  </p>
+                  {preflight.data.applied.length ? (
+                    <ul className="ml-5 list-disc text-muted-foreground">
+                      {preflight.data.applied.map((l) => (
+                        <li key={l.key}>{l.label}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-muted-foreground">
+                      Nothing — this scenario matches your baseline answers.
+                    </p>
+                  )}
+                </div>
+                {preflight.data.unsupported.length ? (
+                  <div>
+                    <p className="font-medium">
+                      The following scenario-only settings cannot be saved into the baseline and
+                      will be left out:
+                    </p>
+                    <ul className="ml-5 list-disc text-muted-foreground">
+                      {preflight.data.unsupported.map((l) => (
+                        <li key={l.key}>{l.label}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">
+                    The full scenario can be promoted — nothing will be left out.
+                  </p>
+                )}
+              </>
+            ) : null}
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep my current plan</AlertDialogCancel>
             <AlertDialogAction
+              disabled={preflight.isPending || preflight.error != null}
               onClick={() => confirmBaseline && makeBaseline.mutate(confirmBaseline.id)}
             >
               Yes, make it my baseline

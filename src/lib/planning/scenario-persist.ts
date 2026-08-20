@@ -135,9 +135,51 @@ export function serializeScenarioPatch(patch: ScenarioPatch): Record<string, unk
 }
 
 /**
- * Read a stored scenario back. Fails safely rather than guessing: a newer
- * schema version, an unknown field, or a bad type produces an error the UI
- * shows instead of a scenario that would run with the wrong meaning.
+ * Explicit migrations, keyed by the version they upgrade *from*. Each entry
+ * takes the raw stored object at version N and returns the raw object as
+ * version N+1 would have written it. There is deliberately no implicit
+ * fallback: a stored version with no migration path is refused rather than
+ * being reinterpreted under today's meanings.
+ */
+export type ScenarioMigration = (raw: Record<string, unknown>) => Record<string, unknown>;
+
+export const SCENARIO_MIGRATIONS: Record<number, ScenarioMigration> = {};
+
+export type ScenarioMigrationResult =
+  | { ok: true; raw: Record<string, unknown> }
+  | { ok: false; reason: string };
+
+/**
+ * Bring a stored object from `version` up to SCENARIO_SCHEMA_VERSION by
+ * applying every registered step in order. Fails when any step is missing.
+ */
+export function migrateScenarioPatch(
+  version: number,
+  raw: unknown,
+  target: number = SCENARIO_SCHEMA_VERSION,
+): ScenarioMigrationResult {
+  if (!isPlainObject(raw)) {
+    return { ok: false, reason: "This saved scenario is not in a readable format." };
+  }
+  let current: Record<string, unknown> = raw;
+  for (let v = version; v < target; v++) {
+    const step = SCENARIO_MIGRATIONS[v];
+    if (!step) {
+      return {
+        ok: false,
+        reason: `This scenario was saved by an older version of the planner (v${version}) and cannot be upgraded automatically.`,
+      };
+    }
+    current = step(current);
+  }
+  return { ok: true, raw: current };
+}
+
+/**
+ * Read a stored scenario back. Fails safely rather than guessing: a scenario
+ * is executable only when its stored version is exactly the current schema
+ * version, or an explicit migration path brings it there. Unknown fields and
+ * bad types are refused too.
  */
 export function parseStoredScenario(raw: unknown, version: unknown): ScenarioParse {
   if (!isFiniteNumber(version) || !Number.isInteger(version) || version < 1) {
@@ -153,8 +195,15 @@ export function parseStoredScenario(raw: unknown, version: unknown): ScenarioPar
     return { ok: false, reason: "This saved scenario is not in a readable format." };
   }
 
+  let source: Record<string, unknown> = raw;
+  if (version !== SCENARIO_SCHEMA_VERSION) {
+    const migrated = migrateScenarioPatch(version, raw);
+    if (!migrated.ok) return { ok: false, reason: migrated.reason };
+    source = migrated.raw;
+  }
+
   const patch: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(raw)) {
+  for (const [key, value] of Object.entries(source)) {
     if (!STORED_PATCH_KEYS.includes(key as StoredPatchKey)) {
       return { ok: false, reason: `This saved scenario contains an unsupported change ("${key}").` };
     }
@@ -165,3 +214,4 @@ export function parseStoredScenario(raw: unknown, version: unknown): ScenarioPar
   }
   return { ok: true, patch: patch as ScenarioPatch };
 }
+
