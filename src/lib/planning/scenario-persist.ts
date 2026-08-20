@@ -153,12 +153,16 @@ export type ScenarioMigrationResult =
  * Bring a stored object from `version` up to SCENARIO_SCHEMA_VERSION by
  * applying every registered step in order. Fails when any step is missing.
  */
-export function migrateScenarioPatch(version: number, raw: unknown): ScenarioMigrationResult {
+export function migrateScenarioPatch(
+  version: number,
+  raw: unknown,
+  target: number = SCENARIO_SCHEMA_VERSION,
+): ScenarioMigrationResult {
   if (!isPlainObject(raw)) {
     return { ok: false, reason: "This saved scenario is not in a readable format." };
   }
   let current: Record<string, unknown> = raw;
-  for (let v = version; v < SCENARIO_SCHEMA_VERSION; v++) {
+  for (let v = version; v < target; v++) {
     const step = SCENARIO_MIGRATIONS[v];
     if (!step) {
       return {
