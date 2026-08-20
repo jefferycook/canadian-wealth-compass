@@ -232,18 +232,18 @@ function PlanBuilder() {
               <GoalPanel goal={results.data.goal} />
             </TabsContent>
             <TabsContent value="strategies">
-              <StrategyPanel rows={results.data.strategies} />
+              <StrategiesWorkspace draft={draft} patch={patch} onApplyToScenario={setPatch} />
             </TabsContent>
             <TabsContent value="advice">
-              <RecommendationsPanel items={results.data.recommendations} />
+              <OpportunitiesWorkspace
+                draft={draft}
+                baseline={baselineRun.data?.metrics}
+                patch={patch}
+                onApplyToScenario={setPatch}
+              />
             </TabsContent>
             <TabsContent value="whatif">
-              <LeversPanel
-                draft={draft}
-                score={results.data.score}
-                cashflow={results.data.cashflow}
-                advice={results.data.advice}
-              />
+              <WhatIfWorkspace draft={draft} patch={patch} onChange={setPatch} />
             </TabsContent>
           </Tabs>
         ) : (
