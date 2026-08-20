@@ -51,7 +51,21 @@ export function WhatIfWorkspace({
 
   const baseRetSpend = monthlyFromAnnual(draft.spendNeed) ?? 0;
   const baseCurSpend = monthlyFromAnnual(draft.currentSpend) ?? 0;
-  const savingOwners = useMemo(() => extraSavingTargets(draft), [draft]);
+  // Mirrors extraSavingTargets() in scenario.ts; kept local so the engine
+  // module never reaches the browser bundle. No arithmetic, just a filter.
+  const savingOwners = useMemo(
+    () =>
+      [
+        ...new Set(
+          draft.accounts
+            .filter((a) => a.type === "NONREG")
+            .map((a) => a.owner)
+            .filter((o): o is "A" | "B" => o === "A" || o === "B"),
+        ),
+      ],
+    [draft.accounts],
+  );
+
 
 
   const set = (p: Partial<ScenarioPatch>) => onChange({ ...patch, ...p });
