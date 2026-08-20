@@ -354,6 +354,15 @@ export interface ScenarioMetrics {
   autoSelected: boolean;
 }
 
+/** A read-only view of one person as the engine ran them. */
+export interface ExecutedPerson {
+  id: PersonKey;
+  curAge: number;
+  retAge: number;
+  cppAge: number;
+  oasAge: number;
+}
+
 export interface ScenarioSeriesPoint {
   age: number;
   year: number;
@@ -363,6 +372,8 @@ export interface ScenarioSeriesPoint {
 
 export interface ScenarioRun {
   metrics: ScenarioMetrics;
+  /** The people the engine actually ran, after every override was applied. */
+  people: ExecutedPerson[];
   output: PlanOutput;
   series: ScenarioSeriesPoint[];
 }
@@ -396,6 +407,13 @@ export function runScenario(draft: PlanDraft, patch: ScenarioPatch = {}): Scenar
   const sustainable = sustainableSpendFor(inputs, P.chosenStrategy, override, inputs.spendNeed);
 
   return {
+    people: P.people.map((p) => ({
+      id: p.id,
+      curAge: p.curAge,
+      retAge: p.retAge,
+      cppAge: p.cpp.age,
+      oasAge: p.oas.age,
+    })),
     metrics: {
       fundedToAge: s.firstShortfallAge != null ? s.firstShortfallAge - 1 : s.endAge,
       firstShortfallAge: s.firstShortfallAge,
