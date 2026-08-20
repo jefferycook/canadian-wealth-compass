@@ -170,3 +170,35 @@ export const simulatePlan = createServerFn({ method: "POST" })
     ]);
     return levers.simulateLevers(normalizeDraft(data.draft), data.levers);
   });
+
+/* ------------------------------------------------------------------ */
+/* Scenario execution — one path for Strategies, Recommendations, What If */
+/* ------------------------------------------------------------------ */
+
+/** Run one scenario patch against a baseline draft and return the real output. */
+export const runScenarioFn = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { draft: PlanDraft; patch: ScenarioPatch }) => input)
+  .handler(async ({ data }): Promise<ScenarioRun> => {
+    const { runScenario } = await import("./planning/scenario");
+    return runScenario(data.draft, data.patch ?? {});
+  });
+
+/** Every supported withdrawal order, each re-simulated. */
+export const compareStrategiesFn = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { draft: PlanDraft }) => input)
+  .handler(async ({ data }): Promise<StrategyComparison> => {
+    const { runStrategyComparison } = await import("./planning/scenario");
+    return runStrategyComparison(data.draft);
+  });
+
+/** Baseline, each change isolated, and one combined run of all of them. */
+export const simulateScenario = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { draft: PlanDraft; patch: ScenarioPatch }) => input)
+  .handler(async ({ data }): Promise<ScenarioSet> => {
+    const { runScenarioSet } = await import("./planning/scenario");
+    return runScenarioSet(data.draft, data.patch ?? {});
+  });
+
