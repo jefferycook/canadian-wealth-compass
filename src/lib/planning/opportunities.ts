@@ -9,9 +9,17 @@
  */
 
 import type { PlanDraft } from "./draft";
-import { isUnlockRuleVerified } from "./registered";
-import type { ScenarioPatch } from "./scenario";
+import { unlockRule } from "./registered";
+import { isExtraSavingSupported, type ByPerson, type ScenarioPatch } from "./scenario";
 import { monthlyFromAnnual } from "./units";
+
+/** The same age for every person in the plan, expressed per person. */
+function byPerson(draft: PlanDraft, age: number): ByPerson {
+  const out: ByPerson = {};
+  for (const p of draft.people) out[p.id] = age;
+  return out;
+}
+
 
 export type OpportunityTheme = "Funding" | "Timing" | "Tax" | "Assumptions" | "Locked-in money";
 
