@@ -395,7 +395,6 @@ export function ScenariosWorkspace({
               Yes, make it my baseline
             </AlertDialogAction>
           </AlertDialogFooter>
-        </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>
