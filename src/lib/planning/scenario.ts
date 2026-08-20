@@ -375,14 +375,23 @@ export function runScenario(draft: PlanDraft, patch: ScenarioPatch = {}): Scenar
   const output = summarize(P);
   const s = output.summary;
 
-  const retAges = inputs.people
-    .map((p) => p.retAge + (patch.retireDeferYears ?? 0))
-    .filter((a) => a > 0 && a < 999);
-  const retirementAge = retAges.length ? Math.min(...retAges) : null;
+  // UX1-FIX E: retirement metrics come from the people the engine actually
+  // ran (retAdj and every per-person override already applied), never from a
+  // second reconstruction of the baseline draft.
+  //
+  // Household convention: the household is treated as retired at the FIRST
+  // retirement in it, reported on person A's age timeline (the timeline every
+  // projection row uses).
+  const offsets = P.people
+    .filter((p) => p.retAge > 0 && p.retAge < 900)
+    .map((p) => Math.max(0, p.retAge - p.curAge));
+  const ageA = P.people[0]?.curAge ?? P.curAge;
+  const retirementAge = offsets.length ? ageA + Math.min(...offsets) : null;
   const atRet =
     retirementAge != null
       ? (P.rows.find((r) => r.age >= retirementAge) ?? P.rows[P.rows.length - 1])
       : P.rows[0];
+
 
   const sustainable = sustainableSpendFor(inputs, P.chosenStrategy, override, inputs.spendNeed);
 
