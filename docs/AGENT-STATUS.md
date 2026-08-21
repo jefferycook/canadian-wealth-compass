@@ -58,6 +58,67 @@ before re-issuing anything.
 
 ---
 
+## OPEN — the CPP combined-benefit ceiling ignores when the survivor took their own pension
+
+**Raised:** 2026-08-21, `benefits.ts` audit. **Status:** behaviour deliberately UNCHANGED — the governing rule could not be verified. Needs Jeff's or ChatGPT's decision.
+
+`cppSurvivorBenefit` caps the survivor's pension with:
+
+```
+b = Math.min(b, Math.max(0, ty.cppCombinedMax * infFac - survOwnCpp));
+```
+
+`ty.cppCombinedMax` ($1,531.56/mo, $18,378.72/yr) is ESDC's published **combined
+survivor's and retirement pension at age 65** — the **value is VERIFIED** against the
+July–September 2026 quarterly table. But `survOwnCpp` is the survivor's own pension
+**as actually received**, after `cppFactor` has applied their early or late start. An
+age-65 ceiling is therefore being applied to a pension that may have started at 60 or 70.
+
+For a deferrer the effect is severe: maximum CPP deferred to 70 is
+`1,507.65 × 1.42 = $2,140.86/mo = $25,690/yr`, so `18,378.72 − 25,690 < 0` → the
+survivor's pension is **eliminated entirely**. Even half the maximum deferred to 70
+leaves only $5,534, which binds below the 60% entitlement in many cases. This matters
+more than it looks because **the tool's own optimizer recommends deferring CPP** — the
+engine can recommend deferral to 70 and then, on widowhood, show a survivor's pension of
+zero, an interaction the plan itself created.
+
+**Why it was not fixed.** Service Canada's survivor's pension page says only that *"the
+most that can be paid to a person who is eligible for the retirement pension and the
+survivor's pension is the maximum retirement pension"*. It does not say whether the
+ceiling is fixed at the age-65 maximum regardless of the survivor's claiming age. The
+plain-language sentence also points at the *retirement* maximum ($1,507.65) while ESDC
+publishes a distinct, higher *combined* maximum ($1,531.56); the two do not obviously
+reconcile, which is itself a sign the mechanism is more intricate than either statement
+conveys. Per §13.1 this cannot ship as VERIFIED on that evidence.
+
+**Three candidate readings:**
+
+- **(a)** fixed age-65 ceiling, as coded today;
+- **(b)** ceiling adjusted by the survivor's own `cppFactor`;
+- **(c)** ceiling based on the **retirement** maximum rather than the published combined maximum.
+
+**(a) is the most conservative of the three for the client** — it produces the smallest
+survivor benefit — so the current behaviour errs in the safe direction while the question
+is open.
+
+**Component status (§13.2a):** the `cppCombinedMax` **value is VERIFIED**; the **rule for
+applying it is APPROXIMATE**. A verified number sitting inside an unverified rule.
+
+**Resolution path:** Service Canada directly, or the CPP legislation/regulations on
+combined benefits — the consumer pages do not carry it.
+
+**Pinned by test:** `benefits.test.ts` → *"combined-benefit ceiling (OPEN question)"*
+documents today's behaviour without asserting it is correct. If the rule resolves as (b)
+or (c), that test fails and points here.
+
+**Also confirmed correct in the same audit** (now pinned by `benefits.test.ts`):
+`cppFactor` (0.64 at 60, 1.42 at 70, 0.6%/0.7% branch), `oasFactor` (1.36 at 70, floored
+at 65), the survivor benefit computed on the deceased's **calculated** age-65 pension
+rather than what they received, and the 1/120 reduction for a survivor aged 35–44
+(90% at 44, 50% at 40, 0% at 35).
+
+---
+
 ## Phase 0 — READINESS MUST BE RE-ASSESSED (NOT APPROVED)
 
 Batches 0A–0D are implemented and green. The four verification gaps raised by
