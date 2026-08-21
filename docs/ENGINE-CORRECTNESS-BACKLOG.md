@@ -265,20 +265,24 @@ threshold, phase-out rate) to the tax-jurisdiction rules record and apply it in
 remaining ten jurisdictions are cut**, or all thirteen records will need
 re-cutting — the same trap already flagged for non-eligible dividend credits.
 
-### BC-2 [A] — BC's pension income amount is indexed but should not be
+### ~~BC-2 [A]~~ — BC's pension income amount is indexed but should not be — RESOLVED 2026-08-21
 
-*Found 2026-08-21 during the provincial constants verification pass. No code
-change made; no anchor affected.*
+*Fixed 2026-08-21. **Resolved:** per-jurisdiction `penAmtIndexed` flag.*
 
-The BC table publishes the **$1,000 pension amount as NOT indexed** ($1,000 in
-both 2025 and 2026), but `indexProvince()` in `src/lib/planning/taxYears.ts`
-indexes every provincial `penAmt` in derived years. BC's 2027-2030 indexation
-pause masks the defect; from **2031** BC's derived pension amount rises above
-$1,000, slightly **understating** BC tax for pensioners. Ontario's and
-Alberta's pension amounts *do* index in law, so the fix is a per-jurisdiction
-"indexed" flag on `penAmt`, not a change to the generic rule. A test in
-`taxYears.test.ts` documents the current behaviour rather than blessing it.
-Golden anchors are Ontario fixtures and are unaffected.
+**Statutory basis:** BC Income Tax Act, R.S.B.C. 1996, c. 215, s.4.32 fixes the
+pension income tax credit base at the **smaller of $1,000 and eligible pension
+income**. It is a fixed statutory dollar amount, not an indexed one; the BC
+credits table marks it "not indexed" ($1,000 in both 2025 and 2026).
+
+**Fix:** added an optional `penAmtIndexed` field to `ProvinceTax` (defaults to
+true). BC sets it `false`; `indexProvince()` now carries `penAmt` through
+unchanged when the flag is false, so BC stays at exactly $1,000 in every
+derived year (2026, 2030, 2031, 2055 pinned by tests). Ontario and Alberta
+pension amounts still index (pinned by a new test asserting `×(1+r)^5` to
+2031). This is a general per-jurisdiction mechanism, not a BC magic case.
+
+Golden anchors are Ontario fixtures and were unaffected: **201,470 / 411,408 /
+1,762,590**. 268 tests pass, clean typecheck.
 
 ### CR-2 — constants still CONST-UNVERIFIED (launch blocker, §11.4)
 
