@@ -1,136 +1,49 @@
-# Batch 0C — Locked-in safety
+# Ontario LIF maximum table — verification result and scoped correction
 
-Implements the Batch 0C row of `docs/CANONICAL-ENGINE-SPECIFICATION-v1.2-FINAL.md`
-(v1.2 FINAL + Errata 1–4, including §13.2a component-level status). Nothing outside
-0C changes; no deploy, no publish.
+## What I checked, independently
 
-## Contradictions found between the live code and the canonical contract
+FSRA guidance **PE0196INF (Active)**, *Life Income Fund (LIF) and Locked-In Retirement Income Fund (LRIF) Maximum Annual Income Payment Amount Table*, **Appendix A**, retrieved 2026-08-21. Appendix A is published as three columns: **"Age attained during year"**, "Number of years to the end of the year in which age 90 is attained", and the maximum percentage to **five decimals**, effective 2021-01-01 (the CANSIM reference rate is floored at 6%, so the table has not moved).
 
-Confirmed by reading `src/lib/planning/registered.ts`, `projection.ts`, `types.ts`,
-`PlanWizard.tsx`, `opportunities.ts`:
+Cross-checked against a current industry 2026 table (Empire Life, Jan 2026) that publishes the same Ontario column keyed to **"Age as at Jan 1, 2026"**.
 
-1. `unlockRule()` ends with `UNLOCK_RULES[juris ?? "ON"] ?? UNLOCK_RULES.ON` — the
-   silent Ontario fallback the spec calls a live defect (§14.2, §11.1 item 10).
-2. `WorkingAccount._split` is a one-shot boolean; the unlock loop begins
-   `if (a._split) continue;`, so a Manitoba client who unlocks 50% at 55 is never
-   re-evaluated at 65 and is silently denied the full unlock (§3.2-MB defect 1).
-3. The unlocked share is pushed as an account typed `"RRSP"` named
-   `"(unlocked→RRSP)"` for every jurisdiction, including Manitoba, where the law
-   directs a prescribed RRIF (§3.2-MB defect 2). No `PRRIF` account type exists.
-4. `UnlockRule` carries only `{name, pct, minAge, full65?, noMax55?, verified?}` —
-   no `source`, `verifiedDate`, no per-component status, no destination type, no
-   RLIF/window/one-time procedural metadata (§13, §13.2a).
-5. Saskatchewan is absent from `JurisdictionKey` and `UNLOCK_RULES`; there is no
-   UNSUPPORTED concept, so nothing can be refused or withheld.
-6. `noMax55` is applied correctly (age-gated) but is named and commented in a way
-   that reads as "Quebec has no LIF maximum", and the under-55 maximum uses the
-   generic annuity approximation with no APPROXIMATE flag.
-7. The wizard builds its jurisdiction selector from `Object.keys(UNLOCK_RULES)`, so
-   any new UNSUPPORTED entry would become selectable unless the selector is gated.
+## Finding: this is an age-keying and precision defect, not stale values
 
-## What gets built
+The live `ON_LIF_MAX` in `src/lib/planning/registered.ts` is **exactly FSRA's Appendix A shifted down one age and rounded to two decimals**:
 
-### 1. Rule records with component-level status (`registered.ts`)
+```text
+live 50 = 6.27   = FSRA age 51 (6.26996)
+live 55 = 6.51   = FSRA age 56 (6.50697)
+live 65 = 7.38   = FSRA age 66 (7.37988)
+live 75 = 9.71   = FSRA age 76 (9.71347)
+live 85 = 22.40  = FSRA age 86 (22.39589)
+live 88 = 51.46  = FSRA age 89 (51.45631)
+live 89 = 100    = FSRA age 90 (100.00000)
+```
 
-`UnlockRule` becomes:
+It matches the industry "age as at Jan 1" column to the cent at every age. So the values are not wrong numbers pulled from an old table: they are the correct FSRA numbers re-keyed to **age at the start of the fiscal year** rather than **age attained during the year**, with no comment saying so, and rounded.
 
-- `partialPct`, `partialMinAge`, `fullUnlockAge?` (MB = 65)
-- `destinationType: "RRSP" | "PRRIF"`
-- `requiresVehicle?: "RLIF" | "ScheduleLIF"`, `transferWindowDays?`, `oneTime: boolean`
-- `notes` (procedural text a client needs to act)
-- three component records, each `{ source, verifiedDate, status }`:
-  `unlockEntitlement`, `destinationVehicle`, `lifMaximum`
+That makes the table correct only if the engine's `age` argument really means start-of-year age. Today that is an unstated assumption, and it is the actual risk:
 
-Legacy `pct`/`minAge`/`full65`/`noMax55` are retained as derived read-only aliases so
-existing callers and tests keep working during the batch.
+- `rrifMinFactor()` in the same file is keyed to start-of-year age (statutory `1/(90-age)` and the age-71 table), and `projection.ts` passes the same `age = curAge + off` to both. So the two are at least consistent with each other.
+- Nothing in code, tests, or the spec records the convention, so a future edit that "fixes" one table against a published source breaks the other silently.
+- The `age >= 89 -> 100` cutoff is right under start-of-year keying and wrong under FSRA keying — exactly the boundary flagged in the request.
+- Ages below 50 collapse to the age-50 factor, although FSRA publishes ages 41-49.
 
-Jurisdictions: FED (RLIF, 60-day window, 50%, one-time/no carry-forward, VERIFIED),
-MB (50% at 55 to PRRIF + full balance at 65, VERIFIED), QC (transfer prohibited,
-lifMaximum split: 55+ no-max VERIFIED, under-55 APPROXIMATE), ON (VERIFIED entitlement,
-VERIFIED FSRA lifMaximum), AB/NS/NB/BC (APPROXIMATE entitlement, APPROXIMATE lifMaximum),
-**SK added with every component UNSUPPORTED**.
+## Correction plan (no methodology change, no CPP work)
 
-New API:
-- `unlockRule(juris)` throws on unknown/absent jurisdiction — no Ontario default.
-- `tryUnlockRule(juris)` returns `undefined` for UI paths that must not throw.
-- `componentStatus(juris, component)` and derived `recordStatus(juris)` (worst status,
-  display/selector only).
-- `lifMaxFactor` returns `{ pct, status }` (ON table → VERIFIED, QC 55+ → no maximum,
-  QC under-55 and all other formula uses → APPROXIMATE), with a thin legacy numeric
-  wrapper so unrelated call sites are untouched.
+1. **Replace the constant with FSRA Appendix A verbatim.** Rename to `ON_LIF_MAX_BY_AGE_ATTAINED`, ages **41 through 90**, five decimals as published (50 = 6.23197 ... 89 = 51.45631, 90 = 100.00000). Keep an `ON_LIF_MAX` export only if tests/UI reference it; if kept, it is derived, not hand-maintained.
+2. **Make the age convention explicit at the boundary.** `lifMaxFactor(age, ...)` continues to receive the projection's start-of-year age and looks up `age + 1` ("the age the holder attains during the fiscal year"), documented in a comment citing s.6 of Schedules 1, 1.1 and 2 to R.R.O. 909. Net effect on Ontario percentages: unchanged apart from restored precision.
+3. **Boundary.** 100% applies when the age attained during the year is 90, i.e. start-of-year age 89 — the current cutoff, now derived from the table rather than hard-coded, with the age-89-attained value 51.45631% present in the table instead of being swallowed by the cutoff. Below the table floor, fall back to the age-41-attained entry rather than the age-50 one.
+4. **Do not touch `rrifMinFactor`.** Its keying is already correct; the audit note goes in the backlog so the convention is recorded once for both tables.
+5. **Tests** (`lockedin.test.ts`, or a focused `lif-max.test.ts`): pin **every** published age 41-90 against the five-decimal FSRA values via the public `lifMaximumFor("ON", startOfYearAge, rate)` path; explicit pins at the requested ages 50, 55, 65, 75, 85, 89, 90 (attained-age basis) plus their start-of-year counterparts; a boundary test that start-of-year 88 is 51.45631 and 89 is 100; a test that the returned status stays `VERIFIED` and reads the component, not a literal; a monotonicity property test across the whole table.
+6. **Source metadata.** `UNLOCK_RULES.ON.lifMaximum.source` set to PE0196INF Appendix A with its FSRA URL, tier 1, `verifiedDate: 2026-08-21`, status stays `VERIFIED`; the current `internal://lifMaxFactor` placeholder is removed for Ontario.
+7. **Docs.** Spec §13.3a gains the Appendix A verification entry and a one-line statement of the age convention shared by the RRIF and LIF tables; `IMPLEMENTATION-CHANGELOG.md` records the correction; `AGENT-STATUS.md` records that the reported "stale table" was a keying/precision defect, not wrong data. `ENGINE-CORRECTNESS-BACKLOG.md` gains a note that other jurisdictions still use the annuity approximation and that their tables are published (out of scope here).
 
-### 2. `PRRIF` account type
+## Expected regression impact
 
-Added to `AccountType`: RRIF minimums apply immediately, **no** maximum,
-pension-income-eligible at 65+. Wired into `projection.ts` `isRRIFnow` (always true),
-`isLockedIn` (false — no LIF cap), the pension-eligible cash split, and estate treatment
-in `engine.ts` (registered, same as RRIF).
+The Ontario percentages change only by the rounding difference (at most ~0.005 percentage points at any age, e.g. 7.38 -> 7.37988), and the maximum only binds when the plan actually wants to draw more than the cap from a LIF.
 
-### 3. Manitoba sequential entitlements (`projection.ts`)
-
-`WorkingAccount._split: boolean` → `unlockedFraction: number`. Each year the unlock loop
-re-evaluates every locked-in account against the age-appropriate maximum
-(`partialPct` at `partialMinAge`, 100% at `fullUnlockAge`) and unlocks only the
-*incremental* fraction. The destination account is created once per source account and
-topped up on later unlocks; its type comes from `destinationType`
-(MB → `PRRIF`, others → `RRSP`), with the name reflecting the vehicle.
-
-### 4. Point-of-use gating
-
-- Unlock calculation reading an UNSUPPORTED `unlockEntitlement` (SK) is **withheld**:
-  no unlock is performed, no substitution, and a disclosure string is added to a new
-  `ProjectionResult.lockedInDisclosures` (alongside the existing `roomDisclosures`
-  pattern). Tax and projection for that client still run.
-- A calculation touching an APPROXIMATE component records an approximate flag on that
-  number's disclosure, not on the whole plan.
-- `recordStatus` is used only by the wizard selector.
-
-### 5. UI (presentation only, no feature removal)
-
-- Jurisdiction selector lists supported jurisdictions normally; SK appears as
-  "Saskatchewan — not yet supported" and is non-selectable for new entry.
-- A saved account already holding an unsupported jurisdiction loads, displays, and
-  shows an inline "this jurisdiction is not yet supported — locked-in results withheld"
-  notice instead of throwing.
-- The Ontario-specific unlock hint text is replaced by jurisdiction-aware text driven
-  from the rule record (destination vehicle, percentage, age, window, one-time nature).
-- `opportunities.ts` unlock card switches to `tryUnlockRule` so an unsupported
-  jurisdiction degrades to the withheld message rather than reading Ontario.
-
-### 6. Saved-plan compatibility
-
-- `AccountInput.juris` shape unchanged; `JurisdictionKey` gains `"SK"`.
-- Read-time migration in the working-account builder: `_split === true` →
-  `unlockedFraction = previous unlock pct / 100` (or 1.0 when no pct is recoverable);
-  `false`/absent → `0`. Persisted drafts and scenario patches are unaffected because
-  `_split`/`unlockedFraction` are run-time-only fields.
-
-## Tests (all required by the 0C row)
-
-New `src/lib/planning/lockedin.test.ts` plus additions to existing suites:
-
-1. Unknown/absent jurisdiction **throws** from `unlockRule` and does not become Ontario.
-2. MB unlocks 50% at 55 **and then the remaining balance at 65** in one projection.
-3. MB unlocked money lands in a **PRRIF** and forces RRIF minimums before 71
-   (assert taxable minimum > 0 at ages 56–70).
-4. SK is UNSUPPORTED: an account with `juris: "SK"` is refused, results withheld,
-   no unlock occurs, no Ontario/Manitoba/PRRIF behaviour, projection still runs.
-5. QC applies a maximum at 54 and none at 55+; the 54 maximum is flagged APPROXIMATE.
-6. ON maximum matches the FSRA table at ages {55, 65, 75, 85} and is VERIFIED.
-7. Unlock follows pension jurisdiction, not residence (existing test kept).
-8. Every rule record has non-empty `source`, `verifiedDate`, `status` on all three
-   components.
-9. Saved-plan migration: `_split: true` → `unlockedFraction` behaves as before.
-
-## Regression / golden expectations
-
-- Ontario-only fixtures must be **unchanged**: Batch 0A single **$278,614**,
-  couple **$554,616**, Batch 0B accumulation **$2,254,682**. Any movement here is a bug
-  in this batch, not a re-baseline.
-- The spec notes the single-filer fixture holds a LIF; it is Ontario-jurisdiction with
-  `unlock: 0`, so no movement is expected. If any figure moves, I stop, show the cause,
-  and ask before re-pinning.
-- Full suite (currently 161 tests) plus new 0C tests must be green with a clean typecheck
-  before Batch 0C is reported complete. No 0D/next-batch work is started.
-- `docs/IMPLEMENTATION-CHANGELOG.md` gets a Batch 0C entry recording scope, defects
-  fixed, and anchors held/moved.
+- The Manitoba locked-in golden uses the annuity approximation, so it should not move at all.
+- The single-filer / couple / accumulation anchors contain an Ontario LIF, so a movement of a few dollars is plausible **only if the cap binds in some year**.
+- Rule: any anchor movement must be explained causally — the specific year and account where the cap binds, and the before/after percentage — before any re-pin. If an anchor moves by more than a rounding-scale amount, I stop and report instead of re-pinning, because that would mean the cap binds far more than expected or the age keying changed behaviour.
+- Full suite plus typecheck, no deploy, no publish, CPP-1 [C] untouched, Phase 0 not approved.
