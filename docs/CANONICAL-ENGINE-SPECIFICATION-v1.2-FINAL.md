@@ -1,6 +1,8 @@
 # Canonical Financial Planning Engine Specification
 ### Canadian Retirement, Tax & Decumulation Engine — **v1.2 FINAL (implementation specification)**
 
+> **Document revision — v1.2 FINAL + Errata 1–4.** Erratum 1 (bridge benefits) · Erratum 2 (opening-year room semantics) · Erratum 3 (spousal-RRSP scope) · Erratum 4 (Saskatchewan scope + component-level rule status). Synced to the Lovable project 2026-08-21. **If you are implementing from this document, confirm it contains "Erratum 4" and "§13.2a" — an older copy will misdirect Batch 0C.**
+
 **Status: FINAL.** This document supersedes v1.0 and v1.1 and is the specification handed to the development team. No further audit round is recommended; the open items below are *implementation* work, not further investigation.
 
 **Author role:** Senior Canadian financial-planning software architect & financial-calculation auditor.
