@@ -292,7 +292,9 @@ export function projection(
         nonregInterest: 0,
         nonregDiv: 0,
         mandatoryTaxable: 0,
-        schedRegCash: 0,
+        schedRrifCash: 0,
+        schedRrspCash: 0,
+
         schedTfsaCash: 0,
         schedNonregCash: 0,
         schedNonregGain: 0,
