@@ -302,7 +302,15 @@ describe("the default plan (regression fixture)", () => {
     // The pinned figure for the seeded default plan. If a change to the tax
     // tables or the projection moves this, that change needs to be deliberate
     // and this number updated with a note saying why.
-    expect(Math.round(lifetimeTax(P))).toBe(276326);
+    //
+    // Re-pinned in Batch 0A (pension income eligibility): was 276326. The
+    // fixture person is 60 at the start and holds a RRIF and a LIF, so their
+    // mandatory minimums used to earn the pension income credit from age 60.
+    // Under the canonical rule RRIF/LIF cash is eligible only from 65, so the
+    // credit disappears in the ages 60-64 rows and lifetime tax rises by
+    // $2,288 to 278614. The direction is correct: a credit was being claimed
+    // five years too early.
+    expect(Math.round(lifetimeTax(P))).toBe(278614);
   });
 
   it("takes at least the mandatory RRIF minimum every year from 71 until the registered money is gone", () => {

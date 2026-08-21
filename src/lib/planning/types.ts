@@ -69,12 +69,50 @@ export interface BenefitInput {
   age: number;
 }
 
+/**
+ * Source classification for a bridge-style benefit.
+ *
+ * CRA treats bridging benefits as *temporary* benefits, distinct from RPP
+ * lifetime retirement benefits, so a payment is not pension-income-credit
+ * eligible merely because it is labelled "bridge" or paid by an RPP.
+ * Only a stream classified as an RPP lifetime retirement benefit may be
+ * affirmed as eligible; RCA/SERP/non-registered supplements never can be.
+ */
+export type BridgeSourceClass =
+  | "RPP_BRIDGE"
+  | "RPP_LIFETIME"
+  | "RCA"
+  | "SERP"
+  | "NONREG"
+  | "OTHER";
+
 export interface BridgeInput {
   /** Annual bridge benefit in today's dollars. */
   amt: number;
   /** Age the bridge ends (usually 65, when CPP/OAS begin). */
   end: number;
+  /**
+   * Optional source classification. Absent on plans saved before this field
+   * existed; absent is treated as "RPP_BRIDGE" (temporary, not eligible).
+   */
+  sourceClass?: BridgeSourceClass;
+  /**
+   * Explicit affirmation that the stream is an RPP lifetime retirement
+   * benefit. Defaults to false; never inferred. Not yet user-facing — a future
+   * batch must add the input and its disclosure text.
+   */
+  eligibleAffirmed?: boolean;
 }
+
+/**
+ * A bridge stream enters the pension income credit and pension splitting only
+ * when it is explicitly affirmed AND its source class permits affirmation.
+ */
+export function bridgeIsPensionEligible(b: BridgeInput | undefined): boolean {
+  if (!b) return false;
+  return b.eligibleAffirmed === true && b.sourceClass === "RPP_LIFETIME";
+}
+
 
 export interface PersonInput {
   id: PersonKey;

@@ -23,7 +23,9 @@ import { lifMaxFactor, rrifMinFactor, unlockRule } from "./registered";
 import { approxMarginal, householdTax } from "./tax";
 import { getTaxYear, type TaxYear } from "./taxYears";
 import { strategyOrder } from "./strategy";
+import { bridgeIsPensionEligible } from "./types";
 import type {
+
   AccountInput,
   IncomeComponents,
   PersonInput,
@@ -265,8 +267,13 @@ export function projection(
       bridgeInc: number;
       nonregInterest: number;
       nonregDiv: number;
+      /** Mandatory RRIF/LIF minimums. Always RRIF-status cash by construction. */
       mandatoryTaxable: number;
-      schedRegCash: number;
+      /** Scheduled withdrawals from accounts in RRIF/LIF status this year. */
+      schedRrifCash: number;
+      /** Scheduled registered withdrawals that are NOT RRIF-status (plain RRSP, etc.). */
+      schedRrspCash: number;
+
       schedTfsaCash: number;
       schedNonregCash: number;
       schedNonregGain: number;
@@ -285,7 +292,9 @@ export function projection(
         nonregInterest: 0,
         nonregDiv: 0,
         mandatoryTaxable: 0,
-        schedRegCash: 0,
+        schedRrifCash: 0,
+        schedRrspCash: 0,
+
         schedTfsaCash: 0,
         schedNonregCash: 0,
         schedNonregGain: 0,
@@ -440,7 +449,11 @@ export function projection(
           for (const [idx, fr] of splitOf(a)) P[idx]!.schedNonregGain += gain * fr;
           p.schedNonregCash += w;
         } else {
-          p.schedRegCash += w;
+          // Source-aware: only cash out of an account that is actually in
+          // RRIF/LIF status this year can ever be pension-income eligible.
+          if (isRRIFnow(a, age)) p.schedRrifCash += w;
+          else p.schedRrspCash += w;
+
         }
         a.bal -= w;
       }
@@ -563,37 +576,53 @@ export function projection(
 
     // Per-person fixed (non-discretionary) pieces. Non-registered interest and
     // dividends are taxable but reinvested, so they are income without cash.
-    const fixed = P.map((p, i) => ({
-      ordinary:
-        p.employInc +
-        p.cppInc +
-        p.oasFull +
-        p.penInc +
-        p.bridgeInc +
-        otherTax[i]! +
-        lumpTaxInc[i]! +
-        p.mandatoryTaxable +
-        p.schedRegCash +
-        p.nonregInterest,
-      div: p.nonregDiv,
-      gainTax: p.schedNonregGain * 0.5,
-      pensionElig:
-        p.penInc + p.bridgeInc + p.mandatoryTaxable + (p.age >= 65 ? p.schedRegCash : 0),
-      oas: p.oasFull,
-      age: p.age,
-      cash:
-        p.employInc +
-        p.cppInc +
-        p.oasFull +
-        p.penInc +
-        p.bridgeInc +
-        otherTax[i]! +
-        otherNon[i]! +
-        p.mandatoryTaxable +
-        p.schedRegCash +
-        p.schedTfsaCash +
-        p.schedNonregCash,
-    }));
+    //
+    // Pension-income eligibility (canonical spec v1.2 FINAL + Erratum 1):
+    //   pensionEligible = rppLifetimePension
+    //                   + (age >= 65 ? rrifEligibleCash : 0)
+    //                   + (bridgeEligibleAffirmed ? bridgeInc : 0)
+    // Plain RRSP cash is never eligible; RRIF/LIF cash (including mandatory
+    // minimums) is eligible only from 65. This single value feeds both the
+    // pension income credit and the household splitting optimizer.
+    const fixed = P.map((p, i) => {
+      const rrifEligibleCash = p.mandatoryTaxable + p.schedRrifCash;
+      const rrspNonEligibleCash = p.schedRrspCash;
+      const bridgeElig = bridgeIsPensionEligible(people[i]?.bridge);
+      return {
+        ordinary:
+          p.employInc +
+          p.cppInc +
+          p.oasFull +
+          p.penInc +
+          p.bridgeInc +
+          otherTax[i]! +
+          lumpTaxInc[i]! +
+          rrifEligibleCash +
+          rrspNonEligibleCash +
+          p.nonregInterest,
+        div: p.nonregDiv,
+        gainTax: p.schedNonregGain * 0.5,
+        pensionElig:
+          p.penInc +
+          (bridgeElig ? p.bridgeInc : 0) +
+          (p.age >= 65 ? rrifEligibleCash : 0),
+        oas: p.oasFull,
+        age: p.age,
+        cash:
+          p.employInc +
+          p.cppInc +
+          p.oasFull +
+          p.penInc +
+          p.bridgeInc +
+          otherTax[i]! +
+          otherNon[i]! +
+          rrifEligibleCash +
+          rrspNonEligibleCash +
+          p.schedTfsaCash +
+          p.schedNonregCash,
+      };
+    });
+
     const fixedCash = fixed.reduce((s, f) => s + f.cash, 0);
     if (saleGainTaxA) fixed[0]!.gainTax += saleGainTaxA;
 
@@ -611,14 +640,31 @@ export function projection(
         if (lifCapRemaining[a.id] != null) cap = Math.min(cap, lifCapRemaining[a.id]!);
         const gf =
           a.type === "NONREG" && a.bal > 0 ? Math.max(0, (a.bal - a.acb) / a.bal) : 0;
-        return { a, cap: Math.max(0, cap), gf, type: a.type, owner: oi(a), split: splitOf(a) };
+        return {
+          a,
+          cap: Math.max(0, cap),
+          gf,
+          type: a.type,
+          owner: oi(a),
+          split: splitOf(a),
+          // Classified once, from the account's actual status this year.
+          rrifStatus: isRRIFnow(a, ages[oi(a)]!),
+        };
       })
       .filter((d) => d.cap > 0.01);
     const totalDrawable = drawable.reduce((s, d) => s + d.cap, 0);
 
     /** Per-person incomes produced by drawing a gross budget G, in order. */
     function incomesForG(G: number): { incs: IncomeComponents[]; drawCash: number } {
-      const add = P.map(() => ({ ord: 0, gainTax: 0, tfsa: 0, nonreg: 0, reg: 0 }));
+      const add = P.map(() => ({
+        ord: 0,
+        gainTax: 0,
+        tfsa: 0,
+        nonreg: 0,
+        reg: 0,
+        /** Registered draw from an account in RRIF/LIF status this year. */
+        regRrif: 0,
+      }));
       let rem = G;
       for (const d of drawable) {
         const take = Math.min(d.cap, rem);
@@ -633,16 +679,18 @@ export function projection(
         } else {
           x.ord += take;
           x.reg += take;
+          if (d.rrifStatus) x.regRrif += take;
         }
       }
       const incs: IncomeComponents[] = fixed.map((f, i) => ({
         ordinary: f.ordinary + add[i]!.ord,
         eligDiv: f.div,
         capGainsTaxable: f.gainTax + add[i]!.gainTax,
-        pensionEligible: f.pensionElig + (P[i]!.age >= 65 ? add[i]!.reg : 0),
+        pensionEligible: f.pensionElig + (P[i]!.age >= 65 ? add[i]!.regRrif : 0),
         oasReceived: f.oas,
         age: f.age,
       }));
+
       const drawCash = add.reduce((s, x) => s + x.reg + x.nonreg + x.tfsa, 0);
       return { incs, drawCash };
     }
@@ -741,7 +789,9 @@ export function projection(
       other:
         otherTax.reduce((s, v) => s + v, 0) + otherNon.reduce((s, v) => s + v, 0),
       regWithdraw:
-        P.reduce((s, p) => s + p.mandatoryTaxable + p.schedRegCash, 0) + drawn.reg,
+        P.reduce((s, p) => s + p.mandatoryTaxable + p.schedRrifCash + p.schedRrspCash, 0) +
+        drawn.reg,
+
       tfsaWithdraw: P.reduce((s, p) => s + p.schedTfsaCash, 0) + drawn.tfsa,
       nonregWithdraw: P.reduce((s, p) => s + p.schedNonregCash, 0) + drawn.nonreg,
       taxable,
