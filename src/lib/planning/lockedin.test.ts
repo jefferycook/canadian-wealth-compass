@@ -227,3 +227,76 @@ describe("Batch 0C — saved-plan compatibility", () => {
     expect(() => projection(lockedInPlan("SK", 0))).not.toThrow();
   });
 });
+
+describe("Batch 0C follow-up — jurisdiction verification, 2026-08-21", () => {
+  it("Alberta: 50% from age 50 to an RRSP, VERIFIED against the Superintendent", () => {
+    const r = UNLOCK_RULES.AB;
+    expect(r.partialPct).toBe(50);
+    expect(r.partialMinAge).toBe(50);
+    expect(r.destinationType).toBe("RRSP");
+    expect(r.oneTime).toBe(true);
+    expect(r.unlockEntitlement.status).toBe("VERIFIED");
+    expect(r.destinationVehicle.status).toBe("VERIFIED");
+    expect(r.unlockEntitlement.source.tier).toBe(1);
+    // The maximum table is still an approximation — promotion is component-wise.
+    expect(r.lifMaximum.status).toBe("APPROXIMATE");
+    expect(r.notes).toMatch(/20% of YMPE/);
+    expect(r.notes).toMatch(/LIF\/LITB/);
+  });
+
+  it("Nova Scotia: 50% at 55 through a Schedule 4A LIF within 60 days", () => {
+    const r = UNLOCK_RULES.NS;
+    expect(r.partialPct).toBe(50);
+    expect(r.partialMinAge).toBe(55);
+    expect(r.requiresVehicle).toBe("ScheduleLIF");
+    expect(r.transferWindowDays).toBe(60);
+    expect(r.unlockEntitlement.status).toBe("VERIFIED");
+    expect(r.destinationVehicle.status).toBe("VERIFIED");
+    expect(r.lifMaximum.status).toBe("APPROXIMATE");
+  });
+
+  it("British Columbia: a VERIFIED absence of any 50% unlocking entitlement", () => {
+    const r = UNLOCK_RULES.BC;
+    expect(r.partialPct).toBe(0);
+    expect(r.partialMinAge).toBe(999);
+    expect(r.unlockEntitlement.status).toBe("VERIFIED");
+    expect(r.destinationVehicle.status).toBe("VERIFIED");
+    expect(r.unlockEntitlement.source.publisher).toMatch(/BCFSA|BC Financial/);
+    expect(maxUnlockPctAtAge(r, 70)).toBe(0);
+  });
+
+  it("New Brunswick: withdrawn as UNSUPPORTED, nothing substituted", () => {
+    const r = UNLOCK_RULES.NB;
+    for (const k of UNLOCK_COMPONENTS) expect(r[k].status).toBe("UNSUPPORTED");
+    expect(r.partialPct).toBe(0);
+    expect(r.partialMinAge).toBe(999);
+    expect(recordStatus("NB")).toBe("UNSUPPORTED");
+    expect(lifMaximumFor("NB", 65, 6).status).toBe("UNSUPPORTED");
+    expect(r.notes).toMatch(/lesser of three times the annual amount/i);
+    expect(r.notes).toMatch(/RRIF/);
+  });
+
+  it("New Brunswick withholds the unlock and discloses it rather than throwing", () => {
+    const P = projection(lockedInPlan("NB", 50));
+    expect(P.lockedInDisclosures.join(" ")).toMatch(/not yet supported/i);
+  });
+
+  it("lifMaximumFor reports the component status, not a hard-coded jurisdiction", () => {
+    expect(lifMaximumFor("ON", 65, 6).status).toBe(UNLOCK_RULES.ON.lifMaximum.status);
+    expect(lifMaximumFor("AB", 65, 6).status).toBe(UNLOCK_RULES.AB.lifMaximum.status);
+  });
+
+  it("discloses an APPROXIMATE unlocking entitlement, not only the destination", () => {
+    // QC/ON are verified; pick a jurisdiction whose entitlement is still carried.
+    const approx = (Object.keys(UNLOCK_RULES) as (keyof typeof UNLOCK_RULES)[]).find(
+      (k) =>
+        UNLOCK_RULES[k].unlockEntitlement.status === "APPROXIMATE" &&
+        UNLOCK_RULES[k].partialPct > 0,
+    );
+    if (!approx) return; // every entitlement verified — nothing to disclose.
+    const P = projection(lockedInPlan(approx, 50));
+    expect(P.lockedInDisclosures.join(" ")).toMatch(
+      /unlocking percentage .* have not been confirmed with the regulator/i,
+    );
+  });
+});
