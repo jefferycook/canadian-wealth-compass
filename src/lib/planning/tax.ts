@@ -167,8 +167,12 @@ export function householdTax(
    */
   const tryDir = (from: number, to: number, eligible: number) => {
     if (!(eligible > 0)) return;
-    const STEP = 0.01;
-    for (let f = STEP; f <= 0.5 + 1e-9; f += STEP) {
+    // Integer steps: accumulating 0.01 in floating point stops just short of
+    // 0.5, which would leave the statutory maximum transfer untested.
+    const STEPS = 50;
+    for (let s = 1; s <= STEPS; s++) {
+      const f = s / (STEPS * 2);
+
       // Never transfer more than the transferor's ordinary income, so the
       // transferor's income cannot go negative.
       const T = Math.min(eligible * f, Math.max(0, incs[from]!.ordinary));
