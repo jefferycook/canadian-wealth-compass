@@ -278,9 +278,27 @@ re-cutting — the same trap already flagged for non-eligible dividend credits.
   no rate; verify against **Federal Worksheet 5000-D1**.
 - **FSRA Ontario LIF maximum table digits** (`ON_LIF_MAX`, ages 50–89) — the
   rule is VERIFIED but the fifty percentages have not been compared line by
-  line the way the RRIF table now has been. Same shape of task, one page.
-- **2026 CPP/OAS benefit amounts** — `oasMax65` 9,023.64, `oasMax75` 9,926.04,
-  `cppMax65` 18,091.80, `cppAvgNew65` 10,464, and the four survivor/combined
-  figures. Verified against ESDC quarterly tables in v1.0; amounts move
-  quarterly, so the §13.2 staleness rule applies — re-pull for the current
-  quarter with a fresh `verifiedDate`.
+  line the way the RRIF table now has been. FSRA's consumer table page 404s and
+  the guidance page returns the surrounding text without the table
+  (2026-08-21). Note: this table is **not** an annual refresh item — FSRA's
+  guidance floors the reference rate at 6% and the table stands unless the
+  November CANSIM V122487 rate exceeds it, so what it needs is a periodic
+  check that the floor still binds (recorded in spec §13.3a).
+- **`cppAvgNew65` 10,464** ($872/month) — the average new retirement pension at
+  65. A statistic, not a maximum, so it is absent from the ESDC quarterly
+  maximums page; CPP's "How much you could receive" page carries it. The single
+  remaining CPP/OAS item.
+
+**Struck 2026-08-21 — CPP/OAS maximums.** Every other CPP and OAS constant
+(`cppMax65`, the four survivor/combined figures, `cppDeathBenefit`, `oasMax65`,
+`oasMax75`, and `oasThreshold` a second time) was re-verified against the ESDC
+July–September 2026 quarterly table, which is the current quarter, clearing the
+§13.2 staleness concern. OAS amounts move quarterly, so this record needs
+re-pulling on a three-month clock rather than annually.
+
+**Confirmed, not a defect.** The two published OAS recovery upper bounds
+($155,109 for 65–74, $161,088 for 75+) are reproduced by `computeTax` capping
+the recovery at the OAS actually received; no fixed upper bound and no
+age-specific constant exists in the code. Pinned by a derived test in
+`engine.test.ts`.
+
