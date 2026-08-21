@@ -178,3 +178,62 @@ To implement, two things must be confirmed with FCNB:
 
 Until then all three NB components stay UNSUPPORTED and NB locked-in results are
 withheld, never substituted from another jurisdiction.
+
+---
+
+## Batch 0D audit of `nonreg.ts` (2026-08-21) — two latent findings
+
+Both are latent: `AccountInput.yields` is optional, no fixture sets it, and no
+UI collects it, so neither is reachable today. Recorded only; **no code change,
+no test change, no anchor movement** while 0D is held for review.
+
+The rest of the module was audited and confirmed correct: distributions accrue
+off the *expected* return while the balance moves by the *actual* (shocked)
+return, so a bond fund still pays its coupon in a −20% year; a positive-return
+legacy-`mix` year reproduces the pre-0D numbers exactly because
+`interest + eligDiv` plus the `cg` share of the mix reconstitutes the total;
+reinvested distributions raise ACB while a loss year lowers the balance, giving
+a proper unrealized loss; `cgDist` is taxed at the 50% inclusion rate on the
+same line as realized gains; and ROC driving ACB through zero realizes the
+excess as a gain rather than leaving a negative ACB.
+
+### D0D-1 [G] — an explicit "this account pays no distributions" is silently overruled
+
+`resolveYields()` guards its explicit branch with
+`if (v.interest || v.eligDiv || v.cgDist || v.roc) return v;`, and `nn()` maps
+zero to zero. An account whose `yields` object is supplied but is **all four
+zero** therefore falls through to legacy `mix` inference and is taxed on
+distributions it was explicitly told it does not pay.
+
+This is the class of error the project already ruled on in **Erratum 2**: a
+client-asserted figure is a statement of fact and the engine must not overrule
+it with an inference. Zero distributions is a real portfolio — an accumulating
+ETF, a pure-growth holding — not an absent input.
+
+*Required change:* branch on **presence of the `yields` object**, not on the
+truthiness of its contents. Test: an all-zero explicit vector produces zero
+taxable distributions in a positive-return year, while an absent vector still
+falls back to `mix`.
+
+**Must be fixed before any UI field for `yields` is exposed** — once an adviser
+can type it, the failure is silent and taxes a client on income not received.
+
+### D0D-2 [A] — inconsistent balance floor inside `decomposeReturn`
+
+`growth` is computed from the raw `balance` while every yield is computed from
+`bal = Math.max(0, balance)`. On a negative balance the two disagree and
+`price` silently absorbs the difference. Balances should never go negative, so
+this is cosmetic today. *Required change:* apply the floor once and use it
+consistently, so a future caller cannot trip over it.
+
+## Locked-in `oneTime` flag is carried but never enforced
+
+`UnlockRule.oneTime` is present on every rule record and is read nowhere. It is
+inert today because `maxUnlockPctAtAge` is constant with age for every one-time
+jurisdiction, so no top-up can occur; the sequential-entitlement mechanism only
+re-triggers for Manitoba, which is correctly `oneTime: false`.
+
+*Required change when a second `fullUnlockAge`-style jurisdiction is added:*
+enforce the flag as a guard. The federal record explicitly states that
+unlocking less than 50% forfeits the remainder, so a partial exercise must not
+leave a residual entitlement.
