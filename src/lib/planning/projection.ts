@@ -221,6 +221,27 @@ export function projection(
   for (let off = 0; off <= endAge - curAgeA; off++) {
     const yr = startYear + off;
     const infFac = Math.pow(1 + infl, off);
+    // Batch 0D: statutory amounts are indexed past the last published table
+    // rather than frozen, so a flat-real income does not drift into higher
+    // brackets over a 30-year projection.
+    const tyY = getTaxYear(yr, idxRate);
+    const idxFac = indexationFactor(LATEST_TAX_YEAR, yr, idxRate);
+    // The client's own statutory overrides (BPA, OAS threshold) are amounts
+    // that index in law, so they index with the table they were taken from.
+    const optsY: TaxSettings =
+      idxFac === 1
+        ? opts
+        : {
+            ...opts,
+            fedBPA: opts.fedBPA * idxFac,
+            provBPA: opts.provBPA * idxFac,
+            oasThresh: opts.oasThresh * idxFac,
+          };
+    if (tyY.derivedFrom != null) {
+      taxYearDisclosures.add(
+        `Tax years after ${tyY.derivedFrom} are indexed from the published ${tyY.derivedFrom} table at ${(idxRate * 100).toFixed(1)}% per year (APPROXIMATE): brackets, personal amounts, the age and pension amounts and the OAS recovery threshold. Published years are exact.`,
+      );
+    }
     const ages = people.map((p) => p.curAge + off);
     const alive = people.map((p) => !(p.deathAge > 0 && p.curAge + off >= p.deathAge));
 
