@@ -860,6 +860,9 @@ export function projection(
 
 
     rows.push({
+      roomLedger: closedRoom,
+      rrspDeduction: rrspDeductions.reduce((s, v) => s + v, 0),
+
 
       off,
       yr,
