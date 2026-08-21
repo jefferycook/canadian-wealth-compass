@@ -338,7 +338,22 @@ export interface IncomeComponents {
   ordinary: number;
   eligDiv: number;
   capGainsTaxable: number;
-  pensionEligible: number;
+  /**
+   * @deprecated Erratum 5 — legacy single scalar. Still accepted, and treated
+   * as `pensionEligibleAnyAge`, so hand-built inputs keep their meaning.
+   */
+  pensionEligible?: number;
+  /**
+   * Erratum 5: RPP lifetime retirement benefits (plus a bridge affirmed as
+   * RPP_LIFETIME). Credit-eligible at ANY age, for the pensioner and for a
+   * transferee who receives it through a T1032 split.
+   */
+  pensionEligibleAnyAge?: number;
+  /**
+   * Erratum 5: RRIF / LIF / PRRIF cash. Already gated to 65+ for the holder by
+   * Erratum 1; for a transferee it counts only if the TRANSFEREE is 65+.
+   */
+  pensionEligible65Plus?: number;
   oasReceived: number;
   age: number;
   /**

@@ -1,7 +1,7 @@
 # Canonical Financial Planning Engine Specification
 ### Canadian Retirement, Tax & Decumulation Engine — **v1.2 FINAL (implementation specification)**
 
-> **Document revision — v1.2 FINAL + Errata 1–4.** Erratum 1 (bridge benefits) · Erratum 2 (opening-year room semantics) · Erratum 3 (spousal-RRSP scope) · Erratum 4 (Saskatchewan scope + component-level rule status). Synced to the Lovable project 2026-08-21. **If you are implementing from this document, confirm it contains "Erratum 4" and "§13.2a" — an older copy will misdirect Batch 0C.**
+> **Document revision — v1.2 FINAL + Errata 1–5.** Erratum 1 (bridge benefits) · Erratum 2 (opening-year room semantics) · Erratum 3 (spousal-RRSP scope) · Erratum 4 (Saskatchewan scope + component-level rule status) · Erratum 5 (transferee pension credit). Synced to the Lovable project 2026-08-21. **If you are implementing from this document, confirm it contains "Erratum 4" and "§13.2a" — an older copy will misdirect Batch 0C.**
 
 **Status: FINAL.** This document supersedes v1.0 and v1.1 and is the specification handed to the development team. No further audit round is recommended; the open items below are *implementation* work, not further investigation.
 
@@ -23,6 +23,7 @@
 |---|---|
 | v1.0 | Initial audit + specification. |
 | v1.1 | Corrected the pension-splitting **double-50% cap** (search reached only 25% of eligible pension) to **[C]**; stated province-table coverage precisely (ON/BC/AB/CUSTOM only; other keys **throw**); added Appendix B second-pass verification of every `[ok]`. |
+| **v1.2 FINAL + Erratum 5 (transferee pension credit)** | Batch 0A correction, verified against CRA. A single scalar `pensionEligible` cannot express the receiving spouse's independent age test, so a transferee was earning the $2,000 credit on split RRIF income regardless of their own age. `pensionEligible` splits into `pensionEligibleAnyAge` and `pensionEligible65Plus`; the transferee's credit applies their own age test. Couple golden re-pinned. See §1.5 Erratum 5. |
 | **v1.2 FINAL + Erratum 4 (SK scope + status granularity)** | Batch 0C scope consistency only, no methodology change. **4A — Option A adopted:** Saskatchewan stays **`UNSUPPORTED`**; `PRRIF` is built for Manitoba, no SK behaviour is implemented, and the MB/SK PRRIF test is split. **4B — status is component-level**, gated at the point of use (resolves Quebec's mixed verified/approximate rules). See §13.2a and the corrected Batch 0C rows. |
 | **v1.2 FINAL + Erratum 3 (spousal-RRSP scope)** | Scope consistency only, no methodology change. §2.7 defers spousal RRSPs while §2.6/Batch 0B required a younger-spouse contribution test — irreconcilable. **Ruled Option A: spousal RRSPs are fully deferred.** Batch 0B models only `contributor === owner`; post-71 room accrues but stays dormant with a disclosure. See §2.6 item 4 and the corrected year-71 tests. |
 | **v1.2 FINAL + Erratum 2 (opening-year room semantics)** | Narrow Batch 0B input-contract correction, no audit, no other methodology change. v1.2 as issued had no plan-start-year special case, so a literal implementation would **double-count opening contribution room** (the UI's "room available" already includes the current year's statutory accrual), and it conflated RRSP **contribution room** with **deduction limit**. **Verified against CRA and corrected.** See §2.6 Erratum 2 for the rulings and the exact ledger formulas. |
@@ -184,6 +185,73 @@ This is the highest-value tax interaction in a retirement plan and it carries **
   - **Monotone benefit:** for a fixed lopsided couple, optimal combined tax with the fixed search ≤ optimal with any 25%-capped search, strictly less in at least one constructed case (a **regression guard** against re-introducing the cap).
   - **Eligibility (Bug A):** 66-year-old with only RRSP (not RRIF) withdrawals → **no** pension credit, **no** split allowed; same person after converting to a RRIF → credit + split allowed; 60-year-old with RRIF minimum → not eligible; couple with a DB pension at 60 → splitting allowed at 60.
   - **Bridge (Erratum 1):** a 60-year-old with an RPP lifetime pension **and** a bridge benefit has `pensionEligible` equal to the **lifetime portion only**; the bridge is taxed as ordinary income and neither earns the credit nor enters the split. Setting the affirmed-eligibility flag (below) adds it; the flag defaults to off.
+
+### Erratum 5 — the transferee's pension credit needs its own age test [C, narrow]
+
+**Defect.** The specification modelled pension-income eligibility as a single
+scalar, `pensionEligible`, carried on `IncomeComponents`. Household splitting
+therefore did `transferee.pensionEligible += T`, which handed the receiving
+spouse the $2,000 federal pension income amount (and the provincial equivalent)
+on split RRIF income no matter how old that spouse was. The engine implemented
+the specification faithfully; the specification was wrong, because one scalar
+cannot express two different age tests.
+
+**Authority.** CRA, pension income splitting / Form T1032, verified 2026-08-21:
+
+> "The pension that qualifies for the pension income amount for the
+> transferring spouse or common-law partner **does not necessarily qualify**
+> for the pension income amount for the receiving spouse or common-law partner
+> because eligibility can depend on age."
+
+RRIF and RRSP-annuity income qualifies for the RECEIVING spouse only when that
+spouse is 65+ (or receives it because of a spouse's death). RPP lifetime
+retirement benefits qualify at any age. The transferee is assessed
+independently — T1032 Step 4 / Note 1.
+
+**Two typed streams.** `IncomeComponents.pensionEligible` is replaced by:
+
+| Stream | Contents | Pensioner's own credit | Transferee's credit |
+| --- | --- | --- | --- |
+| `pensionEligibleAnyAge` | RPP lifetime retirement benefits; a bridge affirmed as `RPP_LIFETIME` | any age | any age |
+| `pensionEligible65Plus` | RRIF / LIF / PRRIF cash (already gated to 65+ for the holder by Erratum 1) | 65+ | only if the TRANSFEREE is 65+ |
+
+**Credit base and splitting.**
+
+```
+creditBase  = pensionEligibleAnyAge + (age >= 65 ? pensionEligible65Plus : 0)
+splittable  = 0.50 * (anyAge + p65)          // transferor's pool, unchanged
+
+fracAnyAge  = anyAge / (anyAge + p65)        // 0 when the pool is 0
+T_anyAge    = T * fracAnyAge   -> transferee.pensionEligibleAnyAge
+T_65Plus    = T - T_anyAge     -> transferee.pensionEligible65Plus
+// the transferor's two streams fall by the same proportional shares
+```
+
+The draw is **proportional, not cherry-picked**: T1032 elects a single amount
+out of one pool, so a taxpayer cannot preferentially allocate the any-age
+portion in order to inflate a young transferee's credit. Allocation eligibility
+remains the transferor's test, so the split itself is unaffected, as is the
+movement of ordinary income. Transferor-side treatment (reducing their own
+eligible amount by `T`) was already correct.
+
+**Client impact.** Couples with an age gap where the older spouse's eligible
+income is RRIF/LIF-sourced and the younger spouse is under 65. Their household
+tax was understated by up to the value of one pension amount per year until the
+younger spouse turns 65. Where the transferor also holds an RPP lifetime
+pension large enough that the proportional any-age share exceeds the pension
+amount, nothing changes, because the credit is capped by the pension amount
+rather than by the stream.
+
+**Tests.** Pensioner 66 with RRIF income splitting to a spouse aged 64 (credit
+base excludes the split portion; household tax strictly higher than the
+pre-Erratum-5 behaviour); the same couple with the transferee aged 65 (it
+counts); pensioner 60 with an RPP lifetime pension splitting to a spouse aged
+55 (it counts); a proportional-draw assertion on both streams for both spouses;
+and a single filer, unaffected because there is no transfer path.
+
+**Scope.** Nothing else changes. `PlanInputs` is untouched, so saved plans are
+unaffected; the legacy scalar is still accepted and read as
+`pensionEligibleAnyAge`. The single-filer golden must not move.
 
 ### Erratum 1 — bridge benefits are not lifetime retirement benefits [C, narrow]
 

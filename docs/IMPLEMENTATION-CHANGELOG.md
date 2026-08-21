@@ -90,3 +90,31 @@ Regression anchors — **all three held, no re-pinning**: Batch 0A single
 
 Status: **Batch 0C implemented; held for review.** No later batch started.
 
+
+## Batch 0A correction — Erratum 5 (transferee pension credit) — implemented 2026-08-21
+
+Verified CRA defect (Form T1032, Step 4 / Note 1): a single scalar
+`pensionEligible` cannot express the receiving spouse's independent age test.
+
+- `IncomeComponents.pensionEligible` split into `pensionEligibleAnyAge` (RPP
+  lifetime benefits, plus a bridge affirmed as `RPP_LIFETIME`) and
+  `pensionEligible65Plus` (RRIF / LIF / PRRIF cash).
+- `computeTax` uses `creditBase = anyAge + (age >= 65 ? p65 : 0)` for both the
+  federal and provincial pension amounts.
+- `householdTax` keeps the transferor's pool at `0.50 × (anyAge + p65)` and
+  draws each transfer **proportionally** from the two streams, landing them in
+  the transferee's matching streams. Ordinary-income movement unchanged.
+- Backward compatibility: the legacy scalar is **kept and accepted**, read as
+  `pensionEligibleAnyAge`. No `PlanInputs` change; saved plans unaffected.
+
+Tests: 6 new cases in `pension-eligibility.test.ts` (transferee 64 vs 65,
+any-age RPP to a 55-year-old, proportional draw, legacy scalar, single filer).
+
+Verification: **184 tests passing**, clean typecheck.
+
+Anchors: single filer **$278,614 unchanged** (as required). Couple anchor
+**$554,616 did NOT move** and was therefore not re-pinned — A holds a $24,000
+RPP lifetime pension, so the proportional draw sends far more any-age income to
+B than the $2,000 pension amount can absorb, and B's capped credit is unchanged.
+The reasoning is recorded in the test comment. Batch 0B accumulation
+**$2,254,682 unchanged**.
