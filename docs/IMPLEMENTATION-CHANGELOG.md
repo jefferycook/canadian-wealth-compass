@@ -344,4 +344,4 @@ existing golden anchors did not move** (201,470 / 411,408 / 2,176,860).
    listed "TFSA/RRSP dollar limits" among the amounts `getTaxYear` indexes, and
    recorded the continuing §6.2 non-eligible-dividend deferral (both above).
 
-**Suite after the patch: 231 tests passing**, clean typecheck.
+**Suite after the patch: 223 tests passing** (was 214), clean typecheck.

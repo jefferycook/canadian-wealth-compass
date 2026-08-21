@@ -57,6 +57,36 @@ before re-issuing anything.
 
 ---
 
+## Phase 0 — READY FOR INDEPENDENT APPROVAL, NOT YET APPROVED
+
+Batches 0A–0D are implemented and green, and the four verification gaps raised
+by independent review on 2026-08-21 are closed (see the Phase 0 review patch in
+`IMPLEMENTATION-CHANGELOG.md`):
+
+1. the required flat-real 30-year indexation invariant is now tested directly,
+   and demonstrably fails against frozen tables (+32% real drift);
+2. the down-year test is a real projection-level loss year that asserts
+   `distributionsTaxable` survives a −20% return in the same row the balance
+   falls;
+3. the fourth Phase-0-exit golden exists — a Manitoba locked-in fixture pinned
+   at **111,905** lifetime tax / **144,512** terminal portfolio;
+4. the 0D changelog no longer misdescribes what tax-year indexation covers, and
+   the §6.2 non-eligible-dividend deferral is recorded explicitly.
+
+**Suite: 223 tests passing**, clean typecheck. The three pre-existing anchors
+are unchanged at **201,470 / 411,408 / 2,176,860**; no defect was exposed by the
+new tests, so nothing moved.
+
+**Status: awaiting independent Phase 0 approval. It is NOT approved and Phase 1
+has NOT started.** Nothing has been deployed or published.
+
+Known items deliberately left open at the Phase 0 boundary: non-eligible
+dividends (§6.2 [G]), New Brunswick locked-in unlocking (UNSUPPORTED), and the
+procedural-conditions disclosure gap recorded above. None is a Phase 0 exit
+criterion.
+
+---
+
 ## Resolved
 
 ### Erratum 5 — transferee's pension credit (Batch 0A) — IMPLEMENTED AND VERIFIED 2026-08-21
