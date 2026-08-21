@@ -691,6 +691,15 @@ export function projection(
     const fixedCash = fixed.reduce((s, f) => s + f.cash, 0);
     if (saleGainTaxA) fixed[0]!.gainTax += saleGainTaxA;
 
+    // RRSP deduction for the year. Claimed against income that exists
+    // independently of the discretionary draw, so the deduction does not move
+    // while the draw solver iterates. Unclaimed contributions stay in the
+    // undeducted carry-forward and remain deductible in a later year.
+    const rrspDeductions = fixed.map((f, i) =>
+      alive[i] ? (ledgers[i]?.claimRrspDeduction(Math.max(0, f.ordinary)) ?? 0) : 0,
+    );
+
+
     /* --- 9. Solve the discretionary draw --- */
     // Locked-in DC/LIRA money before conversion is not drawable; converted LIF
     // accounts are capped at the LIF maximum.
