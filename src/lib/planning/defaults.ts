@@ -69,6 +69,9 @@ export function emptyPerson(id: PersonKey): PersonDraft {
     bridge: { amt: null, end: null },
     tfsaRoom: null,
     rrspRoom: null,
+    rrspDeductionLimitOpen: null,
+    rrspUndeductedContributions: null,
+    pensionAdjustment: null,
   };
 }
 

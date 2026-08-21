@@ -49,6 +49,12 @@ export interface PersonDraft {
   gender?: string;
   tfsaRoom: number | null;
   rrspRoom: number | null;
+  /** RRSP deduction limit from the Notice of Assessment. */
+  rrspDeductionLimitOpen: number | null;
+  /** Contributions already made but not yet deducted. */
+  rrspUndeductedContributions: number | null;
+  /** Pension adjustment. Null means unknown, which is disclosed, not assumed. */
+  pensionAdjustment: number | null;
 }
 
 export interface TaxSettingsDraft {
@@ -121,6 +127,9 @@ function normalizePerson(p: PersonDraft): PersonInput {
     ...(p.gender ? { gender: p.gender } : {}),
     tfsaRoom: p.tfsaRoom,
     rrspRoom: p.rrspRoom,
+    rrspDeductionLimitOpen: p.rrspDeductionLimitOpen,
+    rrspUndeductedContributions: p.rrspUndeductedContributions,
+    pensionAdjustment: p.pensionAdjustment,
   };
 }
 
@@ -194,6 +203,9 @@ export function draftFromInputs(p: PlanInputs): PlanDraft {
       ...(x.gender ? { gender: x.gender } : {}),
       tfsaRoom: x.tfsaRoom ?? null,
       rrspRoom: x.rrspRoom ?? null,
+      rrspDeductionLimitOpen: x.rrspDeductionLimitOpen ?? null,
+      rrspUndeductedContributions: x.rrspUndeductedContributions ?? null,
+      pensionAdjustment: x.pensionAdjustment ?? null,
     })),
     accounts: p.accounts,
     expenses: p.expenses,
