@@ -265,15 +265,34 @@ threshold, phase-out rate) to the tax-jurisdiction rules record and apply it in
 remaining ten jurisdictions are cut**, or all thirteen records will need
 re-cutting — the same trap already flagged for non-eligible dividend credits.
 
+### BC-2 [A] — BC's pension income amount is indexed but should not be
+
+*Found 2026-08-21 during the provincial constants verification pass. No code
+change made; no anchor affected.*
+
+The BC table publishes the **$1,000 pension amount as NOT indexed** ($1,000 in
+both 2025 and 2026), but `indexProvince()` in `src/lib/planning/taxYears.ts`
+indexes every provincial `penAmt` in derived years. BC's 2027-2030 indexation
+pause masks the defect; from **2031** BC's derived pension amount rises above
+$1,000, slightly **understating** BC tax for pensioners. Ontario's and
+Alberta's pension amounts *do* index in law, so the fix is a per-jurisdiction
+"indexed" flag on `penAmt`, not a change to the generic rule. A test in
+`taxYears.test.ts` documents the current behaviour rather than blessing it.
+Golden anchors are Ontario fixtures and are unaffected.
+
 ### CR-2 — constants still CONST-UNVERIFIED (launch blocker, §11.4)
 
-- **Provincial age amounts / age thresholds / pension income amounts** — ON
-  ($6,342 / $47,210 / $1,796), BC ($5,691 / $42,580 / $1,000), AB ($6,055 /
-  $45,210 / $1,685). Tier-1 source is TD1ON / TD1BC / TD1AB; the CRA PDF host
-  blocked automated retrieval on 2026-08-21. Ontario's $1,796 has tier-3
-  corroboration only (KPMG), which may not satisfy §13.1.
-- **Provincial dividend tax credits** — ON 10%, BC 12%, AB 8.12% of the
-  grossed-up eligible dividend. Ontario's 10% is tier-3 / open-data only.
+- ~~**Provincial age amounts / age thresholds / pension income amounts**~~ —
+  **struck 2026-08-21.** ON $6,342 / $47,210 / $1,796 verified against CRA Form
+  TD1ON 2026 (`td1on-26e.pdf`) and unchanged; BC $5,927 / $44,119 / $1,000
+  verified (age amount and threshold corrected earlier the same day); AB
+  $6,345 / $47,234 / $1,753 verified and corrected. All pinned by tests in
+  `taxYears.test.ts`.
+- ~~**Provincial dividend tax credits**~~ — **struck 2026-08-21.** ON 10%
+  (Ontario.ca *Ontario dividend tax credit*, updated 2026-04-27), BC 12% (BC
+  *basic personal income tax credits*, 2026 table), AB 8.12% (Alberta PITA s.21
+  as amended by Bill 35, for 2021 and subsequent taxation years). All three
+  match the live values; nothing changed.
 - **FSRA Ontario LIF maximum table digits** (`ON_LIF_MAX`, ages 50–89) — the
   rule is VERIFIED but the fifty percentages have not been compared line by
   line the way the RRIF table now has been. FSRA's consumer table page 404s and
