@@ -188,12 +188,31 @@ specification (v1.2 FINAL + Errata 1–5).
 
 `taxYears.ts` gains `indexTaxYear()`, `indexationFactor()` and `LATEST_TAX_YEAR`.
 `getTaxYear(year, rate)` now derives any year past the last published table by
-indexing amounts — brackets, BPA (federal and provincial), age amount, pension
-amount, OAS recovery threshold, TFSA/RRSP dollar limits — at a stated rate.
+indexing the **income-tax** amounts it owns — bracket thresholds, the federal
+and provincial basic personal amounts, the age amount, provincial pension
+amounts and the OAS recovery threshold — at a stated rate. The projection
+applies the same factor to the client's own statutory overrides
+(`fedBPA`, `provBPA`, `oasThresh`), because those are amounts that index in law.
+
+**Not in scope, and not indexed here:** the **federal pension income amount**,
+fixed at $2,000 (see the 0D defect entry below), and the **TFSA/RRSP dollar
+limits**. `taxYears.ts` does not own the contribution limits at all —
+statutory room accrual lives in `room.ts` (Batch 0B) and is unchanged by 0D.
+An earlier draft of this entry listed them; that was wrong.
 **Rates are never indexed; only amounts.** Derived tables carry `derivedFrom`
 and are labelled APPROXIMATE at the point of use. Published years are returned
 untouched. Backwards years never index. The rate is `PlanInputs.indexationRate`
 when supplied, otherwise the plan's inflation assumption.
+
+**Still deferred — non-eligible dividends (§6.2 [G]).** The Batch 0D interface
+sketch lists a `nonEligDiv` yield, but it is deliberately **not implemented**
+and `YieldVector` does not accept one. Taxing non-eligible (CCPC) dividends
+needs per-province non-eligible gross-up and dividend tax credit rates that are
+not in the verified rules layer, and rating them at eligible-dividend rates
+would **understate** tax. The engine therefore models no non-eligible dividend
+rather than a wrong one. §6.2 remains an open [G] gap on the correctness
+backlog; the review patch of 2026-08-21 confirmed the deferral rather than
+closing it.
 
 ### 2. Non-registered return decomposition (§6.1, §6.3)
 
@@ -276,3 +295,53 @@ fixture moves least, as most of its run is pre-retirement. The
 Tests: 3 new cases in `projection-integrity.test.ts` (pinned `fedPenAmt` at
 2060 with the other federal amounts strictly rising, ON `penAmt` still
 indexing, published 2026 untouched). **207 tests passing**, clean typecheck.
+
+
+## Phase 0 review patch — verification gaps closed — 2026-08-21
+
+Independent review found four verification gaps in the Phase-0 exit / Batch-0D
+evidence. **No methodology changed, no defect was exposed, and the three
+existing golden anchors did not move** (201,470 / 411,408 / 2,176,860).
+
+1. **Flat-real indexation test (required by the 0D contract).** The suite only
+   proved indexed lifetime tax < frozen lifetime tax, which a half-right
+   indexation rate would also satisfy. Added a direct 30-year invariant test:
+   a controlled Alberta fixture (age 45, ordinary income only, no surtax or
+   health premium) where nominal income and every statutory amount rise at 2%.
+   Real tax is flat to **< 0.05%** across 30 years. The same fixture against
+   frozen tables drifts **+32%** and rises monotonically every year, so the
+   test demonstrably fails against the pre-0D behaviour.
+2. **Down-year end-to-end test.** The old test set returns to 0 and asserted
+   lifetime tax > 0 — a flat year, not a loss year, and it never read a
+   distribution figure. Replaced with a controlled projection fixture: a single
+   non-registered account, explicit 2% interest + 1% eligible-dividend yields,
+   and a −20% total return. Asserts in the SAME row that the balance falls by
+   far more than the withdrawal AND that `distributionsTaxable` is exactly
+   $15,000 with taxable income equal to the interest plus the grossed-up
+   dividend. Two companion tests pin that an up year and a down year distribute
+   identically while their balances diverge, and that zeroing the yields
+   collapses the figure to zero (so the assertions are driven by the yield
+   vector reaching the projection, not by another income source).
+3. **Locked-in golden fixture (Phase 0 exit criterion 2, §12).** The exit
+   criterion requires single, couple, accumulation AND locked-in goldens; only
+   three existed. Added `lockedInGoldenFixturePlan()` — a Manitoba client,
+   LIRA $400k converting at 55, `unlock: 100` requested and clamped by
+   jurisdiction, 37 projected years, funded in every year (no shortfall, never
+   LIF-bound). It exercises what a one-year unit test cannot: the 50%
+   entitlement at 55, the **balance-at-65 entitlement taken as an increment on
+   the same account ten years later**, the clamp, and the PRRIF destination
+   forcing RRIF minimums before 71.
+
+   | Locked-in golden | Value |
+   |---|---|
+   | Lifetime tax | **111,905** |
+   | Terminal portfolio | **144,512** |
+
+   The anchor is load-bearing: capping the account at the 55 entitlement alone
+   (a one-shot flag, the Batch 0C defect) moves lifetime tax to 103,413. A test
+   asserts the two differ and that the capped run is strictly lower.
+4. **Changelog accuracy.** Corrected the 0D indexation entry, which wrongly
+   listed "TFSA/RRSP dollar limits" among the amounts `getTaxYear` indexes, and
+   recorded the continuing §6.2 non-eligible-dividend deferral (both above).
+
+**Suite after the patch: 223 tests passing** (was 214), clean typecheck.

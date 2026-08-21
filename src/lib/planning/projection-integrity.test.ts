@@ -17,6 +17,7 @@ import {
   indexationFactor,
   LATEST_TAX_YEAR,
 } from "./taxYears";
+import { computeTax } from "./tax";
 import {
   applyDistributionsToAcb,
   decomposeReturn,
@@ -29,7 +30,7 @@ import {
   accumulationGoldenFixturePlan,
   regressionFixturePlan,
 } from "./fixtures";
-import type { PlanInputs } from "./types";
+import type { AccountInput, PlanInputs, TaxSettings } from "./types";
 
 const lifetimeTax = (r: { rows: { tax: number }[] }) =>
   r.rows.reduce((s, x) => s + x.tax, 0);
@@ -87,6 +88,79 @@ describe("indexation of statutory amounts (§12)", () => {
 
   it("indexing at zero reproduces the published table exactly", () => {
     expect(getTaxYear(2050, 0).fedBpaMax).toBe(getTaxYear(2026).fedBpaMax);
+  });
+
+  /**
+   * The canonical Batch 0D contract states the invariant directly: a FLAT-REAL
+   * income over 30 years must produce a FLAT-REAL tax. The neighbouring
+   * "indexed < frozen" test only shows the direction of travel; it would pass
+   * on an indexation rate that was half right. This one pins the invariant.
+   *
+   * Controlled fixture, so nothing else can move the number: one 45-year-old
+   * (below the age amount, so the credit set does not change with age), a
+   * single ordinary-income stream, and Alberta (a flat provincial rate with no
+   * surtax and no health premium). Nominal income and every statutory amount
+   * rise at exactly the same rate, which is the definition of flat-real.
+   *
+   * The statutory overrides are indexed by the same `indexationFactor` the
+   * projection applies to them each year (projection.ts, `optsY`), so this
+   * tests the same code path the engine uses rather than an idealised one.
+   */
+  it("holds real tax flat over 30 years when income and the tables rise together", () => {
+    const g = 0.02;
+    const baseIncome = 80_000;
+    const published = getTaxYear(LATEST_TAX_YEAR);
+    const opts0: TaxSettings = {
+      provinceKey: "AB",
+      fedBPA: published.fedBpaMax,
+      provBPA: published.provinces['AB']!.bpa,
+      oasThresh: published.oasThreshold,
+      lifRate: 6,
+    };
+
+    const realTax = (n: number, indexed: boolean): number => {
+      const f = Math.pow(1 + g, n);
+      const yr = LATEST_TAX_YEAR + n;
+      const k = indexed ? indexationFactor(LATEST_TAX_YEAR, yr, g) : 1;
+      const opts: TaxSettings = {
+        ...opts0,
+        fedBPA: opts0.fedBPA * k,
+        provBPA: opts0.provBPA * k,
+        oasThresh: opts0.oasThresh * k,
+      };
+      const ty = indexed ? getTaxYear(yr, g) : published;
+      const inc = {
+        ordinary: baseIncome * f,
+        eligDiv: 0,
+        capGainsTaxable: 0,
+        oasReceived: 0,
+        age: 45,
+      };
+      // Deflate back to year-0 dollars.
+      return computeTax(inc, opts, ty).tax / f;
+    };
+
+    const indexed: number[] = [];
+    const frozen: number[] = [];
+    for (let n = 0; n <= 30; n++) {
+      indexed.push(realTax(n, true));
+      frozen.push(realTax(n, false));
+    }
+
+    // Indexed: flat in real terms. The residual is integer rounding of the
+    // indexed thresholds, so the tolerance is tight on purpose — 0.1% would
+    // not catch a half-rate indexation bug, and this does.
+    const drift = Math.max(...indexed) / Math.min(...indexed) - 1;
+    expect(drift).toBeLessThan(0.0005);
+    expect(indexed[30]!).toBeCloseTo(indexed[0]!, 0);
+
+    // The test is not vacuous: the SAME fixture against frozen tables drifts
+    // badly upward, which is exactly the defect Batch 0D removed. Real tax
+    // rises by roughly a third over the 30 years.
+    expect(frozen[0]!).toBeCloseTo(indexed[0]!, 6);
+    expect(frozen[30]! / frozen[0]!).toBeGreaterThan(1.25);
+    // Monotone bracket creep, not noise.
+    for (let n = 1; n <= 30; n++) expect(frozen[n]!).toBeGreaterThan(frozen[n - 1]!);
   });
 
   it("lowers lifetime tax versus frozen brackets on an inflating plan", () => {
@@ -159,21 +233,118 @@ describe("non-registered return decomposition (§6.1)", () => {
     expect(v.interest).toBeCloseTo(0.03, 9);
   });
 
-  it("taxes non-registered distributions in a down year end to end", () => {
-    const shock = (rate: number): number => {
-      const p: PlanInputs = regressionFixturePlan();
-      return lifetimeTax(
-        projection({
-          ...p,
-          indexationRate: 0,
-          eqRet: rate,
-          fiRet: rate,
-        }),
-      );
+  /**
+   * The 0D contract is about a NEGATIVE year, not a flat one: the old engine
+   * gated distributions behind `growth > 0`, so a market shock produced a tax
+   * holiday. A zero-return plan does not exercise that gate, and a unit test of
+   * `decomposeReturn()` does not prove the projection wires it up. This builds
+   * a controlled plan and reads the projection's own row.
+   */
+  const downYearPlan = (totalReturn: number): PlanInputs => {
+    const base = regressionFixturePlan();
+    const nonreg: AccountInput = {
+      id: "acc_nonreg",
+      name: "Non-registered",
+      type: "NONREG",
+      owner: "A",
+      bal: 500_000,
+      acb: 500_000,
+      eq: 100,
+      mix: { int: 1, div: 0, cg: 0 },
+      // Explicit yields: 2% interest + 1% eligible dividends = $15,000 of
+      // distributions on the opening balance, whatever the market does.
+      yields: { interest: 0.02, eligDiv: 0.01, cgDist: 0, roc: 0 },
+      juris: "ON",
+      conv: 0,
+      unlock: 0,
+      contrib: 0,
+      contribEnd: 0,
+      wd: 0,
+      wdStart: 0,
+      wdEnd: 0,
     };
+    return {
+      ...base,
+      planType: "single",
+      endAge: 62,
+      spendNeed: 12_000,
+      indexationRate: 0,
+      eqRet: totalReturn,
+      fiRet: totalReturn,
+      // No CPP/OAS in payment, no pension, no other assets: every dollar of
+      // taxable income in the row comes from the non-registered account.
+      people: [
+        {
+          ...base.people[0]!,
+          curAge: 60,
+          retAge: 60,
+          cpp: { amt: 0, age: 65 },
+          oas: { amt: 0, age: 65 },
+        },
+      ],
+      accounts: [nonreg],
+      expenses: [],
+      hardAssets: [],
+      liabilities: [],
+    };
+  };
+
+  it("accrues taxable distributions in a NEGATIVE projection year, while the balance falls", () => {
+    const r = projection(downYearPlan(-0.2));
+    const row = r.rows[0]!;
+    const closing = row.balances["acc_nonreg"]!;
+
+    // 1. The balance genuinely fell, and by far more than the withdrawal — a
+    //    real market loss, not a drawdown.
+    expect(closing).toBeLessThan(500_000);
+    expect(500_000 - closing).toBeGreaterThan(row.nonregWithdraw * 2);
+
+    // 2. In that SAME row, distributions are still taxed. 2% + 1% on $500,000.
+    expect(row.distributionsTaxable).toBeCloseTo(15_000, 6);
+    expect(row.taxable).toBeGreaterThan(15_000);
+
+    // 3. The interest and the grossed-up dividend both reach taxable income;
+    //    the loss does not net against them.
+    expect(row.taxable).toBeCloseTo(
+      10_000 + 5_000 * getTaxYear(2026).divGrossUp,
+      0,
+    );
+  });
+
+  it("distributes the same amount whether the year is up or down", () => {
+    const up = projection(downYearPlan(0.08)).rows[0]!;
+    const down = projection(downYearPlan(-0.2)).rows[0]!;
+    expect(down.distributionsTaxable).toBeCloseTo(up.distributionsTaxable, 6);
+    // Two-sided: the yields are a floor on taxable income, not the whole story
+    // of the year — the balances must still diverge.
+    expect(down.balances["acc_nonreg"]!).toBeLessThan(
+      up.balances["acc_nonreg"]!,
+    );
+  });
+
+  it("would collapse to zero taxable distributions if the yields were removed", () => {
+    // Guards the guard: proves the assertions above are driven by the yield
+    // vector reaching the projection, not by some other income source.
+    const p = downYearPlan(-0.2);
+    const noYield: PlanInputs = {
+      ...p,
+      accounts: p.accounts.map((a) => ({
+        ...a,
+        yields: { interest: 0, eligDiv: 0, cgDist: 0, roc: 0 },
+      })),
+    };
+    const row = projection(noYield).rows[0]!;
+    expect(row.distributionsTaxable).toBeCloseTo(0, 6);
+  });
+
+  it("taxes non-registered distributions in a flat year end to end", () => {
+    const p: PlanInputs = regressionFixturePlan();
+    const flat = lifetimeTax(
+      projection({ ...p, indexationRate: 0, eqRet: 0, fiRet: 0 }),
+    );
     // A portfolio earning nothing still distributes interest and dividends,
     // so lifetime tax cannot collapse to the no-portfolio case.
-    expect(shock(0)).toBeGreaterThan(0);
+    expect(flat).toBeGreaterThan(0);
   });
 });
 
