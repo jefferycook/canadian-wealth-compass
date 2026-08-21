@@ -457,3 +457,101 @@ export function accumulationGoldenFixturePlan(): PlanInputs {
     liabilities: [],
   };
 }
+
+/**
+ * LOCKED-IN GOLDEN FIXTURE — Batch 0C regression anchor (Phase 0 exit #2).
+ *
+ * §12's Phase 0 exit criterion 2 requires golden fixtures for single, couple,
+ * accumulation-stage AND locked-in clients. The first three exist; this is the
+ * fourth, and it is deliberately a *multi-decade* plan rather than a one-year
+ * unit test, so it locks the sequential behaviour that per-year unit tests
+ * cannot see.
+ *
+ * A Manitoba client, so the run exercises the Batch 0C rules that are unique
+ * to MB and would otherwise only be asserted at rule-record level:
+ *   - a LIRA converting to a LIF at 55,
+ *   - Manitoba's **50% one-time entitlement at 55**, taken first,
+ *   - Manitoba's **balance-at-65 entitlement**, taken as an INCREMENT on the
+ *     same account years later (the sequential-entitlement rule — a one-shot
+ *     flag would leave money locked forever and move this anchor),
+ *   - the unlocked money landing in a **PRRIF**, not an RRSP, which forces
+ *     RRIF minimums before 71 and therefore changes the tax path,
+ *   - `unlock: 100` as the client's *request*, clamped each year by
+ *     `maxUnlockPctAtAge`, so the anchor also pins the clamp.
+ *
+ * The plan funds itself in every year (no funding shortfall, never LIF-bound),
+ * so the anchor measures the locked-in rules and not a failure mode.
+ */
+export function lockedInGoldenFixturePlan(): PlanInputs {
+  const base = regressionFixturePlan();
+  return {
+    ...base,
+    planType: "single",
+    endAge: 90,
+    spendNeed: 36000,
+    people: [{ ...base.people[0]!, curAge: 54, retAge: 55 }],
+    accounts: [
+      {
+        id: "acc_lira",
+        name: "LIRA (Manitoba)",
+        type: "LIRA",
+        owner: "A",
+        bal: 400000,
+        acb: 0,
+        eq: 50,
+        mix: { int: 1, div: 0, cg: 0 },
+        juris: "MB",
+        conv: 55,
+        // The client asks for everything; the jurisdiction clamps it to 50% at
+        // 55 and to the balance at 65.
+        unlock: 100,
+        contrib: 0,
+        contribEnd: 0,
+        wd: 0,
+        wdStart: 0,
+        wdEnd: 0,
+      },
+      {
+        id: "acc_tfsa",
+        name: "TFSA",
+        type: "TFSA",
+        owner: "A",
+        bal: 60000,
+        acb: 60000,
+        eq: 75,
+        mix: { int: 0.2, div: 0.2, cg: 0.6 },
+        juris: "ON",
+        conv: 0,
+        unlock: 0,
+        contrib: 0,
+        contribEnd: 0,
+        wd: 0,
+        wdStart: 0,
+        wdEnd: 0,
+      },
+      {
+        id: "acc_nonreg",
+        name: "Non-registered",
+        type: "NONREG",
+        owner: "A",
+        bal: 150000,
+        acb: 120000,
+        eq: 60,
+        mix: { int: 0.25, div: 0.25, cg: 0.5 },
+        juris: "ON",
+        conv: 0,
+        unlock: 0,
+        contrib: 0,
+        contribEnd: 0,
+        wd: 0,
+        wdStart: 0,
+        wdEnd: 0,
+      },
+    ],
+    expenses: [],
+    otherIncome: [],
+    lumpSums: [],
+    hardAssets: [],
+    liabilities: [],
+  };
+}
