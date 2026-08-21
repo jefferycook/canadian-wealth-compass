@@ -26,7 +26,12 @@ import {
   tryUnlockRule,
 } from "./registered";
 import { approxMarginal, householdTax } from "./tax";
-import { getTaxYear, type TaxYear } from "./taxYears";
+import {
+  getTaxYear,
+  indexationFactor,
+  LATEST_TAX_YEAR,
+  type TaxYear,
+} from "./taxYears";
 import { strategyOrder } from "./strategy";
 import { bridgeIsPensionEligible } from "./types";
 import {
@@ -80,7 +85,13 @@ export function projection(
   inputs: PlanInputs,
   override: ProjectionOverride = {},
 ): ProjectionResult {
-  const ty: TaxYear = getTaxYear(inputs.taxYear);
+  // Batch 0D: the indexation rate defaults to the plan's inflation assumption
+  // and is overridable per plan. Published tax years are never indexed.
+  const idxRate =
+    inputs.indexationRate != null && Number.isFinite(inputs.indexationRate)
+      ? inputs.indexationRate
+      : inputs.inflation;
+  const ty: TaxYear = getTaxYear(inputs.taxYear, idxRate);
   const goalSaves =
     override.goalSaves ?? (override.goalSave ? [override.goalSave] : []);
 
@@ -207,6 +218,7 @@ export function projection(
   const roomDisclosures = new Set<string>();
   /** Batch 0C locked-in disclosures (withheld / approximate), point-of-use. */
   const lockedInDisclosures = new Set<string>();
+  const taxYearDisclosures = new Set<string>();
   /** The most recent closed year of each person's ledger. */
   let lastClosedRoom: PersonRoomYear[] = [];
   const roomValidationErrors = ledgers.flatMap((l) => l.validationErrors);
