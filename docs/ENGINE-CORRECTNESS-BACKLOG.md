@@ -334,25 +334,20 @@ age-specific constant exists in the code. Pinned by a derived test in
 **Gate:** Phase 0 approval and Phase 1 start are blocked until this is resolved.
 
 
-## AB-1 — Alberta 2026 pension income amount is probably stale (verification item)
+## AB-1 — Alberta 2026 pension income amount — RESOLVED 2026-08-21 (no longer open)
 
-Opened 2026-08-21 by the Alberta constants verification pass.
+Opened and closed on 2026-08-21. Recorded here only so the other agents do not
+re-open it.
 
-`TAX_2026.provinces.AB.penAmt` is **$1,685**, which is the **2024** Alberta
-pension income amount. CRA's 2025 AB428 (line 58360) states **$1,719**, and
-Alberta.ca states 2026 thresholds and credit amounts rise by **2%**, implying a
-2026 amount of **$1,753**.
+The engine carried `TAX_2026.provinces.AB.penAmt = 1685`, the **2024** amount.
+The item was held open because the 2026 AB428 was not published and $1,753 was
+only a derivation. The missing tier-1 source has since been located: **CRA Form
+TD1AB, 2026 Alberta Personal Tax Credits Return (`td1ab-26e.pdf`), line 3**
+states the Alberta pension income amount directly as the lesser of **$1,753** or
+estimated annual pension. Checked **2026-08-21**.
 
-- **Not changed**, because the 2026 AB428 is not yet published and $1,753 is a
-  derivation rather than a tier-1 published figure. The pass instruction was to
-  record rather than guess.
-- **Indexation behaviour is settled and correct:** Alberta's pension income
-  amount does index (2024 $1,685 -> 2025 $1,719), so the engine's generic
-  indexing of provincial `penAmt` in derived years needs no jurisdiction carve-out
-  for AB. Pinned by a test in `taxYears.test.ts`.
-- **Close this item** by comparing against CRA's 2026 AB428 / Alberta tax
-  information for 2026 once published, then correcting the constant and pinning
-  it, the same way the age amount was corrected on 2026-08-21.
-- Impact while open: understates the Alberta pension income credit by roughly
-  $68 of credit base ($6.80 of tax at 10%) per pensioner per year. Ontario-based
-  golden anchors are unaffected.
+`penAmt` is corrected to **1753** and pinned by test. The indexation *rule* was
+already verified and unchanged: Alberta's pension income amount indexes
+(2024 $1,685 -> 2025 $1,719 -> 2026 $1,753), so no jurisdiction carve-out is
+needed and derived years now index from the verified 2026 value. Nothing about
+Alberta's pension income amount remains CONST-UNVERIFIED.

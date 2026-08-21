@@ -469,17 +469,17 @@ the age amount is **$6,345** and the phase-out runs from net income **$47,234**
 to $89,534. This also reconciles to the 2025 figures indexed by Alberta's
 published 2%: `6,221 x 1.02 = 6,345`, `46,308 x 1.02 = 47,234`. Corrected.
 
-**Inspected, deliberately NOT changed — Alberta `penAmt: 1685`.**
+**Defect — stale Alberta pension income amount (corrected in the same-day
+follow-up below).** `penAmt: 1685` is the **2024** amount.
 - *Indexation behaviour is correct.* Alberta's pension income amount does index:
   the 2024 amount is $1,685 and CRA's 2025 AB428 line 58360 is **$1,719**
   (= `1,685 x 1.02` rounded). Alberta.ca confirms 2026 credit amounts rise 2%.
   The engine's generic indexing of provincial `penAmt` in derived years is
   therefore right for Alberta, and was left alone.
-- *The 2026 value looks stale by two years.* $1,685 is the **2024** amount; the
-  implied 2026 amount is **$1,753**. The 2026 AB428 is not yet published, so
-  this is a derivation, not a tier-1 figure, and per the pass instructions the
-  value was **not** changed on inference. Recorded as backlog **AB-1**, to be
-  closed against the 2026 AB428 when CRA publishes it.
+- *The value was two years stale.* At the time of the first pass the 2026 AB428
+  was not published, so $1,753 was only a derivation and the constant was left
+  at 1,685 with backlog item **AB-1** opened. See the follow-up entry below,
+  which located the official 2026 TD1AB and closed AB-1 the same day.
 
 **Tests added** (`src/lib/planning/taxYears.test.ts`, 4 tests): AB 2026 age
 amount and threshold pinned; the same two values cross-checked against the 2025
@@ -490,4 +490,34 @@ threshold and pension amount all indexing normally.
 **Suite: 260 tests passing** (was 256), clean typecheck. Golden anchors are
 Ontario-based and all three are **unmoved**: 201,470 / 411,408 / 1,762,590.
 CPP-1 [C] remains OPEN, Phase 0 remains unapproved, Phase 1 has not started,
+nothing deployed.
+
+
+---
+
+## Alberta pension income amount — AB-1 closed — 2026-08-21 (follow-up)
+
+Same-day follow-up to the Alberta constants pass above. The tier-1 source that
+was missing then is available: **CRA Form TD1AB, *2026 Alberta Personal Tax
+Credits Return* (`td1ab-26e.pdf`), line 3** states the Alberta pension income
+amount directly — the lesser of **$1,753** or the estimated annual pension.
+Checked **2026-08-21**. This is primary CRA evidence for the 2026 form year, not
+a derivation.
+
+**Change.** `TAX_2026.provinces.AB.penAmt` **1685 -> 1753**. $1,685 was the 2024
+amount. The value is now **VERIFIED**; it is no longer CONST-UNVERIFIED and
+backlog **AB-1 is closed**.
+
+**Unchanged.** The indexation *rule* was already verified and is untouched:
+Alberta's pension income amount indexes (2024 $1,685 -> 2025 AB428 line 58360
+$1,719 -> 2026 $1,753), so provincial `penAmt` still indexes generically with no
+Alberta carve-out — derived years now index from the corrected 2026 value.
+
+**Tests** (`taxYears.test.ts`): new assertion pinning `penAmt === 1753` from the
+official 2026 TD1AB; the 2%-indexation cross-check extended to the pension amount
+(`1,719 x 1.02 = 1,753`); the 2027 normal-indexation check re-based on 1,753.
+
+**Suite: 261 tests passing**, clean typecheck. Golden anchors unmoved:
+**201,470 / 411,408 / 1,762,590**. CPP-1 [C] remains OPEN, the BC no-catch-up
+2031 rule is preserved, Phase 0 remains unapproved, Phase 1 has not started,
 nothing deployed.
