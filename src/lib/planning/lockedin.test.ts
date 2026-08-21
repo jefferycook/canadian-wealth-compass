@@ -78,7 +78,14 @@ describe("Batch 0C — Manitoba sequential entitlements", () => {
     expect(unlocked55).toBeGreaterThan(0);
     // Half the locked money moved; the remainder is still locked.
     expect(locked55).toBeGreaterThan(0);
-    expect(unlocked55 / (locked55 + unlocked55)).toBeGreaterThan(0.3);
+    // Two-sided band. The exact-50% property is asserted structurally by
+    // `maxUnlockPctAtAge(UNLOCK_RULES.MB, 55) === 50`; this projection-level
+    // check is only a sanity band around it, loose because both sides then
+    // grow and pay minimums before year end. A one-sided floor would stay
+    // green even if the engine unlocked 90%.
+    const share55 = unlocked55 / (locked55 + unlocked55);
+    expect(share55).toBeGreaterThan(0.4);
+    expect(share55).toBeLessThan(0.6);
 
     // The age-65 entitlement is a SECOND event: the locked remainder goes to zero.
     const at65 = rowAt(65);
