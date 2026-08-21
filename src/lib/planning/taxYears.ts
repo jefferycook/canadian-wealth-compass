@@ -289,9 +289,16 @@ function indexProvince(p: ProvinceTax, f: number): ProvinceTax {
  *    amounts DO index and are handled in `indexProvince`.
  *
  * Indexation is jurisdiction-aware: a province carrying an `indexationPause`
- * stays frozen at its published values for every derived year inside that
- * range, and resumes indexing from the published base year afterwards (BC:
- * paused 2027-2030 per Budget 2026, resuming 2031).
+ * stays frozen at its published values for every year inside that range, and
+ * afterwards resumes PROSPECTIVELY from the frozen amount — there is no
+ * catch-up for the paused years.
+ *
+ * BC: paused 2027-2030 (Budget 2026), resuming 2031. Under BC Income Tax Act
+ * s.4.52(2) each year's indexed amount is the immediately PRECEDING year's
+ * amount plus that year's CPI adjustment, and s.4.52(4.25) suspends the
+ * adjustment for 2027-2030. So 2030 still carries the 2026 amount and 2031
+ * applies exactly ONE year's factor to it: base x (1+r), 2032 base x (1+r)^2.
+ * (Current text of both provisions checked 2026-08-21.)
  */
 export function provincialIndexationFactor(
   p: ProvinceTax,
@@ -301,8 +308,16 @@ export function provincialIndexationFactor(
 ): number {
   if (year <= baseYear) return 1;
   const pause = p.indexationPause;
-  if (pause && year >= pause.from && year <= pause.to) return 1;
-  return Math.pow(1 + rate, year - baseYear);
+  // Count the paused years falling in (baseYear, year] and drop them from the
+  // exponent, generalised from the pause range rather than a fixed length.
+  let paused = 0;
+  if (pause) {
+    const lo = Math.max(pause.from, baseYear + 1);
+    const hi = Math.min(pause.to, year);
+    if (hi >= lo) paused = hi - lo + 1;
+  }
+  const years = Math.max(0, year - baseYear - paused);
+  return Math.pow(1 + rate, years);
 }
 
 export function indexTaxYear(base: TaxYear, year: number, rate: number): TaxYear {
