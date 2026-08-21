@@ -96,6 +96,35 @@ export function PlanResults({ output }: { output: PlanOutput }) {
         />
       </div>
 
+      {output.roomValidationErrors.length > 0 ? (
+        <Card className="border-destructive/50">
+          <CardHeader>
+            <CardTitle className="text-base">Check these CRA figures</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            {output.roomValidationErrors.map((e) => (
+              <p key={e}>{e}</p>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {output.roomDisclosures.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              What this plan assumed about your contribution room
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            {output.roomDisclosures.map((d) => (
+              <p key={d}>{d}</p>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
