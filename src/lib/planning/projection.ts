@@ -220,6 +220,7 @@ export function projection(
   /** Batch 0C locked-in disclosures (withheld / approximate), point-of-use. */
   const lockedInDisclosures = new Set<string>();
   const taxYearDisclosures = new Set<string>();
+  const nonregDisclosures = new Set<string>();
   /** The most recent closed year of each person's ledger. */
   let lastClosedRoom: PersonRoomYear[] = [];
   const roomValidationErrors = ledgers.flatMap((l) => l.validationErrors);
@@ -399,6 +400,10 @@ export function projection(
       bridgeInc: number;
       nonregInterest: number;
       nonregDiv: number;
+      /** Batch 0D: capital-gains distributions (T3/T5008), before inclusion. */
+      nonregCgDist: number;
+      /** Batch 0D: gain realized because ROC drove the ACB through zero. */
+      nonregRocGain: number;
       /** Mandatory RRIF/LIF minimums. Always RRIF-status cash by construction. */
       mandatoryTaxable: number;
       /** Scheduled withdrawals from accounts in RRIF/LIF status this year. */
@@ -423,6 +428,8 @@ export function projection(
         bridgeInc: 0,
         nonregInterest: 0,
         nonregDiv: 0,
+        nonregCgDist: 0,
+        nonregRocGain: 0,
         mandatoryTaxable: 0,
         schedRrifCash: 0,
         schedRrspCash: 0,
@@ -472,19 +479,36 @@ export function projection(
         const eq = (a.eq || 0) / 100;
         rate = eq * (activeShock.pct / 100) + (1 - eq) * fiRetGlobal + retDelta;
       }
-      const growth = a.bal * rate;
-      if (a.type === "NONREG" && growth > 0) {
-        const i = growth * a.mix.int;
-        const d = growth * a.mix.div;
+      if (a.type === "NONREG") {
+        // Batch 0D / spec §6.1: distributions are yields on the balance and
+        // accrue regardless of the sign of the price return. The old
+        // `growth > 0` gate handed the client a tax holiday in every down
+        // year and in every market-shock scenario.
+        const dec = decomposeReturn(
+          a.bal,
+          rate,
+          resolveYields(a.mix, a.ret + retDelta, a.yields),
+        );
         for (const [idx, fr] of splitOf(a)) {
-          P[idx]!.nonregInterest += i * fr;
-          P[idx]!.nonregDiv += d * fr;
+          P[idx]!.nonregInterest += dec.interest * fr;
+          P[idx]!.nonregDiv += dec.eligDiv * fr;
+          P[idx]!.nonregCgDist += dec.cgDist * fr;
         }
-        a.acb += i + d;
-        a.bal += growth;
+        const mv = applyDistributionsToAcb(a.acb, dec);
+        a.acb = mv.acb;
+        if (mv.realizedGain > 0) {
+          for (const [idx, fr] of splitOf(a)) {
+            P[idx]!.nonregRocGain += mv.realizedGain * fr;
+          }
+          nonregDisclosures.add(
+            `Return of capital reduced the adjusted cost base of "${
+              a.name || a.type
+            }" below zero; the excess is realized as a capital gain in that year, as required (§6.3).`,
+          );
+        }
+        a.bal += dec.growth;
       } else {
-        // In loss years no taxable yield accrues; the loss stays unrealized.
-        a.bal += growth;
+        a.bal += a.bal * rate;
       }
     }
 
