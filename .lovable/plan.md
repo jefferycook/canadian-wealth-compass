@@ -1,121 +1,139 @@
-# Strategies, Recommendations and What If — workspace redesign (revised)
+# AI Collaboration Architecture (review only — no code changes)
 
-No change to financial-engine methodology. Every displayed impact comes from a real
-`runPlan()` re-run through one shared execution path. React never computes a financial delta
-from scratch — it only subtracts two engine-produced metric objects for display.
+Goal: let Claude and OpenAI models explain, review, and stress-test plan outputs
+without ever becoming part of the deterministic Canadian tax/retirement
+calculation.
 
-## Canonical execution path
-
-```text
-Baseline PlanDraft + ScenarioPatch
-  -> applyPatch (draft-level edits: spending, returns, inflation, one-time expense,
-                 property sale age, strategy, verified unlocking)
-  -> normalizeDraft (units + statutory fallbacks)
-  -> PlanInputs + ProjectionOverride (retAdj, goalSaves, CPP/OAS mods, return adjustment)
-  -> runPlan()
-  -> summarize() + metrics + chart series + year ledger
-```
-`src/lib/planning/scenario.ts` owns `ScenarioPatch`, `scenarioInputs`, `scenarioOverride`,
-`runScenario`, `runStrategyComparison`, `runScenarioSet`. Strategies, Recommendations and
-What If all call it — there is no second path.
-
-### ScenarioPatch (serializable, stored in `plan_scenarios.overrides` in Batch 2)
-retirement deferral years · CPP age · OAS age · retirement spending $/mo · current spending $/mo ·
-extra saving $/mo + destination account · withdrawal strategy · equity return · fixed-income return ·
-investment-return adjustment · inflation · one-time future expense {age, amount} ·
-property sale age for an existing asset · verified locked-in unlocking %.
-
-## 1. Strategies workspace
+## Core principle: one-way evidence flow
 
 ```text
-[ Current strategy card ]
-   Label: "Current Auto selection" when the engine picked it
-   "Selected from the currently supported withdrawal strategies using the engine's
-    current scoring rule: fewest years of unfunded spending, then largest after-tax estate."
-   Stats: lifetime tax · estate after income tax · funding (funded / N short years, first
-          shortfall age) · sustainable retirement spending $/month
-[ Comparison cards ] Non-registered first · Registered first · TFSA first · Pro-rata · Auto
-   each from its own re-run: lifetime tax · estate · sustainable $/month · shortfall years ·
-   ending assets, with delta chips vs the current run
-   [Preview] [Compare with current]
-[ Preview panel ] CURRENT | PREVIEWED metric table + portfolio-over-time overlay chart
-   [Apply to scenario]   (Baseline is never touched here)
-   expandable year-by-year ledger for the previewed run
-```
-No card is called optimal. Ranking language stays comparative ("lowest lifetime tax among the
-supported orders"), and the Auto rule is stated wherever Auto appears.
-
-## 2. Recommendations page
-
-Framed as **Planning opportunities to test**, not ranked advice.
-
-```text
-[ Plan status strip ] funded to age · sustainable $/month · lifetime tax · estate
-[ Opportunity cards, grouped by theme — not sorted by dollar impact ]
-   Title  [badge: Quantified opportunity | Informational]
-   Why this may help · Exact proposed change · Trade-offs
-   [ Preview this change ] -> runScenario with that single patch
-        CURRENT PLAN | PROPOSED PLAN table: lifetime tax · sustainable $/mo · estate ·
-        funding (shortfall years, first shortfall age)
-        [Apply to scenario]  [Undo]
-```
-Deltas are shown per objective and explicitly not aggregated into a score; the page states that
-tax, estate, spending capacity and timing are different objectives and the largest number is not
-automatically the best choice. Items with no supported engine lever stay informational with no
-dollar figure.
-
-Locked-in unlocking appears as an actionable, previewable opportunity **only** when the governing
-pension-jurisdiction rule is marked VERIFIED in the rules layer; otherwise it is informational only.
-
-## 3. What If workspace
-
-```text
-[ Scenario bar ] Baseline • Working scenario   [Reset]      (save/rename/delete = Batch 2)
-[ Controls ] Timing (retirement deferral, CPP age, OAS age) · Spending (retirement $/mo,
-   current $/mo, one-time future expense) · Saving (extra $/mo + account) ·
-   Assumptions (equity return, fixed return, investment-return adjustment, inflation) ·
-   Strategy · Property (sale age for an existing asset)
-[ Results ] Metric strip vs Baseline with Δ chips:
-   spending funded to age · sustainable retirement spending $/month · portfolio at retirement ·
-   lifetime tax · estate after income tax · first shortfall age · ending assets
-   Chart: Baseline vs What If total portfolio over time
-   "Isolated effect of each change" table — each change re-run on its own; the page states these
-   are separate re-runs and do NOT add up
-   "Combined scenario impact" — one full run containing every selected change
-   Expandable year-by-year ledger for the scenario run
+PlanDraft ──> planning engine (server) ──> PlanResult / PlanOutput
+                                             │
+                                    evidence packet (JSON, versioned)
+                                             │
+                          ┌──────────────────┴──────────────────┐
+                     Claude reviewer                     OpenAI reviewer
+                          └──────────────────┬──────────────────┘
+                                      adjudication pass
+                                             │
+                                narrative + flags (advisory only)
 ```
 
-### Investment return / fee drag
-The engine has no separate gross-return and fee input, so the control is labelled
-**Investment-return adjustment (percentage points)** and is never described as a fee calculation.
-If an explicit fee input is added later, it will be defined as `netReturn = grossReturn - feeDrag`
-with the fee assumption shown separately.
+Models receive numbers; they never produce them. No model output is ever fed
+back into `runPlan()`, a `ScenarioPatch`, or a saved draft. Anything a model
+suggests becomes at most a proposed opportunity the user must apply through the
+existing scenario machinery, which then re-runs the deterministic engine.
 
-## 4. Units on every new page
-Monthly, always suffixed `/month`: current spending, retirement spending, savings, CPP, OAS,
-pensions, retirement spending capacity, surplus/shortfall. Employment income stays `/year`.
-Balances, estate values, ending assets and lifetime tax are lump sums with no suffix.
-All conversion goes through `src/lib/planning/units.ts`.
+## Layering (fits the existing rules)
 
-## 5. Baseline safety
-Previews and What If never mutate the saved plan. `[Apply to scenario]` writes only to the working
-`ScenarioPatch`. A separate `[Make this my baseline]`, behind a confirmation dialog, is the only
-action that rewrites the saved draft — delivered in Batch 2 with scenario persistence.
+Existing: `taxYears -> tax/benefits/registered -> projection -> engine -> server fns -> UI`.
 
-## Implementation sequence
+New layer sits strictly to the right of `engine`, alongside `summary`/`analysis`:
 
-**UX Batch 1 (this pass)**
-- `src/lib/planning/scenario.ts` — ScenarioPatch + single execution path
-- server fns: `runScenario`, `compareStrategies`, `simulateScenario` (baseline / combined / isolated)
-- Plan workspace navigation across Projection · Net worth · Goal · Strategies · Recommendations · What If
-- Redesigned Strategies workspace, redesigned What If workspace, baseline vs scenario comparison,
-  real projection charts, expandable year-by-year ledger
-- Recommendations layout rework, framed as planning opportunities
-- STOP for review
+`engine -> summary/analysis -> ai/evidence -> ai/providers -> ai server fns -> UI`
 
-**UX Batch 2**
-- `plan_scenarios` persistence of ScenarioPatch: create, save/update, rename, delete, reset,
-  compare multiple saved scenarios, explicit "Make this my baseline" with confirmation
-- STOP for review
+The AI layer imports from planning; planning never imports from AI.
 
-Then Phase 0.2 financial correctness, before any optimizer-backed recommendation ranking.
+## Files and endpoints to add later
+
+Evidence contract (pure, testable, no network):
+- `src/lib/planning/ai-evidence.ts` — `buildEvidencePacket(plan, analysis, scenarios)`
+  producing a versioned, redacted JSON object: `{ schemaVersion, taxYear,
+  province, householdShape, ages, balancesByType, projectionSummary,
+  keyYears[], scenarioDeltas[], opportunities[], disclosures[] }`.
+- `src/lib/planning/ai-evidence.test.ts` — snapshot + redaction tests (no names,
+  no DOB, no account numbers, no email).
+
+Review contract (model-agnostic):
+- `src/lib/ai/review-schema.ts` — Zod schema for the response every model must
+  return: `{ summary, findings[{id, severity, area, claim, evidenceRef,
+  confidence}], questions[], suggestedScenarios[{label, patchHint}] }`.
+  Kept flat and bound-free (limits stated in the prompt, clamped in code).
+- `src/lib/ai/prompts.server.ts` — system prompts per role (explainer, reviewer,
+  adjudicator).
+
+Providers (server-only):
+- `src/lib/ai/gateway.server.ts` — Lovable AI Gateway provider helper
+  (`https://ai.gateway.lovable.dev/v1`, `Lovable-API-Key` header). Covers OpenAI
+  models today with no key work from you.
+- `src/lib/ai/anthropic.server.ts` — direct Anthropic client, used only if you
+  supply `ANTHROPIC_API_KEY`. Same review schema.
+- `src/lib/ai/review.server.ts` — orchestrator: run reviewers in parallel,
+  normalize, then optional adjudication pass that receives both reviews plus the
+  same evidence packet and returns agreements/conflicts.
+
+Server functions (auth-gated, called from the plan page):
+- `src/lib/ai.functions.ts`
+  - `explainPlan` — plain-language narrative for one plan.
+  - `reviewPlan` — dual review + adjudication, returns structured findings.
+  - `explainScenario` — diff narrative between baseline and a saved scenario.
+  All use `.middleware([requireSupabaseAuth])` and `requireOwnedPlan` before
+  touching data. No public `/api/` route is needed; nothing external calls this.
+
+Persistence (optional, one migration):
+- `plan_ai_reviews` — `id, plan_id, user_id, model_role, provider, model_id,
+  evidence_hash, review jsonb, created_at`, RLS via the existing `owns_plan`
+  helper, plus GRANTs to `authenticated`/`service_role`. Stores reviews, never
+  recalculated numbers.
+
+UI:
+- `src/components/plan/PlanAiReview.tsx` — a tab next to Strategies/Opportunities
+  showing narrative, findings with severity, and conflicts between reviewers.
+  Every finding is labelled advisory and links to the deterministic number it
+  cites. Any "test this" button routes into the existing scenario flow.
+
+## Two distinct AI surfaces (don't conflate them)
+
+1. **Build-time collaboration (you + Claude/ChatGPT + Lovable).** An external
+   Claude or ChatGPT client can connect to this project over MCP and read/act on
+   project context while building. That is a developer tool: it never runs for
+   your end users, and the app cannot call those MCP tools. If you want it, it
+   is a separate small piece of work (an MCP server exposing read-only project
+   tools, OAuth-protected because this app has per-user financial data).
+2. **Runtime AI in the product.** The app calls models server-side through the
+   layer above. This is what your subscribers see.
+
+## Security, privacy, compliance (PIPEDA-relevant)
+
+- Never send identity: strip names, DOB (send ages only), email, and any free-
+  text account names from the evidence packet. Redaction is enforced in
+  `ai-evidence.ts` and tested.
+- All model calls server-side; no key ever reaches `VITE_*` or the browser.
+- Cross-border processing: OpenAI/Anthropic process outside Canada. Add an
+  explicit consent + disclosure before first AI use, a per-user opt-out, and a
+  note in your privacy policy. Consider storing the consent flag on `profiles`.
+- Log evidence hashes, not evidence. Do not log prompts containing plan data.
+- Rate-limit per user; treat gateway `402`/`403` as terminal and surface them.
+- Label every AI output as informational, not financial advice; keep the
+  deterministic disclosures as the authoritative text.
+- Reviews are cached against `evidence_hash` so a re-read doesn't re-send data.
+
+## Phases
+
+**Phase A — no keys, no network (possible immediately).**
+Evidence packet + review Zod schema + redaction tests + a fixture-driven
+"offline reviewer" that renders the UI from a canned review. Proves the contract
+and the UI without any model call.
+
+**Phase B — OpenAI via Lovable AI Gateway (possible immediately).**
+`gateway.server.ts` + `explainPlan` + `reviewPlan` single-reviewer. Uses the
+managed `LOVABLE_API_KEY`; no key work from you. Includes the consent gate.
+
+**Phase C — second reviewer + adjudication (needs `ANTHROPIC_API_KEY`).**
+Requires you to add an Anthropic key in Project Settings → Secrets. Adds
+parallel review and the conflict/adjudication pass.
+
+**Phase D — persistence + history.**
+`plan_ai_reviews` migration, cached reviews, review history per plan.
+
+**Phase E — optional MCP for build-time collaboration.**
+OAuth-protected MCP server so an external Claude client shares project context.
+Separate from the product runtime.
+
+## Non-negotiables carried forward
+
+- Engine stays frozen behind its golden anchors; no AI change may alter
+  `$278,614` / `$554,616` / `$2,254,682`.
+- Statutory numbers stay only in `taxYears.ts`.
+- Monthly-unit convention unchanged; the evidence packet states units explicitly
+  so models cannot misread annual vs monthly.
