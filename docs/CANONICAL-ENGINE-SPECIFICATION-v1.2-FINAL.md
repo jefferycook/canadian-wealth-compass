@@ -662,10 +662,12 @@ Ontario (50% via a Schedule 1.1 LIF, Form 5.2 within 60 days of the transfer, on
 
 - **Minimums:** the RRIF minimum table applies. **[ok]**
 - **Maximums:** the reason locked-in money constrains a plan.
-  - **Ontario:** uses the published **FSRA table** — exact. **[ok]**
+  - **Ontario:** uses the published **FSRA table** — exact. **[ok]** Source: FSRA guidance **PE0196INF (Active)**, *LIF and LRIF Maximum Annual Income Payment Amount Table*, **Appendix A** (C/F formula, s.6 of Schedules 1, 1.1 and 2 to R.R.O. 1990, Reg. 909), effective 2021-01-01, re-verified **2026-08-21**. Appendix A is keyed by the **age attained during the year** and is read **unshifted**, to **five decimals**, ages **41–90**. Age **89 = 51.45631%**; only **age 90+ = 100%**. *Correction 2026-08-21:* the engine previously held that same table shifted down one age and rounded to two decimals (age 65 read 7.38% instead of 7.25513%), overstating every Ontario maximum and emptying a LIF a year early.
+  - **Annual-granularity caveat (Ontario table keying):** the engine models whole years and has no date of birth, so the projection row age is used directly as FSRA's "age attained during year". For a plan started before the client's birthday the applicable row can be one age step ahead of the engine's row, making the modelled maximum **conservative** in the start year. No January-1 convention and no constant age offset is applied. DOB-aware sub-annual refinement is out of scope and recorded in the backlog.
   - **All other jurisdictions:** an **annuity-formula approximation** at a 6% reference rate. Real maximums are set per regulator with their own reference-rate mechanics (federal uses the greater of the formula and the prior year's return; Quebec now uses a prescribed rate; others differ). **[C]** for any client whose plan is LIF-bound outside Ontario.
 - **Fix:** published maximum tables per jurisdiction; retain the formula only as an explicitly labelled `APPROXIMATE` fallback, surfaced in the UI.
-- **Tests:** ON max matches FSRA at ages {55, 65, 75, 85}; QC has a max at 54 and none at 55+; max ≥ min at every age (existing test, keep); a LIF-bound plan sets `lifBound`.
+- **Tests:** ON max matches FSRA Appendix A **at every published age 41–90**, with explicit pins at {50, 55, 65, 75, 85, 89, 90}, the 89/90 boundary, monotonicity, and the below-floor fallback to age 41; QC has a max at 54 and none at 55+; max ≥ min at every age (existing test, keep); a LIF-bound plan sets `lifBound`.
+
 
 ## 3.4 Conversion rules & timing [ok]
 
