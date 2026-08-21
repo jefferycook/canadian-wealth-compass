@@ -45,4 +45,48 @@ Verification at approval: **161 tests passing**, clean typecheck.
 Regression anchors: Batch 0A single **$278,614**, Batch 0A couple **$554,616**,
 Batch 0B accumulation **$2,254,682**.
 
-Status: **Batch 0B complete.** Batch 0C not started; awaiting instruction.
+Status: **Batch 0B complete.**
+
+## Batch 0C — Locked-in safety — COMPLETE (implemented 2026-08-21, awaiting approval)
+
+Contract: canonical spec v1.2 FINAL + Erratum 4 / §13.2a.
+
+Implemented:
+
+- **No Ontario fallback.** `unlockRule()` throws for an unknown/absent pension
+  jurisdiction; `tryUnlockRule()` is the non-throwing UI path.
+- **Component-level status (§13.2a).** Each rule carries `unlockEntitlement`,
+  `destinationVehicle` and `lifMaximum`, every one with `{source, verifiedDate,
+  status}`. Gating is at the point of use; `recordStatus` (worst component) is
+  display-only.
+- **Manitoba.** `full65` retained and re-expressed as `fullUnlockAge: 65`. The
+  one-shot `_split` boolean is replaced by `WorkingAccount.unlockedFraction`, so
+  50%-at-55 and the balance-at-65 are two sequential entitlements re-evaluated
+  each year.
+- **PRRIF.** New `AccountType` member; RRIF minimums from creation, no maximum,
+  pension-eligible at 65+. Manitoba's unlock destination.
+- **Saskatchewan.** Added to `JurisdictionKey` with all three components
+  `UNSUPPORTED`; unlocking and LIF maximums are withheld with a disclosure, never
+  substituted. The selector shows it as not yet supported.
+- **Federal.** Rule record carries `requiresVehicle: "RLIF"`, the 60-day window,
+  the 50% cap and its one-time/no-carry-forward nature.
+- **Quebec.** Age gate kept: maximum applies under 55 (`APPROXIMATE`), none at
+  55+ (`VERIFIED`). No text or test implies "no maximum at any age".
+- **Disclosures.** `ProjectionResult.lockedInDisclosures` carries withheld and
+  approximate notices.
+- **Saved-plan compatibility.** `AccountInput.juris` unchanged; read-time
+  migration `_split: true → unlockedFraction`; unsupported jurisdictions load and
+  render a withheld-results state instead of throwing.
+
+Tests: `src/lib/planning/lockedin.test.ts` (17 tests) covering unknown-jurisdiction
+throw, MB 55→65 sequence, MB PRRIF minimums before 71, SK refusal, QC 54 vs 55+,
+ON FSRA table at {55,65,75,85}, jurisdiction-not-residence, complete rule metadata,
+and the `_split` migration.
+
+Verification: **178 tests passing**, clean typecheck.
+
+Regression anchors — **all three held, no re-pinning**: Batch 0A single
+**$278,614**, Batch 0A couple **$554,616**, Batch 0B accumulation **$2,254,682**.
+
+Status: **Batch 0C implemented; held for review.** No later batch started.
+
