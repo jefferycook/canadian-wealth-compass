@@ -346,14 +346,39 @@ function IncomeStep({ draft, onChange }: StepProps) {
           <NumberField
             label="TFSA room available"
             prefix="$"
+            hint="Copy the figure CRA shows for this year. Left blank, no TFSA contribution is recommended."
             value={p.tfsaRoom}
             onChange={(v) => onChange(patchPerson(draft, i, { tfsaRoom: v }))}
           />
           <NumberField
-            label="RRSP room available"
+            label="RRSP contribution room available"
             prefix="$"
+            hint="From your CRA account or Notice of Assessment."
             value={p.rrspRoom}
             onChange={(v) => onChange(patchPerson(draft, i, { rrspRoom: v }))}
+          />
+          <NumberField
+            label="RRSP deduction limit"
+            prefix="$"
+            hint="Optional. Your contribution room plus any contributions you have made but not yet deducted."
+            value={p.rrspDeductionLimitOpen}
+            onChange={(v) => onChange(patchPerson(draft, i, { rrspDeductionLimitOpen: v }))}
+          />
+          <NumberField
+            label="RRSP contributions not yet deducted"
+            prefix="$"
+            hint="Optional. Money already in your RRSP that you have not claimed a deduction for."
+            value={p.rrspUndeductedContributions}
+            onChange={(v) =>
+              onChange(patchPerson(draft, i, { rrspUndeductedContributions: v }))
+            }
+          />
+          <NumberField
+            label="Pension adjustment"
+            prefix="$"
+            hint="From your T4 or Notice of Assessment if you are in a workplace pension plan. Left blank, it is modelled as $0 and flagged."
+            value={p.pensionAdjustment}
+            onChange={(v) => onChange(patchPerson(draft, i, { pensionAdjustment: v }))}
           />
         </SectionCard>
       ))}

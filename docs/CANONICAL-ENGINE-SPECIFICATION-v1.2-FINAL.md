@@ -21,6 +21,9 @@
 |---|---|
 | v1.0 | Initial audit + specification. |
 | v1.1 | Corrected the pension-splitting **double-50% cap** (search reached only 25% of eligible pension) to **[C]**; stated province-table coverage precisely (ON/BC/AB/CUSTOM only; other keys **throw**); added Appendix B second-pass verification of every `[ok]`. |
+| **v1.2 FINAL + Erratum 3 (spousal-RRSP scope)** | Scope consistency only, no methodology change. §2.7 defers spousal RRSPs while §2.6/Batch 0B required a younger-spouse contribution test — irreconcilable. **Ruled Option A: spousal RRSPs are fully deferred.** Batch 0B models only `contributor === owner`; post-71 room accrues but stays dormant with a disclosure. See §2.6 item 4 and the corrected year-71 tests. |
+| **v1.2 FINAL + Erratum 2 (opening-year room semantics)** | Narrow Batch 0B input-contract correction, no audit, no other methodology change. v1.2 as issued had no plan-start-year special case, so a literal implementation would **double-count opening contribution room** (the UI's "room available" already includes the current year's statutory accrual), and it conflated RRSP **contribution room** with **deduction limit**. **Verified against CRA and corrected.** See §2.6 Erratum 2 for the rulings and the exact ledger formulas. |
+| **v1.2 FINAL + Erratum 1 (bridge benefits)** | Narrow correction, no audit, no other methodology change. v1.2 as issued said `pensionEligible = RPP lifetime pension + bridge + (age ≥ 65 ? rrifEligibleCash : 0)` while simultaneously stating that only RPP **lifetime** pension qualifies under 65 — an internal contradiction. **Verified against CRA and corrected: `bridgeInc` is removed from `pensionEligible` by default.** See §1.5 Erratum 1 and the amended Batch 0A. |
 | **v1.2 FINAL + roadmap addendum** | Roadmap clarification only — no audit, no methodology change. Adds **§14 National tax coverage as a pre-launch requirement** (13 provinces/territories, jurisdiction-gating rules, per-jurisdiction rule-record contents), records the **current UX phase and its engine freeze** in §12A, and restates the residence-vs-pension-jurisdiction separation as a named invariant (§0.9). Verified while updating: the production province selector is `provinceKeys(YEAR).filter(k => k !== "CUSTOM")` → exactly **ON, BC, AB**, with CUSTOM correctly excluded — consistent with the implemented verified tables and with this document. |
 | **v1.2 FINAL** | Reconciles a further targeted Lovable audit. **Four new confirmed defects** (contribution room not enforced anywhere in the core engine; CPP lever forces both spouses to one age; OAS lever likewise; non-registered loss years produce zero taxable distributions). **One Lovable finding rejected on primary-source evidence** (Manitoba `full65`). Locked-in rules for **Manitoba, federal/OSFI and Quebec** verified against regulators and restated precisely. Estate haircut escalated because it **selects the withdrawal strategy**. Development order replaced by the **Phase 0 Implementation Contract** (§12). Source standard and rules-data record schema fixed (§13). |
 
@@ -169,7 +172,7 @@ This is the highest-value tax interaction in a retirement plan and it carries **
 ### Recommended production implementation (fixes both bugs)
 
 1. Track registered withdrawals as **two streams**: `rrifEligible` (RRIF/LIF minimums + any withdrawal from an account in RRIF/LIF status) and `rrspNonEligible` (withdrawals from an account still in RRSP/LIRA status). *(Bug A)*
-2. `pensionEligible = RPPpension + bridge + (age≥65 ? rrifEligible : 0) + (age<65 ? RPP-lifetime-pension only)`. Do **not** include plain RRSP withdrawals at any age. *(Bug A)*
+2. `pensionEligible = rppLifetimePension + (age≥65 ? rrifEligible : 0)` — **no unconditional bridge term**; see **Erratum 1** below. Do **not** include plain RRSP withdrawals at any age. *(Bug A)*
 3. Feed only `pensionEligible` to both the $2,000 credit and the splitting optimizer. *(Bug A)*
 4. Search the split over the **entire statutory range, 0% through 50% of eligible pension income**, both directions; always test the 0% and 50% endpoints; keep the lowest combined household tax. *(Bug B)*
 - **Tests (both bugs):**
@@ -177,6 +180,30 @@ This is the highest-value tax interaction in a retirement plan and it carries **
   - **Endpoint coverage:** assert the search evaluates `splitAmt == 0` and `splitAmt == 0.5×eligible` as candidates.
   - **Monotone benefit:** for a fixed lopsided couple, optimal combined tax with the fixed search ≤ optimal with any 25%-capped search, strictly less in at least one constructed case (a **regression guard** against re-introducing the cap).
   - **Eligibility (Bug A):** 66-year-old with only RRSP (not RRIF) withdrawals → **no** pension credit, **no** split allowed; same person after converting to a RRIF → credit + split allowed; 60-year-old with RRIF minimum → not eligible; couple with a DB pension at 60 → splitting allowed at 60.
+  - **Bridge (Erratum 1):** a 60-year-old with an RPP lifetime pension **and** a bridge benefit has `pensionEligible` equal to the **lifetime portion only**; the bridge is taxed as ordinary income and neither earns the credit nor enters the split. Setting the affirmed-eligibility flag (below) adds it; the flag defaults to off.
+
+### Erratum 1 — bridge benefits are not lifetime retirement benefits [C, narrow]
+
+**The contradiction.** v1.2 as issued carried an unconditional `+ bridge` term in `pensionEligible` while simultaneously stating that under 65 only **RPP lifetime pension** qualifies. Both cannot be true. The `+ bridge` term was inherited from the code (`projection.ts`: `pensionElig: p.penInc + p.bridgeInc + p.mandatoryTaxable + (p.age>=65 ? p.schedRegCash : 0)`), so the error exists in **both codebases and the spec**.
+
+**Verified against CRA (Aug 2026):**
+
+1. **RPP glossary — decisive on the definition.** *"Bridging benefits paid to a plan member are benefits payable for a temporary period ending no later than a date known at the time payments start."* And, in the definition of lifetime retirement benefits: *"Bridging benefits, by definition, are **not** lifetime retirement benefits."*
+2. **Line 31400 eligible-pension-income tables.** Both the under-65 and the 65+ tables describe the RPP entry as **"RPP lifetime retirement benefits (including retroactive lump-sum payments)"** — T4A **box 016**. Neither table mentions bridging benefits, bridge benefits, or temporary supplements anywhere.
+
+**Conclusion: the finding is correct.** A bridge benefit does not qualify **merely because it is paid from a pension plan**. Including it unconditionally overstates eligible pension income, which overstates the $2,000 credit and — more materially — **inflates the amount admitted to pension income splitting**, understating household tax for exactly the pre-65 DB-pensioner couples where bridges are common.
+
+**One nuance the engine must respect (do not over-correct to a blanket exclusion).** Bridge amounts are typically **reported in T4A box 016 together with the lifetime pension**, and professional guidance (e.g. Sun Life's pension-splitting reference) lists DB plan income *"and bridge benefits **subject to conditions**"* as eligible — reflecting that a bridge forming part of a life annuity out of an RPP can fall within the statutory "life annuity out of or under a superannuation or pension plan." The correct engineering answer is therefore **source classification, not a hardcoded yes or no**:
+
+| Bridge source | Default treatment | Notes |
+|---|---|---|
+| Bridge paid from the RPP, not affirmed as part of the life annuity | **Ordinary income only** — not pension-eligible | The safe default: under-claims rather than over-claims |
+| Bridge affirmed by the adviser as an eligible RPP life-annuity payment meeting the conditions | Pension-eligible | Requires an explicit affirmation flag; **never** inferred |
+| Supplement from another vehicle (e.g. an **RCA**, a non-registered top-up, an employer SERP) | **Not pension-eligible** | Must be classified by source and verified per vehicle before any eligibility is granted; status `APPROXIMATE` until confirmed |
+
+**Direction of the safe error.** Understating eligibility causes the tool to under-claim a credit and under-split — a conservative, defensible outcome. Overstating it tells a client their household tax is lower than it will be. For a planning tool the default must be the conservative one.
+
+**Scope of this erratum.** It changes `pensionEligible` only. `bridgeInc` remains **fully taxable ordinary pension/retirement income** in every other respect — it still appears in `ordinary`, in `cash`, in guaranteed income (§7.3), and in the bridge-timing logic (paid from retirement to its end age). **No other methodology changes.**
 
 ## 1.6 Eligible dividends [ok]
 
@@ -302,13 +329,14 @@ Locked-in accumulation vehicles. A LIRA (locked-in RRSP) and a DCPP that has bee
 
 ### Correct Canadian methodology
 
-**TFSA (per person, per calendar year).** Room is personal and starts at 18 (residency-dependent).
+**TFSA (per person, per calendar year).** Room is personal and starts at 18 (residency-dependent). This is the **steady-state** recursion for years after the plan starts; the **plan-start year is different and must not apply it** — see **Erratum 2** below.
 ```
 tfsaRoom[t] = tfsaRoom[t-1]
             + annualTfsaDollarLimit[t]          (if resident and age >= 18)
             + withdrawalsMadeIn[t-1]            (restored on Jan 1 of the FOLLOWING year)
             - contributionsMadeIn[t]
 ```
+CRA's published formula for available contribution room is exactly this: current-year dollar limit **+** unused room from previous years **+** withdrawals made the previous year **−** contributions already made this year.
 Key rules: withdrawals restore room **the next calendar year, not immediately** (re-contributing in the same year is the classic over-contribution error); unused room carries forward indefinitely; **no age cap** (accrues for life); over-contributions attract a **1%/month penalty on the highest excess amount**; there is **no deduction** (contributions are after-tax).
 
 **RRSP — two distinct quantities that must not be conflated.**
@@ -321,11 +349,11 @@ rrspRoom[t] = rrspRoom[t-1]
             + PAR[t]                             (pension adjustment reversal, on plan termination)
             - contributionsMadeIn[t]
 ```
-2. **Deduction limit** (how much may be *claimed this year*): contributions may be **carried forward undeducted** and claimed in a later, higher-bracket year. Deduction limit for the year = room available at the deduction, and **unused undeducted contributions** persist as a separate balance.
+2. **Deduction limit** (how much may be *claimed this year*): contributions may be **carried forward undeducted** and claimed in a later, higher-bracket year, and **unused undeducted contributions** persist as a separate balance. The CRA Notice of Assessment relationship is **`Deduction Limit = Unused (undeducted) Contributions + Available Contribution Room`**, so **`Available Contribution Room = Deduction Limit − Unused Contributions`**. The two are different numbers and must be carried separately (**Erratum 2**). As with the TFSA, the recursion above is **steady-state only** — the plan-start year takes the client's entered figure verbatim.
 
-Key rules: **age limit — no contributions after 31 December of the year the annuitant turns 71** (spousal RRSP contributions may continue to a younger spouse's plan until *their* year-71); over-contribution buffer of **$2,000 lifetime** before the 1%/month penalty; earned income is a defined term (employment/self-employment/net rental, **not** investment income or pensions).
+Key rules: **age limit — no contributions after 31 December of the year the annuitant turns 71**. *(In law, spousal RRSP contributions may continue to a younger spouse's plan until **their** year-71 — this is correct Canadian methodology but is **deferred to §2.7 / Phase 5 and NOT implemented in Batch 0B**; see Erratum 3.)* Over-contribution buffer of **$2,000 lifetime** before the 1%/month penalty; earned income is a defined term (employment/self-employment/net rental, **not** investment income or pensions).
 
-**Spousal RRSP.** Contributions use the **contributor's** room but are owned by the annuitant spouse; withdrawals within **3 calendar years** of a contribution are attributed back to the contributor.
+**Spousal RRSP — methodology recorded, implementation deferred (Erratum 3).** Contributions use the **contributor's** room but are owned by the annuitant spouse; withdrawals within **3 calendar years** of a contribution are attributed back to the contributor. **Batch 0B does not model this**: it models only contributions where `contributor === account owner` (§2.7). The rule is documented here so Phase 5 implements it against a stated standard, not so 0B infers it.
 
 ### Production implementation — per-person annual room ledgers
 
@@ -345,20 +373,172 @@ Required engine behaviour:
 1. **Hard cap at the point of contribution.** In `projection.ts`, every contribution path — regular `a.contrib`, injected `goalSaves`, lump sums with a registered destination, and surplus sweeps (§7.7) — must be clamped to the owner's remaining room for that account type, in that year. Contributions in excess are either **rejected and re-routed to non-registered** (recommended default) or recorded as an explicit modelled over-contribution with the 1%/month penalty. Never silently accepted.
 2. **Cascade on overflow.** When a target's room is exhausted, overflow follows TFSA → RRSP → non-registered (restoring the original's `buildAlloc` behaviour, now enforced in the engine rather than in a helper).
 3. **Per person, not per household.** Room is individual. Couple savings allocate across **both** ledgers; the current `owner: "A"` hardcode in `leverOverride()` must go.
-4. **RRSP age-71 stop.** No RRSP contributions after the year the owner turns 71; spousal contributions permitted to a younger spouse's plan.
+4. **RRSP age-71 stop (Erratum 3 — Option A).** No contribution to the owner's **own** RRSP after 31 December of the year the owner turns 71. Room **continues to accrue** on the ledger from earned income and is **not** consumed. Batch 0B does **not** redirect that room to a younger spouse — spousal RRSPs are out of scope (§2.7). Where a person past 71 holds unused room and has a spouse aged ≤ 71, surface a **disclosure** ("a spousal RRSP contribution may still be available to you — not modelled in this plan") rather than silently modelling or silently ignoring it.
 5. **TFSA withdrawal restoration with a one-year lag.** Track withdrawals by year; add to room at the *following* year's opening.
-6. **Unknown room is not infinite room.** When a client leaves room blank (`null`), the safe assumption is **accrual-only** (the original's behaviour): TFSA = the annual dollar limit; RRSP = 18% × earned income capped at the dollar limit. Never treat `null` as unlimited. Surface an on-screen "estimated — enter your CRA figures" flag.
+6. **Unknown room is neither infinite nor a free annual limit — amended by Erratum 2.** When a client leaves room blank (`null`), the plan-start year carries **zero** verifiable room, because a plan begun partway through the year may follow contributions the client has already made. Statutory accrual begins on **January 1 of the next projection year**. `null` is never unlimited, and never the current year's annual limit. Surface an on-screen "enter your CRA figure for accuracy" flag. Engine-generated contributions are capped at zero in that year; client-asserted contributions are honoured but flagged (see Erratum 2, *Asserted vs recommended*).
 7. **Deduction ≠ contribution (ties to §1.10).** Track undeducted carry-forward so the tax engine can claim a deduction in a later year.
 
 **MVP scope call.** PA/PSPA/PAR require employer-plan data most clients cannot supply. For the MVP: accept an **optional** PA input (defaulting to 0), and where the client has a DB/DC pension, show a prominent "your RRSP room is reduced by your pension adjustment — enter your CRA Notice of Assessment figure for accuracy" warning. PSPA/PAR are **[G]**, deferred, and must be *disclosed* rather than silently ignored.
 
+### Erratum 2 — opening-year room semantics (Batch 0B input contract) [C, narrow]
+
+**The defect.** §2.6 as issued gave a single steady-state recursion (`tfsaRoom[t] = tfsaRoom[t-1] + annualLimit[t] + withdrawals[t-1] − contributions[t]`) with no special case for the **plan-start year**, and said unknown room defaults to "accrual-only," i.e. the current year's full annual limit. Implemented literally, both **double-count the plan-start year**: the UI field asks for *room available now*, which **already includes** the current year's statutory accrual, so adding the annual limit again invents room the client does not have. The same error appears on the RRSP side, compounded by conflating **contribution room** with **deduction limit**.
+
+**Verified against CRA (Aug 2026).**
+
+1. **TFSA — CRA's own formula for available contribution room:**
+   `TFSA dollar limit of the current year` **+** `unused contribution room from previous years` **+** `withdrawals made the previous year` **−** `contributions already made this year`.
+   CRA states the dollar limit *"is added to your contribution room on January 1"* and that a withdrawal *"you will regain the same amount as new available contribution room on January 1 of the **following year**."*
+   → A user-entered "room available" figure is the **output** of that formula. It already contains the current year's limit and is already net of contributions made so far this year. **Adding the annual limit again in the plan-start year is a double-count.** Finding confirmed.
+2. **RRSP — the deduction limit is not the contribution room.** The CRA Notice of Assessment / RRSP Deduction Limit Statement relationship is
+   `Deduction Limit = Unused (undeducted) Contributions + Available Contribution Room`, i.e.
+   **`Available Contribution Room = Deduction Limit − Unused Contributions`.**
+   → The two must be carried as separate quantities. Treating an entered "RRSP room" as a deduction limit (or vice-versa) mis-states how much may legally be **contributed**. Finding confirmed.
+
+**Rulings on the eight questions.**
+
+| # | Question | Ruling |
+|---|---|---|
+| 1 | TFSA opening-year double-count | **Confirmed.** Plan-start year uses the entered figure verbatim; no annual-limit addition. Recursion begins the following January 1. |
+| 2 | Unknown TFSA room → 0 in start year | **Adopted**, with a refinement: zero applies to **engine-generated** contributions and recommendations. See "Asserted vs recommended" below. |
+| 3 | Separate contribution room / deduction limit / undeducted carry | **Adopted**, exactly as CRA defines them; the identity above is enforced as a validation. |
+| 4 | RRSP plan-start year is authoritative | **Confirmed.** No current-year regeneration from prior-year earned income when the client supplied current available room. Current-year earned income and PA generate **next** year's new room. |
+| 5 | Unknown RRSP room | **Adopted**, with the same asserted-vs-recommended refinement, plus the PA interaction in row 6. |
+| 6 | Pension adjustment | **Never infer PA from the eventual DB pension amount.** `PA = 0` is acceptable **only** as a disclosed estimate, never silently. Withholding rule below. |
+| 7 | $2,000 cushion | **Confirmed.** Never added to recommended available room; recognised only in penalty modelling. |
+| 8 | Refund reinvestment | **Confirmed — defaults to `false`.** Opt-in only, and the resulting reinvestment is itself room-capped. |
+
+**Asserted vs recommended (necessary refinement to §2.6's "hard cap").** §2.6 requires every contribution path to be clamped to remaining room. With unknown room set to zero, a literal clamp would **delete a client's stated reality** — a client who says "I put $500/month into my TFSA" is describing a fact, not requesting advice. Batch 0B therefore distinguishes by *source*:
+
+- **Client-asserted actual contributions** (`AccountInput.contrib` entered in the plan): **honoured** even when room is unknown, but marked `unverifiedRoom` and surfaced as *"we can't confirm you have room for this — enter your CRA figure."* Where room **is** known, they are clamped normally and any excess is reported as a modelled over-contribution.
+- **Engine-generated contributions** (`goalSaves`, optimizer-injected savings, surplus sweeps, and every "save $X more" recommendation): clamped to **known** room only. **Unknown room = zero capacity**, so no registered contribution is ever recommended against room the tool cannot verify.
+
+This preserves the rule that the tool never *recommends* an illegal contribution, without the engine overruling the client about their own life.
+
+**PA withholding rule (ruling on question 6).** For a **member of a DB/DC pension plan**:
+
+- If **current available room is supplied** → the plan-start year is authoritative and recommendations proceed normally for that year; **future** years are flagged `APPROXIMATE` whenever PA is unknown, because PA can consume nearly all of the 18% accrual for a DB member.
+- If **both current room and PA are unknown** → **withhold registered-contribution recommendations entirely** for that person, and show the prompt for their CRA figure. Projection may still run with `PA = 0` **flagged as an estimate**, so the client sees a plan; it simply must not advise a contribution built on two compounding unknowns.
+- `PA = 0` is never a silent default for a pension-plan member.
+
+---
+
+### Erratum 2 — exact ledger formulas to implement
+
+Notation: `t₀` = plan-start year; `t` = any later projection year. All figures are per person. `⌀` denotes an unknown (null) input.
+
+**TFSA**
+
+```
+── Plan-start year t₀ ────────────────────────────────────────────────
+KNOWN room (user entered a current available figure):
+    tfsaRoomOpen[t₀]  = enteredTfsaAvailableRoom          // authoritative, verbatim
+                                                          // already includes t₀'s dollar limit
+                                                          // already net of t₀ contributions to date
+    // DO NOT add tfsaAnnualLimit[t₀]
+
+UNKNOWN room (⌀):
+    tfsaRoomOpen[t₀]  = 0                                 // not the annual limit, not unlimited
+    roomStatus[t₀]    = "UNKNOWN"                         // UI: "enter your current TFSA room"
+
+Both cases:
+    tfsaRoomClose[t₀] = max(0, tfsaRoomOpen[t₀] − tfsaContributions[t₀])
+
+── Every following year t > t₀ ───────────────────────────────────────
+    tfsaRoomOpen[t]   = tfsaRoomClose[t−1]
+                      + tfsaAnnualLimit[t]                // added Jan 1; only if resident and age ≥ 18
+                      + tfsaWithdrawals[t−1]              // restored Jan 1 of the FOLLOWING year
+    tfsaRoomClose[t]  = max(0, tfsaRoomOpen[t] − tfsaContributions[t])
+
+    excess[t]         = max(0, tfsaContributions[t] − tfsaRoomOpen[t])   // 1%/month on highest excess
+```
+No upper age limit — TFSA room accrues for life. Never a deduction.
+
+**RRSP**
+
+```
+── Plan-start year t₀ ────────────────────────────────────────────────
+KNOWN available contribution room:
+    rrspContribRoomOpen[t₀] = enteredRrspAvailableRoom     // authoritative, verbatim
+    rrspUndeductedCarry[t₀] = enteredUndeducted ?? 0
+    rrspDeductionLimitOpen[t₀]
+        = enteredDeductionLimit
+          ?? (rrspContribRoomOpen[t₀] + rrspUndeductedCarry[t₀])   // CRA identity
+
+    // DO NOT add min(0.18 × earnedIncome[t₀−1], dollarLimit[t₀]) in t₀ —
+    // the entered figure already reflects it.
+
+    VALIDATION when all three supplied:
+        assert |enteredDeductionLimit
+                − (enteredRrspAvailableRoom + enteredUndeducted)| ≤ tolerance
+        // on failure: surface a validation error; never silently pick one
+
+UNKNOWN available contribution room (⌀):
+    rrspContribRoomOpen[t₀] = 0                            // no legal current-year contribution assumed
+    roomStatus[t₀]          = "UNKNOWN"
+
+── Every following year t > t₀ ───────────────────────────────────────
+    newRoom[t] = max(0,
+                     min(0.18 × earnedIncome[t−1], rrspDollarLimit[t])
+                     − pensionAdjustment[t−1]
+                     − PSPA[t]
+                     + PAR[t] )
+
+    rrspContribRoomOpen[t]    = max(0, rrspContribRoomClose[t−1] + newRoom[t])
+    rrspDeductionLimitOpen[t] = rrspDeductionLimitClose[t−1] + newRoom[t]
+
+── Within any year (contribute, then deduct) ─────────────────────────
+    ownPlanCapacity[t]  = (age[t] ≤ 71) ? rrspContribRoomOpen[t] : 0
+        // No contribution to one's OWN RRSP after Dec 31 of the year the owner turns 71.
+        // Room still ACCRUES and remains on the ledger — it is simply DORMANT.
+        // Batch 0B models only contributor === owner (Erratum 3, Option A), so this room
+        // is NOT redirected to a younger spouse; emit a disclosure instead.
+        // Spousal RRSP (contributor/annuitant split + 3-year attribution) = §2.7 / Phase 5.
+
+    rrspContribRoomClose[t] = max(0, rrspContribRoomOpen[t] − rrspContributions[t])
+
+    rrspDeductionClaimed[t] ≤ min( rrspDeductionLimitOpen[t],
+                                   rrspUndeductedCarry[t−1] + rrspContributions[t] )
+
+    rrspUndeductedCarry[t]     = rrspUndeductedCarry[t−1]
+                               + rrspContributions[t]
+                               − rrspDeductionClaimed[t]
+    rrspDeductionLimitClose[t] = rrspDeductionLimitOpen[t] − rrspDeductionClaimed[t]
+
+── Constants and flags ───────────────────────────────────────────────
+    $2,000 lifetime cushion: NEVER added to recommendable room.
+        recommendableRoom[t] = rrspContribRoomOpen[t]        // cushion excluded
+        penaltyThreshold[t]  = rrspContribRoomOpen[t] + 2000 // penalty modelling only
+
+    reinvestRrspRefund: default FALSE (opt-in); any reinvestment is itself room-capped.
+```
+
+**Saved-plan compatibility mapping.** `PersonInput.rrspRoom` (existing) → **`rrspContributionRoomOpen`** — i.e. current **available contribution room**, matching both the field's label and CRA's term. Two new optional inputs: `rrspDeductionLimitOpen?: number | null` and `rrspUndeductedContributions?: number | null`, both defaulting to `null`. When the deduction limit is absent it is **derived** from the identity; when both are present the validation above runs. `PersonInput.tfsaRoom` (existing) → **`tfsaRoomOpen[t₀]`**, used verbatim in the plan-start year. No existing field changes meaning in a way that breaks a saved draft: `null` continues to mean "unknown," but **now resolves to 0 for the plan-start year rather than to the annual limit** — which is the intended correction and will change results for plans that left room blank.
+
+**Tests required (added to Batch 0B).**
+- **No double-count:** `tfsaRoom = 25,000`, plan starts 2026 → contributable in 2026 is exactly **$25,000**, not $32,000; and 2027 opening room is `close(2026) + annualLimit(2027) + withdrawals(2026)`.
+- **Unknown TFSA:** blank room → engine-generated TFSA contributions in the start year are **$0** (not the annual limit); statutory accrual begins the following January 1; a **client-asserted** `contrib` is still honoured and flagged `unverifiedRoom`.
+- **RRSP identity:** with all three inputs supplied and inconsistent, a validation error is raised; with only room supplied, the deduction limit is derived as `room + undeducted`.
+- **RRSP start-year authority:** entered room is not augmented by 18% of prior-year earned income in `t₀`; the same earned income **does** create room in `t₀+1`.
+- **Deduction ≠ contribution:** a contribution may exceed the amount deducted in the same year, with the difference persisting in `rrspUndeductedCarry` and deductible later.
+- **Year-71 (Erratum 3, Option A):** no own-plan contribution accepted after the year the owner turns 71; room **still accrues and remains on the ledger**; the engine does **not** allocate that room to a younger spouse, and a disclosure is emitted when unused room coexists with a spouse aged ≤ 71.
+- **PA:** for a pension-plan member with unknown PA **and** unknown room, registered-contribution recommendations are **withheld**; with room supplied, the start year proceeds and later years are flagged `APPROXIMATE`.
+- **Cushion:** recommended room never includes the $2,000; a modelled contribution of `room + 1,500` is penalty-free but flagged, and `room + 2,500` attracts the 1%/month penalty on the excess above the cushion.
+- **Refund:** `reinvestRrspRefund` defaults false; enabling it routes the refund through the same room clamp.
+
+**Scope.** This erratum changes **input semantics and the opening-year ledger only**. Batch 0A is untouched. The steady-state recursions, the cascade, the per-person requirement, and every other §2.6 rule stand as written.
+
 ### Tests
 
-- **Enforcement:** a plan with `contrib = 50,000/yr` into a TFSA and blank room must **not** produce a $50,000 TFSA contribution; the excess is re-routed to non-registered (or penalised), and the projected TFSA balance is materially lower than today's output. *(This test fails against current code — that is the point.)*
-- **Accrual-only default:** blank room → exactly the annual TFSA dollar limit per year, no more.
+> **Every enforcement test below must state its contribution *source*.** Per Erratum 2, a **client-asserted** contribution and an **engine-generated** one are treated differently when room is unknown. A test that says only "a $50,000 TFSA contribution" is ambiguous and must not be written.
+
+- **Client-asserted contribution, room UNKNOWN:** `AccountInput.contrib = $50,000/yr` into a TFSA with `tfsaRoom = null` in `t₀` → the contribution **remains in the projection at $50,000**; `unverifiedRoom = true`; the tool makes **no claim** that the amount is within room; the client is prompted for their CRA figure. It is **not** re-routed, reduced or penalised **merely because room is unknown**. *(Asserting a re-route here would be wrong — the client is stating a fact about their own life.)*
+- **Client-asserted contribution, room KNOWN and exceeded:** `AccountInput.contrib = $50,000/yr` with `tfsaRoomOpen[t₀] = $25,000` → the first $25,000 is within room and the **$25,000 excess is modelled and reported under the explicit over-contribution treatment** (1%/month on the highest excess, cushion rules per §2.6). The excess is **never silently absorbed as if it were legal room**.
+- **Engine-generated contribution, room UNKNOWN:** a `goalSaves` / optimizer / recommendation / surplus-sweep request of $50,000 into a TFSA with `tfsaRoom = null` in `t₀` → **$0 may be allocated to the TFSA in `t₀`**; the remainder follows the approved cascade (TFSA → RRSP → non-registered) subject to each destination's own known room; statutory new room begins **January 1 of `t₀+1`**.
+- **Unknown-room accrual:** blank room → **`t₀` known room = $0**; **`t₀+1` opening room = the statutory annual limit plus any applicable prior-year withdrawal restoration** (per the Erratum 2 recursion). Blank room is never the current-year annual limit, and never unlimited.
 - **Carry-forward:** entered room of $50,000 + N years of accrual is fully usable, then capped.
 - **TFSA withdrawal restoration lag:** withdraw $10,000 in year *t*; re-contributing $10,000 in year *t* is refused/penalised; in *t+1* it is allowed.
-- **RRSP 71 stop:** no RRSP contribution accepted in the year after the owner turns 71; a spousal contribution to a younger spouse is accepted.
+- **RRSP 71 stop (Erratum 3, Option A):** no contribution to the **owner's own** RRSP accepted after the year the owner turns 71; the owner's room **continues to accrue** and remains visible on the ledger; **no** contribution is auto-allocated to a younger spouse's plan; where unused room coexists with a spouse aged ≤ 71, the disclosure fires. *(There is no "spousal contribution accepted" test in Batch 0B — spousal RRSPs are deferred to §2.7 / Phase 5.)*
 - **Per-person:** a couple with two TFSAs uses **both** rooms; savings no longer all land on Person A.
 - **Cascade:** a saving larger than TFSA room overflows to RRSP room, then to non-registered, and the sum of allocations equals the requested saving.
 - **Optimizer guard:** with room enforced, the optimizer cannot produce a plan whose registered contributions exceed cumulative room in any year (property test over random plans).
@@ -585,7 +765,7 @@ This is the yearly loop that ties everything together. Both engines share the sa
 
 ## 7.2 Inflation [ok] — one rate, applied to spending, benefits (indexed), brackets (should be, §1.13). Support a separate benefit-indexation vs price-inflation rate later. **[A]**
 
-## 7.3 Guaranteed income [ok] — CPP, OAS, DB pension, bridge, other income assembled per person with correct timing (bridge from retirement to its end age; OAS/CPP at their start ages). Correct.
+## 7.3 Guaranteed income [ok] — CPP, OAS, DB pension, bridge, other income assembled per person with correct timing (bridge from retirement to its end age; OAS/CPP at their start ages). Correct. **Note (Erratum 1):** the bridge is fully taxable ordinary income here and remains so; it is excluded from `pensionEligible` by default (§1.5 Erratum 1) — the timing and taxation logic in this section is unchanged.
 
 ## 7.4 Account withdrawals — mandatory then discretionary [ok mechanics; objective = §11]
 
@@ -841,8 +1021,8 @@ Rules: `core` and `optimizer` stay pure and environment-agnostic. All money-affe
 Keep the existing 53 tests. Add, at minimum:
 
 - **Pension splitting:** 50%-when-optimal (fails today); endpoint coverage (0% and 50% evaluated); a regression guard that a 25%-capped search is strictly worse. **Never accept a one-sided ceiling assertion alone** — that is what hid the bug.
-- **Pension eligibility matrix:** {age <65 / ≥65} × {RRSP, RRIF, DB, bridge} → credit? split?
-- **Room enforcement:** $50k/yr TFSA contribution is refused/re-routed; accrual-only default when room is blank; TFSA withdrawal restored only the **following** year; no RRSP contribution after year-71; couple savings use both ledgers; property test — no year's contributions exceed room.
+- **Pension eligibility matrix:** {age <65 / ≥65} × {RRSP, RRIF, DB lifetime, bridge} → credit? split? Bridge is **excluded by default** at every age (Erratum 1) and included only when explicitly affirmed as an eligible RPP life-annuity payment.
+- **Room enforcement (source-qualified, Erratum 2):** an **engine-generated** $50k TFSA request with blank `t₀` room allocates **$0** and cascades; a **client-asserted** `contrib` of $50k with blank room is **honoured and flagged** `unverifiedRoom`, not re-routed; against known room the excess is modelled under the over-contribution treatment; **plan-start year uses entered room verbatim with no annual-limit addition**, and blank `t₀` room becomes the statutory limit plus withdrawal restoration only at `t₀+1`; TFSA withdrawal restored only the **following** year; RRSP contribution room, deduction limit and undeducted carry tracked separately per the CRA identity; no own-plan RRSP contribution after year-71; couple savings use both ledgers; property test — no year's contributions exceed room.
 - **Terminal return:** single dying at 90 with a large RRIF shows a terminal spike, not a flat 38%; couple first death ≈ no incremental tax (rollover), second death full inclusion; TFSA never taxed.
 - **Estate tie-break:** a fixture where the terminal-return estate reverses the haircut's chosen ordering.
 - **Non-registered:** a −10% total-return year still produces taxable interest/dividends; ROC reduces ACB; ACB never negative; loss carry-forward offsets a later gain but never ordinary income.
@@ -873,11 +1053,11 @@ Keep the existing 53 tests. Add, at minimum:
 | | |
 |---|---|
 | **Files / functions** | `core/tax.ts` → `householdTax()`, `tryDir()`, `computeTax()` (pension credit input). `core/projection.ts` → the `fixed[]` accumulator that builds `pensionEligible`, and the `P[]` per-person accumulators (`mandatoryTaxable`, `schedRegCash`). |
-| **Type / interface changes** | `IncomeComponents`: keep `pensionEligible` but populate it from a new split of registered cash. In the projection's per-person accumulator add `rrifEligibleCash` (withdrawals from accounts in RRIF/LIF/PRRIF status, including mandatory minimums) and `rrspNonEligibleCash` (withdrawals from accounts still in RRSP/LIRA status). No change to `PlanInputs` → **saved plans unaffected**. |
-| **Methodology** | (1) **Split range:** search the transfer over the **full 0% → 50% of eligible pension income**, both directions, always evaluating the endpoints. Either pass the un-halved eligible amount with `f ∈ [0, 0.50]`, or keep `maxT = 0.5 × eligible` with `f ∈ [0, 1.0]`. Use a fine step (≤2%) or a bounded 1-D solve; keep the lowest combined household tax. (2) **Eligibility:** `pensionEligible = RPP lifetime pension + bridge + (age ≥ 65 ? rrifEligibleCash : 0)`. Plain RRSP withdrawals are **never** eligible, at any age. Under 65, only RPP lifetime pension (and death-of-spouse cases) qualifies — so a RRIF minimum taken at 60 is **not** eligible. The same `pensionEligible` feeds both the $2,000 credit and the splitting search. |
-| **Tests required** | **Hand-calculated:** a two-person fixture with $90,000 eligible pension vs $0 other income where the optimum is the full 50% — assert `splitAmt ≈ 45,000`, not `22,500`, and assert combined tax equals a hand-computed figure. **Endpoints:** 0% and 50% both evaluated. **Cap regression guard:** a 25%-capped search is strictly worse on that fixture. **Eligibility matrix:** 66-year-old with only RRSP withdrawals → no credit, no split; same person after RRIF conversion → both; 60-year-old with a RRIF minimum → not eligible; DB pension at 60 → eligible. **Never** accept a one-sided `splitAmt <= 50%` assertion as sufficient. |
+| **Type / interface changes** | `IncomeComponents`: keep `pensionEligible` but populate it from a new split of registered cash. In the projection's per-person accumulator add `rrifEligibleCash` (withdrawals from accounts in RRIF/LIF/PRRIF status, including mandatory minimums) and `rrspNonEligibleCash` (withdrawals from accounts still in RRSP/LIRA status). **Erratum 1:** `BridgeInput` gains `sourceClass?: "rpp" \| "rca" \| "employerSupplement" \| "other"` (default `"rpp"`) and `eligibleAffirmed?: boolean` (default **false**) — both optional, so **saved plans remain compatible** and existing bridges become non-eligible on load, which is the intended correction. No other `PlanInputs` change. |
+| **Methodology** | (1) **Split range:** search the transfer over the **full 0% → 50% of eligible pension income**, both directions, always evaluating the endpoints. Either pass the un-halved eligible amount with `f ∈ [0, 0.50]`, or keep `maxT = 0.5 × eligible` with `f ∈ [0, 1.0]`. Use a fine step (≤2%) or a bounded 1-D solve; keep the lowest combined household tax. (2) **Eligibility — amended by Erratum 1:**<br>`pensionEligible = rppLifetimePension + (age >= 65 ? rrifEligibleCash : 0) + (bridgeEligibleAffirmed ? bridgeInc : 0)`<br>where `bridgeEligibleAffirmed` defaults to **false**. Plain RRSP withdrawals are **never** eligible, at any age. Under 65, only RPP **lifetime** pension qualifies (plus death-of-spouse cases) — so a RRIF minimum taken at 60 is **not** eligible, and **a bridge benefit is not eligible merely because it is paid from a pension plan** (CRA: bridging benefits are not lifetime retirement benefits). `bridgeInc` remains fully taxable ordinary income regardless. The same `pensionEligible` feeds both the $2,000 credit and the splitting search. |
+| **Tests required** | **Hand-calculated:** a two-person fixture with $90,000 eligible pension vs $0 other income where the optimum is the full 50% — assert `splitAmt ≈ 45,000`, not `22,500`, and assert combined tax equals a hand-computed figure. **Endpoints:** 0% and 50% both evaluated. **Cap regression guard:** a 25%-capped search is strictly worse on that fixture. **Eligibility matrix:** 66-year-old with only RRSP withdrawals → no credit, no split; same person after RRIF conversion → both; 60-year-old with a RRIF minimum → not eligible; DB pension at 60 → eligible. **Bridge (Erratum 1):** a 60-year-old with an RPP lifetime pension **plus** a bridge has `pensionEligible` equal to the lifetime portion only — assert the bridge is excluded from both the credit and the split, and that it still appears in `ordinary` income and in household cash; setting `eligibleAffirmed = true` includes it; a bridge with `sourceClass = "rca"` is never eligible even when affirmed. **Never** accept a one-sided `splitAmt <= 50%` assertion as sufficient. |
 | **Saved-plan compatibility** | No input-schema change. Fully backward compatible. |
-| **Regression figures that change** | **Single-filer $276,326 → will change** (eligibility affects the pension credit on RRIF minimums at 65+). **Couple fixtures → will change materially** (split range). A **new couple golden fixture must be added in this batch** — one does not exist today, which is why the 25% cap survived 53 passing tests. |
+| **Regression figures that change** | **Single-filer $276,326 → will change** (eligibility affects the pension credit on RRIF minimums at 65+). **Erratum 1 adds a second cause:** any fixture with a bridge benefit loses the credit/split on that amount, so **bridge fixtures move upward in tax**; the default single-filer fixture has no bridge, so Erratum 1 alone does not move it. **Couple fixtures → will change materially** (split range). A **new couple golden fixture must be added in this batch** — one does not exist today, which is why the 25% cap survived 53 passing tests. |
 
 ---
 
@@ -888,10 +1068,10 @@ Keep the existing 53 tests. Add, at minimum:
 | | |
 |---|---|
 | **Files / functions** | New `core/room.ts` (per-person ledgers). `core/projection.ts` → contribution application (`a.contrib` loop, `goalSaves` loop, registered-destination lump sums, and the §7.7 surplus sweep). `core/tax.ts` → `computeTax()` net-income base. `optimizer/levers` → `leverOverride()` (remove the `owner: "A"` hardcode). `analysis.ts` / `levers.ts` → advice must consume the ledger rather than raw inputs. |
-| **Type / interface changes** | `PersonInput`: add optional `earnedIncomeHistory?`, `pensionAdjustment?: number \| null` (default `null` → treated as 0 with a disclosure), `rrspUndeductedCarry?: number \| null`, `tfsaWithdrawalsPriorYear?: number \| null`. Keep existing `tfsaRoom` / `rrspRoom` as the **opening balances** of the ledgers. New per-year output `roomLedger` on `ProjectionRow` for display and testing. `GoalSave.owner` becomes required in optimizer-generated saves. |
-| **Methodology** | Advance a **per-person, per-year ledger** before contributions (formulas in §2.6): TFSA accrual + prior-year withdrawals restored − contributions; RRSP accrual `min(18% × earned income, dollar limit)` − PA (− PSPA + PAR when supplied) − contributions, with a **separate deduction limit and undeducted carry-forward**. **Hard-clamp every contribution path** to remaining room; overflow cascades TFSA → RRSP → non-registered rather than being silently accepted. `null` room means **accrual-only**, never unlimited. Stop RRSP contributions after the year the owner turns 71 (spousal contributions to a younger spouse still permitted). Deduct claimed RRSP contributions from the contributor's `ordinary` income, and switch credit/clawback bases from taxable to **net income** (§1.11) in the same batch — they are one change, not two. |
-| **Tests required** | $50k/yr TFSA with blank room is **refused/re-routed** (fails today); accrual-only default is exactly the annual limit; entered carry-forward is usable then capped; TFSA re-contribution in the withdrawal year refused, allowed the next year; no RRSP contribution in the year after 71; spousal contribution to a younger spouse accepted; couple savings use **both** ledgers (no `owner: "A"` bias); cascade sums to the requested amount; RRSP contribution reduces that year's tax and TFSA does not; property test — **no year's contributions exceed room** across randomized plans. |
-| **Saved-plan compatibility** | All new fields optional with safe defaults; a normalizer maps `tfsaRoom`/`rrspRoom` (or `null`) to opening ledger balances on read. Old drafts load unchanged; their *results* change (correctly). |
+| **Type / interface changes** | `PersonInput`: add optional `earnedIncomeHistory?`, `pensionAdjustment?: number \| null` (default `null`; for a pension-plan member this is a **disclosed estimate**, never a silent 0), `tfsaWithdrawalsPriorYear?: number \| null`. **Erratum 2:** existing `rrspRoom` is defined as **current available contribution room** (`rrspContributionRoomOpen`), matching CRA's term and the field's label; add optional `rrspDeductionLimitOpen?: number \| null` and `rrspUndeductedContributions?: number \| null` (both `null` by default — the deduction limit is derived from the CRA identity when absent, and validated against it when present). Existing `tfsaRoom` → `tfsaRoomOpen[t₀]`, used **verbatim** in the plan-start year. New per-year output `roomLedger` on `ProjectionRow` (including `roomStatus` and `unverifiedRoom` flags) for display and testing. `GoalSave.owner` becomes required in optimizer-generated saves. |
+| **Methodology** | Advance a **per-person, per-year ledger** before contributions. **Use the exact opening-year and steady-state formulas in §2.6 Erratum 2** — the plan-start year takes the client's entered room **verbatim** (no annual-limit or 18%-accrual addition, which would double-count), and the recursion begins the following January 1. Carry RRSP **contribution room**, **deduction limit** and **undeducted contributions** as three separate quantities bound by the CRA identity. **Clamp contributions by source (Erratum 2):** engine-generated contributions (`goalSaves`, optimizer savings, surplus sweeps, every recommendation) are capped at **known** room — unknown room means **zero** capacity; client-asserted `contrib` entries are honoured but flagged `unverifiedRoom`. Overflow cascades TFSA → RRSP → non-registered. `null` room means **zero for the plan-start year**, never unlimited and never the annual limit. No own-plan RRSP contribution after the year the owner turns 71 (**Erratum 3, Option A**: room still accrues and stays on the ledger, but is **not** redirected to a spouse; Batch 0B models only `contributor === owner`, and a disclosure fires where unused room coexists with a spouse aged ≤ 71). The $2,000 cushion is excluded from recommendable room and used only for penalty modelling; `reinvestRrspRefund` defaults **false**. Deduct claimed RRSP contributions from the contributor's `ordinary` income, and switch credit/clawback bases from taxable to **net income** (§1.11) in the same batch — they are one change, not two. |
+| **Tests required** | **Erratum 2 opening-year suite:** `tfsaRoom = 25,000` on a 2026 plan → exactly $25,000 contributable in 2026 (**not** $32,000), and 2027 opens at `close(2026) + limit(2027) + withdrawals(2026)`; entered RRSP room is **not** augmented by 18% of prior-year earned income in `t₀` while the same earned income creates room in `t₀+1`; the CRA identity validates when all three RRSP inputs are supplied and the deduction limit is derived when absent; a contribution may exceed the same-year deduction with the difference persisting in `rrspUndeductedCarry`; unknown room yields **zero** engine-generated contributions in `t₀` while a client-asserted `contrib` survives with `unverifiedRoom`; a pension-plan member with unknown PA **and** unknown room has registered recommendations **withheld**; recommendable room excludes the $2,000 cushion; `reinvestRrspRefund` defaults false. **Enforcement suite (source-qualified per Erratum 2):** an **engine-generated** $50k TFSA request with blank `t₀` room allocates **$0** to the TFSA and cascades the remainder; a **client-asserted** `AccountInput.contrib = $50k` with blank room **remains at $50k** flagged `unverifiedRoom` and is **not** re-routed; the same asserted $50k against **known** room of $25k models the $25k excess under the over-contribution treatment; entered carry-forward is usable then capped; TFSA re-contribution in the withdrawal year refused, allowed the next year; no **own-plan** RRSP contribution in the year after 71, with room still accruing on the ledger and **no** auto-allocation to a younger spouse (Erratum 3, Option A) plus the spousal-opportunity disclosure; couple savings use **both** ledgers (no `owner: "A"` bias); cascade sums to the requested amount; RRSP contribution reduces that year's tax and TFSA does not; property test — **no year's contributions exceed room** across randomized plans. |
+| **Saved-plan compatibility** | All new fields optional with safe defaults. A normalizer maps `tfsaRoom` → `tfsaRoomOpen[t₀]` and `rrspRoom` → `rrspContributionRoomOpen[t₀]`, both used verbatim in the plan-start year; `rrspDeductionLimitOpen` is derived from the CRA identity when absent. Old drafts load unchanged. **Two intended result changes:** (a) plans that entered room no longer receive a duplicated current-year accrual, so their first-year registered capacity **falls**; (b) plans that left room `null` now carry **zero** verifiable start-year room instead of a full annual limit, so engine-generated registered contributions in that year **stop**. Both are the correction, not a regression. |
 | **Regression figures that change** | Any fixture with registered contributions changes. The single-filer regression fixture has **no contributions**, so it is **unaffected by room enforcement** but **is** affected by the net-income/deduction change if it has deductions (it does not — expect no change from 0B on that fixture). **Add an accumulation-stage golden fixture** (working client, contributions, room limits) in this batch — none exists today. |
 
 ---
@@ -1010,6 +1190,10 @@ Sources consulted directly while producing v1.0–v1.2 (tier 1/2 unless noted):
 | Federal locked-in unlocking — RLIF required, up to 50%, within 60 days, one-time, no carry-forward, age 55; small balance ≤50% YMPE ($37,300 for 2026); hardship scale to 75% YMPE ($55,950); non-residency ≥2 years; shortened life expectancy | OSFI unlocking guidance | Aug 2026 |
 | Manitoba — once-in-a-lifetime 50% at 55 to a **prescribed RRIF** (30-day window for multi-plan transfers); **full balance unlockable at 65+**, no percentage or YMPE limit, in force 1 Oct 2021 (Bill 8); small balance <40% YMPE; hardship, shortened life expectancy, non-residency ≥2 years | Manitoba Pension Commission Policy Bulletin #1 / Government of Manitoba pension FAQ; corroborated by Investment Executive (tier 3) | Aug 2026 |
 | Quebec LIF — **no maximum at 55+** effective 1 Jan 2025; **under 55 a prescribed-rate maximum and temporary-income provisions remain**; age determined at application date; LIF→RRSP/RRIF transfers prohibited at any age | Retraite Québec | Aug 2026 |
+| TFSA available contribution room = current-year dollar limit **+** unused room from previous years **+** withdrawals made the **previous** year **−** contributions already made this year; the dollar limit is added **January 1**; a withdrawal is regained as new room on **January 1 of the following year** | CRA, Calculate your TFSA contribution room | Aug 2026 |
+| RRSP **`Deduction Limit = Unused (undeducted) Contributions + Available Contribution Room`**, therefore `Available Contribution Room = Deduction Limit − Unused Contributions` (per the Notice of Assessment / RRSP Deduction Limit Statement) | CRA NOA relationship, via PWL Capital summary (tier 3 restating the CRA statement) | Aug 2026 |
+| Bridging benefits are **not** lifetime retirement benefits — *"Bridging benefits, by definition, are not lifetime retirement benefits"*; bridging = benefits payable for a temporary period ending no later than a date known when payments start | CRA, Registered Pension Plans Glossary | Aug 2026 |
+| Eligible pension income for the pension income amount / splitting describes the RPP entry as **"RPP lifetime retirement benefits"** (T4A box 016) at both age bands, with **no** mention of bridging benefits; conditional bridge eligibility noted in professional guidance (tier 3, Sun Life) | CRA, line 31400 eligible pension income tables | Aug 2026 |
 | 2026 CPP/OAS amounts and CPP survivor rules (60% at 65+; flat-rate + 37.5% at 45–64; 1/120 reduction 35–44; survivor and combined maximums; $2,500 death benefit) | ESDC quarterly benefit tables (carried in both codebases; re-checked in v1.0) | Aug 2026 |
 
 **Everything else is CONST-UNVERIFIED for the purposes of this document** — including all 2026 bracket thresholds, BPA/age/pension amounts, the OAS clawback threshold, RRIF minimum table digits, the FSRA LIF maximum table digits, and the TFSA/RRSP dollar limits. The *mechanisms* are verified; the *numbers* are inherited from the codebases' own comments. Reconciling each to a tier-1/2 source with a `verifiedDate` is Phase 0/Phase 2 work and a launch blocker (§11.4).

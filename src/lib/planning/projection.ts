@@ -24,10 +24,18 @@ import { approxMarginal, householdTax } from "./tax";
 import { getTaxYear, type TaxYear } from "./taxYears";
 import { strategyOrder } from "./strategy";
 import { bridgeIsPensionEligible } from "./types";
+import {
+  PersonRoomLedger,
+  spousalRrspDisclosure,
+  type PersonRoomYear,
+} from "./room";
+
 import type {
 
   AccountInput,
+  AccountType,
   IncomeComponents,
+
   PersonInput,
   PlanInputs,
   ProjectionOverride,
@@ -159,11 +167,30 @@ export function projection(
   const endAge = inputs.endAge;
   const startYear = new Date().getFullYear();
 
+  /* --- Batch 0B: per-person TFSA / RRSP room ledgers --- */
+  const ledgers = people.map(
+    (p) =>
+      new PersonRoomLedger(p, {
+        planStartYear: startYear,
+        inflation: infl,
+        // A DB pension or an employer DC plan means a pension adjustment
+        // consumes RRSP room; PA is never silently assumed to be zero.
+        pensionMember:
+          p.pen.amt > 0 ||
+          accts.some((a) => a.owner === p.id && (a.type === "DCPP" || a.type === "LIRA")),
+      }),
+  );
+  const roomDisclosures = new Set<string>();
+  /** The most recent closed year of each person's ledger. */
+  let lastClosedRoom: PersonRoomYear[] = [];
+  const roomValidationErrors = ledgers.flatMap((l) => l.validationErrors);
+
   const rows: ProjectionRow[] = [];
   // Whether the household has ever held investable assets. A plan that starts
   // with nothing invested cannot "run out" of investments — that is an intake
   // state, not a failure.
   let everHadPortfolio = accts.reduce((s, a) => s + Math.max(0, a.bal), 0) > 1;
+
 
   for (let off = 0; off <= endAge - curAgeA; off++) {
     const yr = startYear + off;
@@ -356,32 +383,70 @@ export function projection(
       }
     }
 
-    /* --- 5. Contributions and lump sums --- */
+    /* --- 5. Room ledgers, contributions and lump sums --- */
+    // The ledger opens before any contribution is applied. Earned income for
+    // the year creates room on January 1 of the FOLLOWING year, never this one.
+    ledgers.forEach((l, i) => l.openYear(yr, ages[i]!, alive[i] ? raw[i]!.employInc : 0));
+
+    /** Apply a contribution through the owner's ledger, and return what stuck. */
+    const applyContribution = (
+      a: WorkingAccount,
+      amount: number,
+      source: "asserted" | "generated",
+    ): number => {
+      const idx = oi(a);
+      const led = ledgers[idx];
+      let applied = amount;
+      if (led) {
+        if (a.type === "TFSA") applied = led.contributeTfsa(amount, source);
+        else if (a.type === "RRSP") applied = led.contributeRrsp(amount, source);
+      }
+      if (applied <= 0) return 0;
+      a.bal += applied;
+      if (a.type === "NONREG") a.acb += applied;
+      contribTotal += applied;
+      contribBy[a.id] = (contribBy[a.id] ?? 0) + applied;
+      return applied;
+    };
+
     let contribTotal = 0;
     const contribBy: Record<string, number> = {};
     for (const a of accts) {
       if (a.contrib > 0 && (a.contribEnd === 0 || ages[oi(a)]! <= a.contribEnd)) {
-        const c = a.contrib * infFac;
-        a.bal += c;
-        if (a.type === "NONREG") a.acb += c;
-        contribTotal += c;
-        contribBy[a.id] = (contribBy[a.id] ?? 0) + c;
+        // Client-asserted: a statement of fact about the client's own life.
+        // Honoured even when room is unknown; flagged, never silently re-routed.
+        applyContribution(a, a.contrib * infFac, "asserted");
       }
     }
-    // Goal-solver and strategy injected savings, supporting multiple targets
-    // (e.g. TFSA up to the room limit, overflow to non-registered).
+    // Engine-generated saving (goal solver, levers, recommendations). These are
+    // advice, so they may only use KNOWN legal room, and overflow cascades
+    // TFSA -> RRSP -> non-registered.
+    const CASCADE: readonly AccountType[] = ["TFSA", "RRSP", "NONREG"];
     for (const gs of goalSaves) {
-      const tgt =
-        accts.find((a) => a.type === gs.type && (!gs.owner || a.owner === gs.owner)) ??
-        accts.find((a) => a.type === gs.type);
-      if (tgt && gs.amt > 0 && ages[oi(tgt)]! < (people[oi(tgt)]!.retAge || 999)) {
-        const c = gs.amt * infFac;
-        tgt.bal += c;
-        if (tgt.type === "NONREG") tgt.acb += c;
-        contribTotal += c;
-        contribBy[tgt.id] = (contribBy[tgt.id] ?? 0) + c;
+      if (!(gs.amt > 0)) continue;
+      const ownerIdx = pIndex[gs.owner] ?? 0;
+      if (ages[ownerIdx]! >= (people[ownerIdx]!.retAge || 999)) continue;
+      const start = CASCADE.indexOf(gs.type);
+      const order: AccountType[] =
+        start >= 0 ? [...CASCADE.slice(start)] : [gs.type, "NONREG"];
+      let remaining = gs.amt * infFac;
+      for (const type of order) {
+        if (remaining <= 0.005) break;
+        const tgt =
+          accts.find((a) => a.type === type && oi(a) === ownerIdx) ??
+          (type === "NONREG"
+            ? accts.find((a) => a.type === "NONREG" && a.owner === "JOINT")
+            : undefined);
+        if (!tgt) continue;
+        remaining -= applyContribution(tgt, remaining, "generated");
+      }
+      if (remaining > 1) {
+        roomDisclosures.add(
+          "Part of the extra saving could not be placed: the registered room available is smaller than the amount, and there is no non-registered account to receive the remainder.",
+        );
       }
     }
+
 
     let lumpCash = 0;
     const lumpTaxInc = people.map(() => 0);
@@ -626,6 +691,15 @@ export function projection(
     const fixedCash = fixed.reduce((s, f) => s + f.cash, 0);
     if (saleGainTaxA) fixed[0]!.gainTax += saleGainTaxA;
 
+    // RRSP deduction for the year. Claimed against income that exists
+    // independently of the discretionary draw, so the deduction does not move
+    // while the draw solver iterates. Unclaimed contributions stay in the
+    // undeducted carry-forward and remain deductible in a later year.
+    const rrspDeductions = fixed.map((f, i) =>
+      alive[i] ? (ledgers[i]?.claimRrspDeduction(Math.max(0, f.ordinary)) ?? 0) : 0,
+    );
+
+
     /* --- 9. Solve the discretionary draw --- */
     // Locked-in DC/LIRA money before conversion is not drawable; converted LIF
     // accounts are capped at the LIF maximum.
@@ -689,7 +763,11 @@ export function projection(
         pensionEligible: f.pensionElig + (P[i]!.age >= 65 ? add[i]!.regRrif : 0),
         oasReceived: f.oas,
         age: f.age,
+        // Deducted this year. It reduces the net-income base that the
+        // BPA/age-credit phase-outs and the OAS recovery tax are measured on.
+        rrspDeduction: rrspDeductions[i] ?? 0,
       }));
+
 
       const drawCash = add.reduce((s, x) => s + x.reg + x.nonreg + x.tfsa, 0);
       return { incs, drawCash };
@@ -725,6 +803,8 @@ export function projection(
     // Apply the chosen draw to the real balances.
     let rem = G;
     const drawn = { reg: 0, tfsa: 0, nonreg: 0 };
+    /** Discretionary TFSA cash taken, per owner — it restores room next Jan 1. */
+    const tfsaTakenBy = people.map(() => 0);
     for (const d of drawable) {
       const take = Math.min(d.cap, rem);
       if (take <= 0) break;
@@ -732,6 +812,7 @@ export function projection(
       const a = d.a;
       if (d.type === "TFSA") {
         drawn.tfsa += take;
+        tfsaTakenBy[d.owner] = (tfsaTakenBy[d.owner] ?? 0) + take;
       } else if (d.type === "NONREG") {
         const gain = take * d.gf;
         a.acb -= take - gain;
@@ -741,6 +822,7 @@ export function projection(
       }
       a.bal -= take;
     }
+
 
     const ht = evalG(G).ht;
     const tax = ht.tax;
@@ -766,7 +848,23 @@ export function projection(
       ? Math.min(...livingIdx.map((i) => approxMarginal(finalIncs[i]!, opts, ty)))
       : 0;
 
+    // TFSA withdrawals restore room on January 1 of the FOLLOWING year, so they
+    // are recorded now and only released by next year's openYear().
+    ledgers.forEach((l, i) => {
+      const out = P[i]!.schedTfsaCash + (tfsaTakenBy[i] ?? 0);
+      if (out > 0) l.recordTfsaWithdrawal(out);
+    });
+
+    const closedRoom = ledgers.map((l) => l.closeYear());
+    lastClosedRoom = closedRoom;
+    for (const ry of closedRoom) for (const d of ry.disclosures) roomDisclosures.add(d);
+
+
     rows.push({
+      roomLedger: closedRoom,
+      rrspDeduction: rrspDeductions.reduce((s, v) => s + v, 0),
+
+
       off,
       yr,
       infFac,
@@ -822,8 +920,15 @@ export function projection(
     if (totalPortfolio > 1) everHadPortfolio = true;
   }
 
+  const spousalNote =
+    couple && lastClosedRoom.length === 2 ? spousalRrspDisclosure(lastClosedRoom) : null;
+
   return {
     rows,
+    roomDisclosures: [...roomDisclosures, ...(spousalNote ? [spousalNote] : [])],
+    roomValidationErrors,
+
+
     hadInvestableAssets: everHadPortfolio,
     acctMeta: accts.map((a) => ({ id: a.id, name: a.name, type: a.type })),
     opts,

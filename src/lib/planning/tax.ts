@@ -41,8 +41,11 @@ export function ontarioHealthPremium(inc: number): number {
  * Combined federal and provincial tax for one person, including the OAS
  * recovery tax.
  *
- * Net income for the clawback is approximated by taxable income; the original
- * engine made the same simplification and it ignores deductions.
+ * Batch 0B: an RRSP deduction claimed for the year reduces income before tax
+ * is computed, and every credit phase-out and the OAS recovery tax are
+ * measured against **net income** (income after the deduction) rather than
+ * against gross taxable income. With no deduction the two coincide, which is
+ * why the Batch 0A goldens are unaffected.
  */
 export function computeTax(
   inc: IncomeComponents,
@@ -51,8 +54,11 @@ export function computeTax(
 ): TaxResult {
   const prov: ProvinceTax = getProvince(ty, opts.provinceKey);
   const grossedDiv = inc.eligDiv * ty.divGrossUp;
-  const taxable = inc.ordinary + grossedDiv + inc.capGainsTaxable;
+  const deduction = Math.max(0, inc.rrspDeduction ?? 0);
+  const gross = inc.ordinary + grossedDiv + inc.capGainsTaxable;
+  const taxable = Math.max(0, gross - deduction);
   const netIncome = taxable;
+
 
   /* ---- Federal ---- */
   let fed = bracketTax(taxable, ty.federal);
