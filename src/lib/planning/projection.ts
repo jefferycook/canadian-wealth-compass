@@ -330,6 +330,14 @@ export function projection(
       }
       a.bal -= moved;
       a.unlockedFraction = target;
+      // §13.2 — an APPROXIMATE component must be flagged wherever the number
+      // it produces is displayed. The entitlement drives HOW MUCH moves, so it
+      // needs its own disclosure, not just the destination vehicle.
+      if (jr.unlockEntitlement.status === "APPROXIMATE") {
+        lockedInDisclosures.add(
+          `${jr.name}: the unlocking percentage (${jr.partialPct}%) and minimum age (${jr.partialMinAge}) are carried from the original engine and have not been confirmed with the regulator. Confirm the amount shown with your plan administrator before relying on it.`,
+        );
+      }
       if (jr.destinationVehicle.status === "APPROXIMATE") {
         lockedInDisclosures.add(
           `${jr.name}: the destination vehicle for unlocked locked-in money is modelled as an ${jr.destinationType} but has not been verified against the regulator.`,
