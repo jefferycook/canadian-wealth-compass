@@ -25,6 +25,11 @@ import {
   rrifMinFactor,
   tryUnlockRule,
 } from "./registered";
+import {
+  applyDistributionsToAcb,
+  decomposeReturn,
+  resolveYields,
+} from "./nonreg";
 import { approxMarginal, householdTax } from "./tax";
 import {
   getTaxYear,
