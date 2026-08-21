@@ -451,7 +451,7 @@ describe("scenario overrides", () => {
   });
 
   it("stretches the money further when the client saves more before retirement", () => {
-    const saver = runPlan(inputs, { goalSaves: [{ amt: 12000, type: "TFSA" }] });
+    const saver = runPlan(inputs, { goalSaves: [{ amt: 12000, type: "TFSA", owner: "A" }] });
     expect(shortfallYears(saver)).toBeLessThan(shortfallYears(base));
   });
 

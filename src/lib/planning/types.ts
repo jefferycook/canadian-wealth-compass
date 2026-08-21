@@ -6,6 +6,9 @@
  * `ProjectionResult`. Nothing here touches the browser, storage, or network.
  */
 
+import type { PersonRoomYear } from "./room";
+
+
 export type ProvinceKey =
   | "AB"
   | "BC"
@@ -134,8 +137,33 @@ export interface PersonInput {
   pen: BenefitInput;
   bridge: BridgeInput;
   gender?: string;
+  /**
+   * Current available TFSA contribution room at the plan start date, as shown
+   * by CRA. Used verbatim in the plan-start year (Erratum 2) — it already
+   * includes this year's dollar limit. Null means unknown, which is zero
+   * verified capacity, never the annual limit and never unlimited.
+   */
   tfsaRoom?: number | null;
+  /** Current available RRSP *contribution room* at the plan start date. */
   rrspRoom?: number | null;
+  /**
+   * RRSP deduction limit from the Notice of Assessment. Optional; when absent
+   * it is derived from the CRA identity
+   * `deduction limit = contribution room + undeducted contributions`.
+   */
+  rrspDeductionLimitOpen?: number | null;
+  /** Contributions already made but not yet deducted. */
+  rrspUndeductedContributions?: number | null;
+  /**
+   * Pension adjustment for the plan-start year. Null means unknown; for a
+   * pension-plan member a zero PA is only ever a disclosed estimate.
+   */
+  pensionAdjustment?: number | null;
+  /** TFSA withdrawals in the year before the plan starts, if reported. */
+  tfsaWithdrawalsPriorYear?: number | null;
+  /** Earned income history, most recent last. Optional. */
+  earnedIncomeHistory?: number[];
+
 }
 
 /** Non-registered return mix, as fractions summing to 1. */
@@ -309,7 +337,14 @@ export interface IncomeComponents {
   pensionEligible: number;
   oasReceived: number;
   age: number;
+  /**
+   * RRSP deduction claimed this year. A Division C style deduction: it reduces
+   * both taxable income and the net-income base that credits and the OAS
+   * recovery tax are measured against.
+   */
+  rrspDeduction?: number;
 }
+
 
 export interface TaxResult {
   tax: number;
@@ -395,6 +430,11 @@ export interface ProjectionRow {
   lifRemaining: number;
   /** True when a shortfall is driven by LIF maximum-withdrawal limits. */
   lifBound: boolean;
+  /** Per-person TFSA/RRSP room ledger for this year (Batch 0B). */
+  roomLedger: PersonRoomYear[];
+  /** Total RRSP deduction claimed by the household this year. */
+  rrspDeduction: number;
+
 }
 
 export interface AccountMeta {
@@ -417,7 +457,12 @@ export interface ProjectionResult {
    * projection. An intake/information state, never a plan failure.
    */
   hadInvestableAssets: boolean;
+  /** Distinct room/contribution disclosures raised anywhere in the run. */
+  roomDisclosures: string[];
+  /** Input-contract problems (e.g. the RRSP CRA identity failing). */
+  roomValidationErrors: string[];
 }
+
 
 /** A projection plus the withdrawal strategy that produced it. */
 export interface PlanResult extends ProjectionResult {
@@ -444,8 +489,14 @@ export interface MarketShock {
 export interface GoalSave {
   amt: number;
   type: AccountType;
-  owner?: OwnerKey;
+  /**
+   * Required for engine-generated saving: room is per person, so an
+   * engine-generated contribution must name whose ledger it uses. The engine
+   * never manufactures an owner.
+   */
+  owner: PersonKey;
 }
+
 
 export interface ProjectionOverride {
   strategy?: WithdrawalStrategy;
