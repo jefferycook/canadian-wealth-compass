@@ -173,11 +173,17 @@ export function projection(
       new PersonRoomLedger(p, {
         planStartYear: startYear,
         inflation: infl,
-        // A DB pension or an employer DC plan means a pension adjustment
-        // consumes RRSP room; PA is never silently assumed to be zero.
+        // Membership in a workplace plan means a pension adjustment consumes
+        // RRSP room; PA is never silently assumed to be zero. A LIRA is NOT
+        // evidence of membership — it is locked-in money from a FORMER
+        // employer, and by itself implies no current-year PA.
+        // LIMITATION: the input model records a DB pension amount and an
+        // employer DC account, but has no explicit "currently a member of a
+        // registered pension plan" flag, so a DB pension entitlement that has
+        // already stopped accruing is still treated as membership here.
         pensionMember:
-          p.pen.amt > 0 ||
-          accts.some((a) => a.owner === p.id && (a.type === "DCPP" || a.type === "LIRA")),
+          p.pen.amt > 0 || accts.some((a) => a.owner === p.id && a.type === "DCPP"),
+
       }),
   );
   const roomDisclosures = new Set<string>();
