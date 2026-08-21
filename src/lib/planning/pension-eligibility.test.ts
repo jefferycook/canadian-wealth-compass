@@ -107,6 +107,56 @@ function oneYearPlan(opts: {
   };
 }
 
+/**
+ * A one-year, zero-growth, zero-spend plan for a COUPLE.
+ *
+ * Same recipe as `oneYearPlan`: with zero returns and a zero spending need the
+ * discretionary draw solves to zero, so the single row's income is exactly the
+ * mandatory RRIF minimum (plus any DB pension) and nothing else.
+ */
+function oneYearCouplePlan(opts: {
+  ageA: number;
+  ageB: number;
+  accountsA?: AccountInput[];
+  penA?: number;
+}): PlanInputs {
+  const person = (id: "A" | "B", age: number, pen: number) => ({
+    id,
+    firstName: "",
+    lastName: "",
+    curAge: age,
+    retAge: 55,
+    employ: 0,
+    deathAge: 0,
+    cpp: { amt: 0, age: 65 },
+    oas: { amt: 0, age: 65 },
+    pen: { amt: pen, age: 60 },
+    bridge: { amt: 0, end: 65 },
+  });
+  return {
+    taxYear: 2026,
+    planType: "married",
+    endAge: opts.ageA,
+    inflation: 0,
+    spendNeed: 0,
+    eqRet: 0,
+    fiRet: 0,
+    survivorPct: 0.6,
+    strategy: "nonreg_reg_tfsa",
+    tax: ON,
+    people: [
+      person("A", opts.ageA, opts.penA ?? 0),
+      person("B", opts.ageB, 0),
+    ],
+    accounts: opts.accountsA ?? [],
+    expenses: [],
+    otherIncome: [],
+    lumpSums: [],
+    hardAssets: [],
+    liabilities: [],
+  };
+}
+
 const inc = (over: Partial<IncomeComponents>): IncomeComponents => ({
   ordinary: 0,
   eligDiv: 0,
@@ -414,6 +464,100 @@ describe("Erratum 5 — the transferee applies their own age test", () => {
   });
 });
 
+/**
+ * End-to-end coverage for Erratum 5.
+ *
+ * Gap this closes: every other Erratum 5 test calls `householdTax` with
+ * hand-built `IncomeComponents`, and the couple golden anchor did not move
+ * when the correction landed (its transferee credit is capped by the pension
+ * amount either way). So if `projection.ts` ever wrote RRIF-sourced cash into
+ * `pensionEligibleAnyAge` — or into the legacy scalar — the whole suite would
+ * still pass. These tests run the projection itself and compare it against
+ * BOTH constructions, so a misclassification fails loudly.
+ */
+describe("Erratum 5 end-to-end — the projection feeds two typed streams", () => {
+  const rrifA = (bal: number): AccountInput[] => [
+    account({ id: "rrif_a", name: "RRIF", type: "RRIF", owner: "A", bal }),
+  ];
+
+  it("RRIF cash reaches the 65+ stream, so a 64-year-old transferee gets no credit", () => {
+    const P = projection(oneYearCouplePlan({ ageA: 66, ageB: 64, accountsA: rrifA(400000) }));
+    const row = P.rows[0]!;
+    const min = (400000 * rrifMinFactor(66)) / 100;
+
+    const correct = householdTax(
+      [inc({ age: 66, ordinary: min, pensionEligible65Plus: min }), inc({ age: 64 })],
+      ON,
+      true,
+      TY,
+    );
+    const preErratum5 = householdTax(
+      [inc({ age: 66, ordinary: min, pensionEligibleAnyAge: min }), inc({ age: 64 })],
+      ON,
+      true,
+      TY,
+    );
+
+    // Not vacuous: the optimizer really is splitting in both worlds.
+    expect(row.splitAmt).toBeGreaterThan(0);
+    expect(correct.splitAmt).toBeGreaterThan(0);
+    expect(preErratum5.splitAmt).toBeGreaterThan(0);
+
+    expect(row.tax).toBeCloseTo(correct.tax, 6);
+    // The assertion that matters: classifying RRIF cash as any-age would hand
+    // the 64-year-old transferee a pension credit they are not entitled to.
+    expect(row.tax).toBeGreaterThan(preErratum5.tax + 1);
+  });
+
+  it("an RPP lifetime pension reaches the any-age stream, so the same 64-year-old transferee DOES get the credit", () => {
+    const P = projection(oneYearCouplePlan({ ageA: 66, ageB: 64, penA: 40000 }));
+    const row = P.rows[0]!;
+
+    const correct = householdTax(
+      [inc({ age: 66, ordinary: 40000, pensionEligibleAnyAge: 40000 }), inc({ age: 64 })],
+      ON,
+      true,
+      TY,
+    );
+    const misclassified = householdTax(
+      [inc({ age: 66, ordinary: 40000, pensionEligible65Plus: 40000 }), inc({ age: 64 })],
+      ON,
+      true,
+      TY,
+    );
+
+    expect(row.splitAmt).toBeGreaterThan(0);
+    expect(correct.splitAmt).toBeGreaterThan(0);
+
+    expect(row.tax).toBeCloseTo(correct.tax, 6);
+    // Mirror of the test above: the two streams are genuinely distinct, not
+    // both written to whichever single field happens to be checked.
+    expect(row.tax).toBeLessThan(misclassified.tax - 1);
+  });
+
+  it("the transferee's own birthday, not the transferor's, controls the credit", () => {
+    const at64 = projection(
+      oneYearCouplePlan({ ageA: 66, ageB: 64, accountsA: rrifA(400000) }),
+    ).rows[0]!;
+    const at65 = projection(
+      oneYearCouplePlan({ ageA: 66, ageB: 65, accountsA: rrifA(400000) }),
+    ).rows[0]!;
+    const min = (400000 * rrifMinFactor(66)) / 100;
+
+    const expected65 = householdTax(
+      [inc({ age: 66, ordinary: min, pensionEligible65Plus: min }), inc({ age: 65 })],
+      ON,
+      true,
+      TY,
+    );
+
+    expect(at65.splitAmt).toBeGreaterThan(0);
+    expect(at65.tax).toBeCloseTo(expected65.tax, 6);
+    // A's side is identical in both runs; only B's age differs.
+    expect(at65.tax).toBeLessThan(at64.tax);
+  });
+});
+
 describe("couple golden fixture", () => {
   const P = projection(coupleGoldenFixturePlan());
   const lifetime = P.rows.reduce((s, r) => s + r.tax, 0);
@@ -442,7 +586,15 @@ describe("couple golden fixture", () => {
     // absorb. B's credit is capped by the pension amount, not by the size of
     // the eligible stream, so it is unchanged. The correction is exercised
     // directly by the Erratum 5 tests above, where the transferor holds only
-    // RRIF-sourced income and the transferee's credit correctly falls to zero.
+    // RRIF-sourced income and the transferee's credit correctly falls to zero,
+    // and end to end by "Erratum 5 end-to-end — the projection feeds two typed
+    // streams" above, which is the actual proof that the correction is live on
+    // the projection path rather than only inside `householdTax`.
+    //
+    // Record plainly: this anchor not moving is a CAP result — B's credit was
+    // already limited by the pension amount — and is not by itself evidence
+    // that Erratum 5 is implemented correctly. The anchor is a regression
+    // tripwire; the mechanism tests are the proof.
     expect(Math.round(lifetime)).toBe(COUPLE_GOLDEN);
   });
 });
