@@ -181,6 +181,11 @@ export class PersonRoomLedger {
     const first = !this.started;
     this.started = true;
 
+    // Roll last year's withdrawals forward first: TFSA room withdrawn in one
+    // year is restored on January 1 of the NEXT one.
+    this.tfsaWithdrawalsPrevYear = this.tfsaWithdrawalsThisYear;
+    this.tfsaWithdrawalsThisYear = 0;
+
     const beyondTables = year > LATEST_TAX_YEAR;
 
     /* ---------------- TFSA ---------------- */
@@ -275,8 +280,6 @@ export class PersonRoomLedger {
       );
     }
 
-    this.tfsaWithdrawalsPrevYear = this.tfsaWithdrawalsThisYear;
-    this.tfsaWithdrawalsThisYear = 0;
     this.prevEarnedIncome = earnedIncomeThisYear;
 
     this.current = {

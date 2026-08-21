@@ -237,9 +237,13 @@ describe("engine integration", () => {
     expect(y0.taxable).toBeLessThan(noDeduction.rows[0]!.taxable);
   });
 
-  it("discloses the unknown pension adjustment for the spouse who did not supply one", () => {
-    const P = projection(acc);
-    expect(P.roomDisclosures.join(" ")).toContain("Pension adjustment is unknown");
+  it("discloses a modelled $0 pension adjustment for a plan member who did not supply one", () => {
+    const withPlan = accumulationGoldenFixturePlan();
+    // B is a workplace pension member but never reported a PA.
+    withPlan.people[1]!.pen = { amt: 18000, age: 65 };
+    expect(projection(withPlan).roomDisclosures.join(" ")).toContain(
+      "Pension adjustment is unknown",
+    );
   });
 
   it("reports an inconsistent CRA identity as a validation error", () => {
@@ -279,4 +283,4 @@ describe("engine integration", () => {
 });
 
 /** Pinned Batch 0B anchor; see the run report for the derivation. */
-const ACCUMULATION_GOLDEN = 0;
+const ACCUMULATION_GOLDEN = 2254682;
