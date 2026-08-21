@@ -686,7 +686,9 @@ export function lifMaximumFor(
   return {
     applies: true,
     pct: lifMaxFactor(age, isOntarioTable ? "ON" : String(juris), ratePct),
-    status: isOntarioTable ? "VERIFIED" : "APPROXIMATE",
+    // §13.2a: the COMPONENT is the source of truth for status, not the
+    // jurisdiction. Only the choice of which number to compute is ON-specific.
+    status: r.lifMaximum.status,
   };
 }
 
