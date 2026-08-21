@@ -1378,6 +1378,7 @@ Each province/territory needs a **year-specific, source-backed** record. Beyond 
 | **Pension income amount** | Provincial equivalent of the federal $2,000 |
 | **Eligible dividend tax credit** | As a fraction of the grossed-up dividend |
 | **Non-eligible dividend tax credit** | Required **when §6.2 is implemented**; the field should exist from the outset so records are not re-cut later |
+| **Low-income tax reduction** | Maximum amount, income threshold, and phase-out rate (e.g. BC: up to $575 at ≤$25,570, phasing out at 3.56%, zero at $41,722; ON has an equivalent). Not yet modelled (§13.3a NEW GAP [G]) — the field must exist **before** the remaining ten jurisdictions are cut, or all thirteen records need re-cutting |
 | **Surtaxes** | Thresholds and rates (ON, NL; confirm others) — levied on **provincial tax**, not on income |
 | **Health premiums / levies** | Where applicable (ON health premium; confirm any others) — levied on taxable income |
 | **Indexation rules** | Provincial/territorial indexation factor and **which** amounts it applies to; some jurisdictions do not index some amounts. Feeds §1.13 |
