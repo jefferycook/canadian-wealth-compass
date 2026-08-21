@@ -481,9 +481,9 @@ describe("Erratum 5 end-to-end — the projection feeds two typed streams", () =
   ];
 
   it("RRIF cash reaches the 65+ stream, so a 64-year-old transferee gets no credit", () => {
-    const P = projection(oneYearCouplePlan({ ageA: 66, ageB: 64, accountsA: rrifA(400000) }));
+    const P = projection(oneYearCouplePlan({ ageA: 66, ageB: 64, accountsA: rrifA(1500000) }));
     const row = P.rows[0]!;
-    const min = (400000 * rrifMinFactor(66)) / 100;
+    const min = (1500000 * rrifMinFactor(66)) / 100;
 
     const correct = householdTax(
       [inc({ age: 66, ordinary: min, pensionEligible65Plus: min }), inc({ age: 64 })],
@@ -537,12 +537,12 @@ describe("Erratum 5 end-to-end — the projection feeds two typed streams", () =
 
   it("the transferee's own birthday, not the transferor's, controls the credit", () => {
     const at64 = projection(
-      oneYearCouplePlan({ ageA: 66, ageB: 64, accountsA: rrifA(400000) }),
+      oneYearCouplePlan({ ageA: 66, ageB: 64, accountsA: rrifA(1500000) }),
     ).rows[0]!;
     const at65 = projection(
-      oneYearCouplePlan({ ageA: 66, ageB: 65, accountsA: rrifA(400000) }),
+      oneYearCouplePlan({ ageA: 66, ageB: 65, accountsA: rrifA(1500000) }),
     ).rows[0]!;
-    const min = (400000 * rrifMinFactor(66)) / 100;
+    const min = (1500000 * rrifMinFactor(66)) / 100;
 
     const expected65 = householdTax(
       [inc({ age: 66, ordinary: min, pensionEligible65Plus: min }), inc({ age: 65 })],
