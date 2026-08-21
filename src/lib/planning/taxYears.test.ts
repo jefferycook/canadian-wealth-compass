@@ -76,3 +76,45 @@ describe("BC indexation pause, 2027-2030", () => {
     expect(ab28.bpa).toBeGreaterThan(ab26.bpa);
   });
 });
+
+/**
+ * Alberta correctness pass, 2026-08-21.
+ *
+ * Source: CRA, "TD1AB-WS Worksheet for the 2026 Alberta Personal Tax Credits
+ * Return" (2026 form): age amount $6,345, phase-out from net income $47,234 to
+ * $89,534. Alberta.ca, "Personal income tax": 2026 thresholds and credit
+ * amounts rise by 2%.
+ */
+describe("AB 2026 personal credits", () => {
+  const ab = getTaxYear(2026).provinces["AB"]!;
+
+  it("pins the published 2026 age amount and threshold", () => {
+    expect(ab.ageAmt).toBe(6345);
+    expect(ab.ageThresh).toBe(47234);
+  });
+
+  it("is consistent with the 2025 amounts indexed by Alberta's published 2%", () => {
+    // CRA 2025 AB428: age amount 6,221, threshold 46,308.
+    expect(ab.ageAmt).toBe(Math.round(6221 * 1.02));
+    expect(ab.ageThresh).toBe(Math.round(46308 * 1.02));
+  });
+
+  it("leaves the verified 2026 bracket table and BPA alone", () => {
+    expect(ab.brackets.map((b) => b.up)).toEqual([
+      61200, 154259, 185111, 246813, 370220, Infinity,
+    ]);
+    expect(ab.bpa).toBe(22769);
+    expect(ab.divCredit).toBe(0.0812);
+  });
+
+  it("has no indexation pause, so 2027 credits index normally", () => {
+    const ab27 = getTaxYear(2027, 0.02).provinces["AB"]!;
+    expect(ab.indexationPause).toBeUndefined();
+    expect(ab27.ageAmt).toBe(Math.round(6345 * 1.02));
+    expect(ab27.ageThresh).toBe(Math.round(47234 * 1.02));
+    // Alberta's pension income amount indexes in law (2024 1,685 -> 2025
+    // 1,719), so the derived-year indexing of penAmt is correct for AB. The
+    // 2026 *value* remains an open verification item (backlog AB-1).
+    expect(ab27.penAmt).toBe(Math.round(ab.penAmt * 1.02));
+  });
+});
