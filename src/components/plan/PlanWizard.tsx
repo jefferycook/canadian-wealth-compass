@@ -386,10 +386,17 @@ function IncomeStep({ draft, onChange }: StepProps) {
   );
 }
 
-const JURISDICTIONS = Object.entries(UNLOCK_RULES).map(([value, r]) => ({
-  value: value as JurisdictionKey,
-  label: r.name,
-}));
+// Unsupported pension jurisdictions stay visible but clearly labelled, so a
+// saved plan that already holds one renders instead of throwing (Batch 0C).
+const JURISDICTIONS = Object.entries(UNLOCK_RULES).map(([value, r]) => {
+  const key = value as JurisdictionKey;
+  const unsupported = recordStatus(key) === "UNSUPPORTED";
+  return {
+    value: key,
+    label: unsupported ? `${r.name} \u2014 not yet supported` : r.name,
+    disabled: unsupported,
+  };
+});
 
 /**
  * The account detail most people never touch — but which changes the answer
@@ -437,13 +444,21 @@ function AdvancedAccountFields({
           />
         ) : null}
         {locked ? (
-          <SelectField<JurisdictionKey>
-            label="Pension jurisdiction"
-            hint="Where the pension was earned — it governs unlocking and LIF limits, not where you live."
-            value={a.juris}
-            onChange={(v) => update(a.id, { juris: v })}
-            options={JURISDICTIONS}
-          />
+          <div className="space-y-1">
+            <SelectField<JurisdictionKey>
+              label="Pension jurisdiction"
+              hint="Where the pension was earned — it governs unlocking and LIF limits, not where you live."
+              value={a.juris}
+              onChange={(v) => update(a.id, { juris: v })}
+              options={JURISDICTIONS}
+            />
+            {recordStatus(a.juris) === "UNSUPPORTED" ? (
+              <p className="text-xs text-destructive">
+                This jurisdiction is not yet supported — locked-in results are withheld.
+                No other province&apos;s rules are substituted.
+              </p>
+            ) : null}
+          </div>
         ) : null}
         <MonthlyMoneyField
           label="Scheduled withdrawal (per month)"
@@ -604,7 +619,7 @@ function AccountsStep({ draft, onChange }: StepProps) {
             {a.type === "LIRA" || a.type === "LIF" ? (
               <NumberField
                 label="Unlock on conversion"
-                hint="Ontario allows 50% to be unlocked into an RRSP at conversion."
+                hint={unlockHint(a.juris)}
                 suffix="%"
                 min={0}
                 max={100}
