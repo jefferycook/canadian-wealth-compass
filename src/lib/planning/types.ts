@@ -207,6 +207,18 @@ export interface AccountInput {
   wdStart: number;
   wdEnd: number;
   mix: ReturnMix;
+  /**
+   * Batch 0D (§6.1). Optional explicit distribution yields, as non-negative
+   * fractions of the balance. When absent the legacy `mix` convention applies,
+   * so saved plans need no migration. Non-eligible dividends are deliberately
+   * absent: §6.2 remains an open gap in the verified rules layer.
+   */
+  yields?: {
+    interest?: number | null;
+    eligDiv?: number | null;
+    cgDist?: number | null;
+    roc?: number | null;
+  } | null;
 }
 
 export interface ExpenseInput {
