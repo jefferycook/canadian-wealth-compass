@@ -118,3 +118,73 @@ RPP lifetime pension, so the proportional draw sends far more any-age income to
 B than the $2,000 pension amount can absorb, and B's capped credit is unchanged.
 The reasoning is recorded in the test comment. Batch 0B accumulation
 **$2,254,682 unchanged**.
+
+
+## Batch 0D — Projection integrity — implemented 2026-08-21
+
+Three sources of projection distortion removed, per the canonical
+specification (v1.2 FINAL + Errata 1–5).
+
+### 1. Indexation of statutory amounts (§12)
+
+`taxYears.ts` gains `indexTaxYear()`, `indexationFactor()` and `LATEST_TAX_YEAR`.
+`getTaxYear(year, rate)` now derives any year past the last published table by
+indexing amounts — brackets, BPA (federal and provincial), age amount, pension
+amount, OAS recovery threshold, TFSA/RRSP dollar limits — at a stated rate.
+**Rates are never indexed; only amounts.** Derived tables carry `derivedFrom`
+and are labelled APPROXIMATE at the point of use. Published years are returned
+untouched. Backwards years never index. The rate is `PlanInputs.indexationRate`
+when supplied, otherwise the plan's inflation assumption.
+
+### 2. Non-registered return decomposition (§6.1, §6.3)
+
+New `nonreg.ts`. `totalReturn = priceReturn + interest + eligDiv + cgDist + roc`.
+Distributions now accrue **regardless of the sign of the price return** — the
+old code gated all taxable yield on `growth > 0`, handing the client a tax
+holiday in every down year. Reinvested distributions raise ACB; return of
+capital lowers it with a floor at zero, the excess realized as a capital gain
+in that year and disclosed. Legacy `mix` accounts are handled backward
+compatibly by resolving yields off the account's *expected* return, so a
+positive-return year is numerically unchanged.
+
+Not modelled: non-eligible (CCPC) dividends — remains a [G] gap on the backlog.
+
+### 3. After-tax surplus sweep
+
+After-tax cash above the spending target used to vanish from the balance sheet.
+It is now reinvested: TFSA first (through the Batch 0B room ledger, capped at
+KNOWN room, never unknown room), remainder to non-registered with full ACB.
+Reported per row as `surplusSwept`.
+
+### 4. Auto-strategy label (§7.8)
+
+`runPlan` marks an automatically selected withdrawal order
+`autoSelectionStatus: "APPROXIMATE"` with a caveat string, surfaced in the
+results panel alongside the indexation and ACB notices.
+
+### Verification
+
+**202 tests passing** (18 new in `projection-integrity.test.ts`), clean typecheck.
+
+### Intentional golden movements
+
+| Fixture | Before | After | Cause |
+| --- | --- | --- | --- |
+| Single filer (Ontario) | 278,614 | **198,394** | Indexation only. With `indexationRate: 0` the fixture reproduces 278,614 exactly; it sweeps $0 and its non-registered numbers are unchanged. Asserted as a test. |
+| Couple | 554,616 | **407,458** | Indexation of the derived tax years. Erratum 5 behaviour unchanged. |
+| Accumulation | 2,254,682 | **2,164,651** | Two causes: indexation (down) and the surplus sweep (up). $1,483,280 of surplus over the run is now reinvested and earns taxable distributions. Holding `indexationRate: 0` isolates the sweep at 3,545,773. |
+
+The single-filer move is the pre-0D defect being removed: freezing 2026
+brackets for thirty years while income inflates taxed a flat-real retirement
+income at a steadily rising effective rate.
+
+### Room-guard test adjustment
+
+Two Batch 0B lump-sum guards measured room consumption as a *balance delta*
+between two plans. The surplus sweep also contributes to the TFSA, so the base
+plan now consumes the same room and the delta no longer isolates the lump sum.
+The guards were re-expressed against the room ledger itself
+(`row.roomLedger[].tfsa.contributions` vs available room), which states the
+invariant directly. The invariant is unchanged and still enforced.
+
+Status: **Batch 0D implemented; held for review.** No later batch started.
