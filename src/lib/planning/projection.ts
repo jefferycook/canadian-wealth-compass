@@ -1051,6 +1051,7 @@ export function projection(
   return {
     rows,
     roomDisclosures: [...roomDisclosures, ...(spousalNote ? [spousalNote] : [])],
+    lockedInDisclosures: [...lockedInDisclosures],
     roomValidationErrors,
 
 
