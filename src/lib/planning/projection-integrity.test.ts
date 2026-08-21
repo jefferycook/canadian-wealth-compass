@@ -69,6 +69,22 @@ describe("indexation of statutory amounts (§12)", () => {
     expect(y.agePhaseRate).toBe(base.agePhaseRate);
   });
 
+  it("never indexes the federal pension income amount (fixed $2,000 in law)", () => {
+    const base = getTaxYear(2026);
+    const y = getTaxYear(2060, 0.021);
+    expect(getTaxYear(2026).fedPenAmt).toBe(2000);
+    expect(y.fedPenAmt).toBe(2000);
+    // Two-sided: pinned deliberately, not because indexation is broken.
+    expect(y.fedBpaMax).toBeGreaterThan(base.fedBpaMax);
+    expect(y.fedAgeAmt).toBeGreaterThan(base.fedAgeAmt);
+    expect(y.oasThreshold).toBeGreaterThan(base.oasThreshold);
+    expect(y.federal[0]!.up).toBeGreaterThan(base.federal[0]!.up);
+  });
+
+  it("keeps indexing provincial pension amounts", () => {
+    expect(getTaxYear(2060, 0.021).provinces['ON']!.penAmt).toBeGreaterThan(1796);
+  });
+
   it("indexing at zero reproduces the published table exactly", () => {
     expect(getTaxYear(2050, 0).fedBpaMax).toBe(getTaxYear(2026).fedBpaMax);
   });
