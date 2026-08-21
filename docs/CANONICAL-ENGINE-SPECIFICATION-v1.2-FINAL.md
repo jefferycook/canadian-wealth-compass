@@ -1373,6 +1373,14 @@ Sources (tier 1): Province of British Columbia, *B.C. basic personal income tax 
 
 BC's age amount and threshold therefore move out of the STILL CONST-UNVERIFIED list below; BC's pension amount and dividend credit remain in it.
 
+### CORRECTED 2026-08-21 — Alberta age amount and threshold (third confirmed constant defect)
+
+Sources (tier 1): CRA, *TD1AB-WS Worksheet for the 2026 Alberta Personal Tax Credits Return* (2026 form); CRA, *AB428 Alberta Tax and Credits* (2025); Alberta.ca, *Personal income tax* ("In 2026, thresholds and credit amounts will rise by 2%"). Checked **2026-08-21**.
+
+1. **Stale credit amounts — corrected.** Alberta's 2026 **age amount is $6,345** and its **phase-out threshold $47,234** (fully phased out at $89,534). `TAX_2026.provinces.AB` carried **6,055 / 45,210**, which are stale. The corrected values reconcile independently to the 2025 figures indexed at Alberta's published 2% (`6,221 x 1.02 = 6,345`, `46,308 x 1.02 = 47,234`). Corrected in `taxYears.ts`, `verifiedDate: 2026-08-21`, pinned by direct tests.
+2. **Alberta pension income amount — indexation rule VERIFIED, value still CONST-UNVERIFIED (a §13.2a split).** Alberta's pension income amount **does index**: the 2024 amount is $1,685 and CRA's 2025 AB428 line 58360 is **$1,719**. The engine's generic indexing of provincial `penAmt` in derived years is therefore correct for Alberta and was left unchanged (pinned by test). The **value** `penAmt: 1685` is however the 2024 amount and the implied 2026 amount is **$1,753**; the 2026 AB428 is not yet published, so the constant was **not** changed on a derivation. Recorded as backlog **AB-1**.
+3. **Unchanged and re-confirmed.** The Alberta 2026 bracket table ($61,200 / 154,259 / 185,111 / 246,813 / 370,220 at 8 / 10 / 12 / 13 / 14 / 15%) and **BPA $22,769** match the current sources and were left alone. Alberta carries **no** indexation pause; a test pins that 2027 indexes normally.
+
 ### VERIFIED 2026-08-21 — federal eligible-dividend gross-up and credit
 
 CRA **T5 Guide — Return of Investment Income** (<https://www.canada.ca/en/revenue-agency/services/forms-publications/publications/t4015/t5-guide-return-investment-income.html>) states that for 2012 and later years eligible dividends are grossed up by **38%** and the federal dividend tax credit is **15.0198% of the taxable (grossed-up) eligible dividend**. This confirms `divGrossUp = 1.38` and `fedDivCredit = 0.150198` exactly. **VERIFIED, `verifiedDate: 2026-08-21`.** No behaviour change. (The *provincial* dividend tax credits remain outstanding.)
@@ -1381,9 +1389,9 @@ CRA **T5 Guide — Return of Investment Income** (<https://www.canada.ca/en/reve
 
 **Verified against tier-1 regulators on 2026-08-21:** all federal brackets and rates; the federal BPA maximum, minimum and phase-out range; the federal age amount, its threshold and its 15% phase-out rate; the federal pension amount and its non-indexation; the OAS recovery threshold (twice, independently); the TFSA and RRSP dollar limits; YMPE; all twenty-five RRIF minimum factors and the sub-71 formula; the Ontario, BC and Alberta brackets and rates; the Ontario, BC and Alberta basic personal amounts; the BC age amount and threshold and the BC 2027–2030 indexation pause; the Ontario surtax thresholds and rates; the Ontario Health Premium brackets; and every CPP and OAS benefit amount.
 
-**Still outstanding:** the nine provincial age/pension amounts and thresholds, the three **provincial** dividend tax credits, and the FSRA table digits. (`cppAvgNew65` is now corrected and verified; the federal gross-up and credit are verified.)
+**Still outstanding:** the remaining provincial age/pension amounts and thresholds — Alberta's age amount and threshold are now verified and corrected, and the Alberta pension income *amount* is the open item AB-1 (its indexation *rule* is verified) — the three **provincial** dividend tax credits, and the FSRA table digits. (`cppAvgNew65` is now corrected and verified; the federal gross-up and credit are verified.)
 
-The item began as a blanket "everything is unverified" and is now a short, specific list. **Two wrong values have been found** — the stale `cppAvgNew65` and BC's stale age amount/threshold, alongside a wrongly-applied indexation rule for BC 2027–2030 — which is exactly why the pass is being run against primary sources rather than assumed. The remaining risk still sits mainly in the mechanisms and the rules layer (see CPP-1 [C]) rather than in the numbers, but "the constants were transcribed carefully" can no longer be stated as though it were established.
+The item began as a blanket "everything is unverified" and is now a short, specific list. **Three wrong values have been found** — the stale `cppAvgNew65`, BC's stale age amount/threshold and Alberta's stale age amount/threshold, alongside a wrongly-applied indexation rule for BC 2027–2030 — which is exactly why the pass is being run against primary sources rather than assumed. The remaining risk still sits mainly in the mechanisms and the rules layer (see CPP-1 [C]) rather than in the numbers, but "the constants were transcribed carefully" can no longer be stated as though it were established.
 
 
 
