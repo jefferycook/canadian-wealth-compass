@@ -8,6 +8,55 @@ resolved, then move it to **Resolved**.
 
 ---
 
+## OPEN — [C] Batch 0D surplus sweep creates money (contributions are not a use of cash)
+
+**Raised by Jeff, 2026-08-21. Recorded before the fix so the other agents see it
+immediately. Severity [C] — it overstates client wealth.**
+
+`applyContribution` adds `a.contrib * infFac` to the account balance and to
+`contribTotal`, but nothing is ever subtracted from `fixedCash` and nothing is
+added to `spendTarget`. `fixedCash` already contains the full `employInc` that
+funds the contribution, so the same dollars are counted twice: once as cash
+available to the household, and again as portfolio growth.
+
+Before Batch 0D the error was self-cancelling and therefore invisible — the
+surplus simply vanished at year end, and the vanished surplus was implicitly
+what paid for the contributions. **0D's sweep removed the vanishing without
+adding the outflow, so both halves now count.**
+
+On `accumulationGoldenFixturePlan`, year one: `fixedCash` 190,000 of employment
+income, contributions 29,000, `spendTarget` 84,000, solver returns `G = 0`, and
+the entire `afterTax − 84,000` surplus is swept. The household deposits
+`29,000 + surplus` in a year in which it had only `surplus` to spare. **29,000
+is invented every year** across a ~20-year contribution window and then
+compounds at the equity return. Likely a large share of the 1,483,280 of
+"surplus over the run" in the 0D changelog entry. Not fixture-specific: it
+affects every accumulation-phase client.
+
+**Fix being applied:** add `contribTotal` to `spendTarget`. It is fully
+accumulated by that point (asserted account contributions and `goalSaves` both
+pass `countAsContribution: true`, and both are genuine uses of household cash).
+Registered-destination lump sums pass `false` and stay excluded — a lump sum is
+an inflow being allocated, not cash the household must find. The sweep also
+passes `false`, so swept money never re-enters `contribTotal`: no circularity.
+Secondary benefit: the draw solver was blind to contributions, so a retiree
+still contributing will now either draw to fund it or show a real shortfall.
+
+**Design choice open to being overruled by Jeff or ChatGPT.** The narrower fix
+is to subtract `contribTotal` from `afterTax` when computing the surplus only,
+leaving `spendTarget` untouched. That is identical whenever there is a surplus
+(the common case) and differs only where the household must draw to fund a
+contribution. The `spendTarget` route was chosen so the solver, the shortfall
+flag and the sweep are consistent with one another rather than patching the
+sweep alone.
+
+**Anchor expectation:** accumulation moves materially DOWNWARD (smaller
+balances → less investment income → less lifetime tax), by well over the 3%
+gate. The single-filer and couple fixtures have `contrib: 0` on every account
+and must NOT move — that asymmetry is the check.
+
+---
+
 ## OPEN — Procedural conditions are recorded but never surfaced to the client
 
 **Status:** Advisory-layer gap. Not a projection defect, not a blocker for the current batches. Should be scoped before any client-facing release.
