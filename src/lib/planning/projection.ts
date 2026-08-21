@@ -849,26 +849,15 @@ export function projection(
       : 0;
 
     // TFSA withdrawals restore room on January 1 of the FOLLOWING year, so they
-    // are recorded here and only released by next year's openYear().
-    for (const d of drawable) void d;
-    for (const a of accts) {
-      if (a.type !== "TFSA") continue;
-      // Scheduled TFSA cash is tracked per person; discretionary TFSA draws are
-      // recorded against the owner of each TFSA drawn from.
-      void a;
-    }
+    // are recorded now and only released by next year's openYear().
     ledgers.forEach((l, i) => {
-      const scheduled = P[i]!.schedTfsaCash;
-      if (scheduled > 0) l.recordTfsaWithdrawal(scheduled);
+      const out = P[i]!.schedTfsaCash + (tfsaTakenBy[i] ?? 0);
+      if (out > 0) l.recordTfsaWithdrawal(out);
     });
-    for (const d of drawable) {
-      if (d.type !== "TFSA") continue;
-      const took = tfsaTakenById[d.a.id] ?? 0;
-      if (took > 0) ledgers[d.owner]?.recordTfsaWithdrawal(took);
-    }
 
     const closedRoom = ledgers.map((l) => l.closeYear());
     for (const ry of closedRoom) for (const d of ry.disclosures) roomDisclosures.add(d);
+
 
     rows.push({
 
