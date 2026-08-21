@@ -1,53 +1,179 @@
-# Ontario LIF maximum table — verification result and scoped correction (revised)
+# LIF-2 / RRIF age basis — verification findings and scoped fix plan
 
-## What I checked, independently
+Plan only. No code changed in this step. CPP-1 `[C]` untouched, Phase 0 unapproved.
 
-FSRA guidance **PE0196INF (Active)**, *Life Income Fund (LIF) and Locked-In Retirement Income Fund (LRIF) Maximum Annual Income Payment Amount Table*, **Appendix A**, retrieved 2026-08-21. Appendix A is keyed to **"age attained during year"**, gives the maximum to **five decimals**, runs ages **41-90**, and is effective 2021-01-01 (the reference rate is floored at 6%, so the table has not moved).
+## 1. What the law actually says (re-opened this turn)
 
-## Finding
+**Income Tax Regulations s.7308(3) and (4)** (Justice Laws consolidated text, read
+2026-08-21) — the prescribed factor is the one that corresponds to
 
-The live `ON_LIF_MAX` in `src/lib/planning/registered.ts` is **FSRA Appendix A shifted down one age and rounded to two decimals**:
+> "the age in whole years ... **attained by the individual at the beginning of that
+> year** or that would have been so attained by the individual if the individual had
+> been alive at the beginning of that year."
+
+Both the qualifying-fund table (3) and the ordinary table (4) use that wording. The
+engine's `RRIF_MIN` values match subsection **(4)** (71 = 0.0528, 94 = 0.1879,
+95+ = 0.2000) and `100/(90 - age)` below 71 matches "Under 71 → 1/(90 − Y)". The
+**table itself is correct**; only the age fed into it is in question.
+
+**ITA s.146.3(1), definition of "minimum amount"** (same source, read 2026-08-21):
+
+> "for the year in which the fund was entered into, **a nil amount**, and, for any
+> other year, ... (A × B) + C"
+
+with **A = total fair market value of all properties held ... at the beginning of the
+year**, and **B** the prescribed factor, subject to the paragraph (b) election to use
+the **spouse's or common-law partner's** age.
+
+So three separate statutory facts: beginning-of-year age; nil minimum in the
+establishment year; beginning-of-year FMV as the base.
+
+**The backlog sentence is wrong.** LIF-1 currently says "FSRA Appendix A (and the RRIF
+minimum table) are keyed by the age attained during the year". For the RRIF table that
+is flatly contradicted by s.7308. That wording must be corrected.
+
+**Open verification item, and it is not cosmetic.** Ontario Reg 909 s.6 (the C/F
+formula behind FSRA Appendix A) could not be retrieved this turn — e-laws did not
+respond. If s.6 keys F to the owner's age **at the beginning of the fiscal year**, then
+the LIF maximum takes the same basis as the RRIF minimum, and the shifted table this
+project removed yesterday may have been an informal encoding of exactly that basis
+applied to a "current age" input. The correction shipped yesterday is still right in
+one respect — a shifted *table* is the wrong way to express an age *basis*, and it
+silently overstated maximums for anyone whose birthday had not yet passed — but the
+resolution of s.6 decides whether Ontario LIF and RRIF should share one
+beginning-of-year age or genuinely differ. **Step 1 of implementation is to resolve
+Reg 909 s.6 from primary text before any code is written.** Nothing else in this plan
+proceeds until that is settled.
+
+## 2. Is DOB collected? Yes — and the projection throws it away
+
+Verified in the live code:
+
+- `PersonInput.dob?: string` exists (`src/lib/planning/types.ts`:128-131), documented
+  as "Optional; `curAge` is what the engine uses."
+- The wizard **does collect it**: `src/components/plan/PlanWizard.tsx`:215-218 binds a
+  date field to `p.dob` and derives `curAge` from it via
+  `ageFromDob` (`src/components/plan/fields.tsx`:202-205).
+- It **is persisted**: `src/lib/planning/draft.ts` carries `dob` in both directions
+  (`:40`, `:118`, `:196`); `defaults.ts`:61 starts it `null`.
+- The projection **never reads it**. `src/lib/planning/projection.ts` derives every row
+  age as `p.curAge + off` (`:264`, `:305`) and the calendar year as
+  `startYear + off` where `startYear = new Date().getFullYear()` (`:203`, `:241`).
+  `rrifMinFactor(age)` (`:669`) and `lifMaximumFor(a.juris, age, …)` receive that same
+  row age.
+
+So the engine **does** have enough information to compute a deterministic
+beginning-of-year age for any plan with a DOB: `startYear + off` gives the calendar
+year, and the DOB gives the birthday. No new input, no schema change.
+
+## 3. Which cases are actually wrong
+
+`curAge` is not a January-1 age and never was — via the wizard it is the age **on the
+day the plan was filled in**. Writing `bday` for whether the person's birthday falls on
+or before the plan-start date:
 
 ```text
-live 50 = 6.27   = FSRA age 51 (6.26996)     FSRA age 50 = 6.23197
-live 55 = 6.51   = FSRA age 56 (6.50697)     FSRA age 55 = 6.45234
-live 65 = 7.38   = FSRA age 66 (7.37988)     FSRA age 65 = 7.25513
-live 75 = 9.71   = FSRA age 76 (9.71347)     FSRA age 75 = 9.33511
-live 85 = 22.40  = FSRA age 86 (22.39589)    FSRA age 85 = 19.18515
-live 89 = 100    = FSRA age 90               FSRA age 89 = 51.45631
+beginning-of-year age in year (startYear + off)
+    = curAge + off - (1 if birthday already occurred in startYear else 0)
 ```
 
-The shift matches an industry "age as at Jan 1" presentation, but that January-1 convention is **not** supported by this engine's input contract: `PersonInput.curAge` is documented only as "Current age in whole years", the projection walks `curAge + off`, and the canonical spec states the Ontario LIF expectations directly at ages {55, 65, 75, 85}. The live table is therefore wrong against the contract it is actually called with, and it **overstates** the permitted maximum at every age.
+| Case | Engine row age vs. legal basis | Effect |
+| --- | --- | --- |
+| Birthday **not yet** occurred in the start year | correct | none |
+| Birthday **already** occurred in the start year | **one year too high, in every projection year** | RRIF/LIF minimum overstated for life |
+| Born Jan 1 | correct (attains age on Jan 1, so start-of-year age = current age) | none |
+| Plan created in January vs. December | changes which side of the split the same client lands on | same client, different plan, different forced income |
 
-## Correction plan
+Roughly half of all clients are affected, and which half depends on the arbitrary date
+the plan was created. The forced taxable draw is overstated by one age step every year:
+at 71 that is 5.28% instead of 5.15% (`1/(90−71)`) — about **+$260/yr on a $200k RRIF**
+at that age, widening with age as the factor curve steepens, and it compounds because
+the money is out of the shelter permanently. It also mis-times the 70→71 step change.
 
-1. **Use FSRA Appendix A directly, unshifted.** The projection row `age` is the engine's annual-granularity proxy for FSRA "age attained during year". No `age + 1`, no January-1 convention is introduced anywhere.
-2. **Replace the constant** with the official five-decimal values for **ages 41-90** (`50: 6.23197 ... 85: 19.18515, 88: 35.29338, 89: 51.45631, 90: 100.00000`), named to state its keying (e.g. `ON_LIF_MAX` retained as the export name, with the age basis stated in its doc comment).
-3. **Boundary correction** in `lifMaxFactor`: remove the `age >= 89 -> 100` shortcut. Age **89 returns 51.45631**, **90 and above return 100**. Ages below 41 fall back to the age-41 entry (5.98531) rather than the age-50 entry.
-4. **Document the annual-granularity caveat** in the function doc comment and in the spec: the engine models whole years, so for a plan started before the client's birthday the applicable FSRA row can be one age step ahead of the engine's row, making the modelled maximum conservative in the start year. DOB/calendar-date precision is explicitly out of scope and is recorded as a separate backlog item, not fudged with a constant offset.
-5. **RRIF untouched.** `rrifMinFactor` is not changed in this pass. I will audit its age basis against the ITA/CRA prescribed-factor definition and record the result as a distinct follow-up entry in `ENGINE-CORRECTNESS-BACKLOG.md` **only if** the audit shows a mismatch.
-6. **Source metadata.** `UNLOCK_RULES.ON.lifMaximum.source` becomes PE0196INF Appendix A with its FSRA URL, tier 1, `verifiedDate: 2026-08-21`; status stays `VERIFIED`. The `internal://lifMaxFactor` placeholder is removed for Ontario.
+Two further defects observed in the same code path while confirming the above, both
+**out of scope here** and to be recorded, not fixed:
 
-## Tests
+- **Base is not beginning-of-year FMV.** Step 4 grows accounts (`:482`) *before* step 6a
+  computes the minimum (`:650`), so `A` is an end-of-year balance. Overstates the
+  minimum by roughly one year of growth.
+- **No establishment-year exemption.** `isRRIFnow` (`:658-662`) applies a minimum in the
+  very year a RRSP/LIRA/DCPP crosses `convAgeOf(a)`; s.146.3(1) says nil that year. This
+  one is in scope (see below) because it is the same statutory sentence.
 
-In `lockedin.test.ts` (or a focused `lif-max.test.ts`), all through the public `lifMaximumFor("ON", age, rate)` path:
+## 4. Classification
 
-- Exact pins at **50, 55, 65, 75, 85, 89, 90**, plus a loop pinning **every age 41-90** against the FSRA five-decimal values.
-- Boundary: 89 = 51.45631 and `applies === true`; 90, 95 = 100.
-- Below-floor behaviour at age 40 returns the age-41 value.
-- Monotonic non-decreasing across 41-90.
-- Status stays `VERIFIED` and is read from the component, not a literal.
-- **Replace, not extend**, the existing assertions that bless the shifted values — notably the `ON_LIF_MAX[age]` checks at 55/65/75/85 in the current "Ontario LIF maximum" block, which would otherwise pass vacuously against the new table.
+**LIF-2 → `[C]` (correctness, client-visible, systematic).** It is not latent: it
+reaches every plan with a RRIF/LIF through the ordinary UI, silently overstates forced
+taxable income for about half of clients, and is invisible to the user. It sits
+upstream of tax, OAS clawback and the optimizer, so every downstream number inherits it.
 
-## Expected golden movement
+**Independent of CPP-1?** Yes. Different module, different statute, no shared code path
+with `cppSurvivorBenefit`, and no shared fixture — the survivor blocker neither gates
+nor is gated by this. It is safe to fix while CPP-1 stays OPEN.
 
-This is a real, source-backed methodology movement, not a rounding change: at age 65 the cap drops from 7.38% to 7.25513%, at 75 from 9.71% to 9.33511%, at 85 from 22.40% to 19.18515%, and age 89 stops being 100%.
+## 5. Scoped fix path
 
-- A golden fixture holds an Ontario LIF, so anchors may move wherever the cap actually binds — a lower cap defers registered income and can shift lifetime tax in either direction (less taxable draw now, larger balance later).
-- Before any re-pin I will identify the exact rows where the LIF maximum binds (age, account, old vs new percentage, dollar delta) and state the causal chain to the anchor. No blind re-pinning.
-- If an anchor moves without a traceable binding row, that is a defect and I stop and report instead of re-pinning.
-- The Manitoba locked-in golden uses the annuity approximation and should not move; if it does, I stop and report.
+1. **Resolve Reg 909 s.6** from primary text. Record the finding either way. If it is
+   beginning-of-year, Ontario LIF max shares the new age basis; if it genuinely is
+   attained-during-year, the two bases differ and the code must say so explicitly at
+   both call sites.
+2. **Add one age-basis helper**, e.g. `startOfYearAge(person, calendarYear)` in
+   `registered.ts` or a small `ages.ts`: with a parsable `dob`, return the whole-year
+   age on January 1 of that calendar year, computed from the DOB and the year only —
+   deterministic, no `Date.now()` inside the engine. Without a DOB, return the legacy
+   `curAge + off` and raise a **disclosure** ("this plan has no date of birth, so the
+   RRIF minimum is computed from a whole-year age and may be one age step high").
+3. **Use it only where the law requires it**: `rrifMinFactor` at `:669`, and
+   `lifMaximumFor` at `:670` *only if* step 1 confirms the same basis. Row `age`
+   everywhere else (retirement, benefits, death, pension-credit age tests) is untouched
+   — those have their own bases and are not part of this correction.
+4. **First-year RRIF exemption**: no minimum in the year a fund is entered into. Applies
+   to an account converting at `convAgeOf(a)` during the projection, and to an account
+   the client tells us is newly established. It must **not** fire for an account that
+   was already a RRIF/LIF/PRRIF before the plan started — that fund was entered into in
+   an earlier year.
+5. **Saved-plan compatibility**: `dob` is already an optional field that already
+   round-trips through `draft.ts`. No migration, no schema change, no new required
+   input. Legacy plans keep their current numbers plus a disclosure. No unconditional
+   `-1` anywhere.
+6. **Doc corrections** (as part of the fix, not now): strike the wrong sentence in
+   backlog LIF-1; restate LIF-1 as "no DOB → conservative fallback" rather than "no DOB
+   precision at all"; close LIF-2 with the s.7308 citation; add the two new
+   out-of-scope findings (beginning-of-year FMV base; spouse-age election under
+   s.146.3(1)(b) still unmodelled); update spec §3.3 and §2.2 with the correct bases.
 
-## Guardrails
+## 6. Tests required
 
-Full suite plus typecheck before reporting; exact before/after for all anchors. CPP-1 stays **OPEN [C]**, Phase 0 not approved, Phase 1 not started, nothing deployed or published, no CPP survivor logic touched.
+- Beginning-of-year age: birthday in **February** vs. **November**, same `curAge`, same
+  plan year — the February person's factor is one age step lower than today's engine
+  gives; the November person's is unchanged.
+- Born **January 1** — start-of-year age equals current age; no off-by-one.
+- **70 → 71 boundary**: the 5.28% row lands in the correct calendar year for each
+  birthday case, and `1/(90−Y)` applies the year before.
+- **Establishment-year exemption**: a RRSP converting at 71 takes **nil** that year and
+  the normal minimum the next; an account already a RRIF at plan start takes its
+  minimum in year 0.
+- **Legacy plan, no DOB**: reproduces today's numbers exactly *and* raises the
+  disclosure — this is the saved-plan compatibility pin.
+- **Spouse-age election stays a documented gap**: an explicit test asserting the engine
+  uses the annuitant's own age, so the gap cannot be mistaken for coverage.
+- Ontario LIF: if step 1 says beginning-of-year, mirror the February/November pair
+  through `lifMaximumFor`; the Appendix A **values** stay pinned as they are now.
+
+## 7. Golden expectations and re-pin discipline
+
+Every fixture carrying a DOB gets that DOB read for the first time, so anchors can move.
+The single-filer fixture is `dob: "1966-01-01"` (`fixtures.ts`:40) — a January 1
+birthday, the one case where beginning-of-year age equals current age — so **the
+expectation is that it does not move**. Any movement there would mean the helper is
+wrong, not that the law is: stop and report rather than re-pin. Fixtures without a DOB
+must be **bit-identical** by construction. The establishment-year exemption can legally
+move any fixture that converts an account mid-projection, and the Manitoba locked-in
+golden is the likeliest to shift on that ground.
+
+No anchor is re-pinned without a row-level trace naming the account, the calendar year,
+the old and new factor, and the dollar effect, in the same form as the Ontario LIF pass.
+If a movement is not fully attributable to one of the two changes, stop and report.
+
+CPP-1 `[C]` stays OPEN throughout; Phase 0 is not approved, Phase 1 does not start, and
+nothing is deployed or published.
