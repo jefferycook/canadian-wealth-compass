@@ -465,7 +465,21 @@ export interface ProjectionRow {
   roomLedger: PersonRoomYear[];
   /** Total RRSP deduction claimed by the household this year. */
   rrspDeduction: number;
-
+  /**
+   * Batch 0D. After-tax cash above the spending target that was contributed
+   * back to the portfolio (TFSA to room, then non-registered) instead of
+   * disappearing. Typically a forced RRIF-minimum year.
+   */
+  surplusSwept: number;
+  /**
+   * Batch 0D. Taxable non-registered distributions accrued this year:
+   * interest + eligible dividends + the taxable half of capital-gains
+   * distributions and of any gain realized by return of capital. These accrue
+   * in loss years too (§6.1).
+   */
+  distributionsTaxable: number;
+  /** True when this year's tax table was derived by indexation, not published. */
+  taxYearDerived: boolean;
 }
 
 export interface AccountMeta {
