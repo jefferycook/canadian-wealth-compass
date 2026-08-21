@@ -58,10 +58,10 @@ before re-issuing anything.
 
 ---
 
-## Phase 0 — READY FOR INDEPENDENT APPROVAL, NOT YET APPROVED
+## Phase 0 — READINESS MUST BE RE-ASSESSED (NOT APPROVED)
 
-Batches 0A–0D are implemented and green, and the four verification gaps raised
-by independent review on 2026-08-21 are closed (see the Phase 0 review patch in
+Batches 0A–0D are implemented and green. The four verification gaps raised by
+independent review on 2026-08-21 were closed (see the Phase 0 review patch in
 `IMPLEMENTATION-CHANGELOG.md`):
 
 1. the required flat-real 30-year indexation invariant is now tested directly,
@@ -74,21 +74,103 @@ by independent review on 2026-08-21 are closed (see the Phase 0 review patch in
 4. the 0D changelog no longer misdescribes what tax-year indexation covers, and
    the §6.2 non-eligible-dividend deferral is recorded explicitly.
 
-**Suite: 223 tests passing**, clean typecheck. The three pre-existing anchors
-are unchanged at **201,470 / 411,408 / 2,176,860**; no defect was exposed by the
-new tests, so nothing moved.
+**Suite: 227 tests passing**, clean typecheck. Current anchors:
+**201,470 / 411,408 / 1,762,590**. The accumulation figure changed *after* the
+readiness claim was written, because of the Batch 0D surplus-sweep defect
+recorded in Resolved below.
+
+**The readiness assessment was issued before that defect was found.** A `[C]`
+defect surfacing after a batch had been called complete is a signal about the
+review, not only about the code — the four gaps closed earlier were real, and
+this one was still sitting underneath them. Phase 0 readiness should therefore
+be re-assessed against the current state rather than carried forward from the
+earlier claim.
 
 **Status: awaiting independent Phase 0 approval. It is NOT approved and Phase 1
 has NOT started.** Nothing has been deployed or published.
 
 Known items deliberately left open at the Phase 0 boundary: non-eligible
-dividends (§6.2 [G]), New Brunswick locked-in unlocking (UNSUPPORTED), and the
-procedural-conditions disclosure gap recorded above. None is a Phase 0 exit
-criterion.
+dividends (§6.2 [G]), New Brunswick locked-in unlocking (UNSUPPORTED), the
+procedural-conditions disclosure gap recorded above, and the surplus-sweep
+design choice (`spendTarget` vs `afterTax`, described in Resolved below) which
+Jeff may want to weigh in on. None is a Phase 0 exit criterion.
 
 ---
 
 ## Resolved
+
+### Batch 0D defect — the surplus sweep created money (contributions were not a use of cash) — FIXED 2026-08-21
+
+**Raised by Claude during the Batch 0D audit, 2026-08-21** (Jeff was offline
+throughout and has not yet seen it). Recorded before the fix so the other agents
+saw it immediately. Severity [C] — it overstated client wealth.
+
+`applyContribution` adds `a.contrib * infFac` to the account balance and to
+`contribTotal`, but nothing was ever subtracted from `fixedCash` and nothing
+added to `spendTarget`. `fixedCash` already contains the full `employInc` that
+funds the contribution, so the same dollars were counted twice: once as cash
+available to the household, and again as portfolio growth.
+
+Before Batch 0D the error was self-cancelling and therefore invisible — the
+surplus simply vanished at year end, and the vanished surplus was implicitly
+what paid for the contributions. **0D's sweep removed the vanishing without
+adding the outflow, so both halves counted.**
+
+On `accumulationGoldenFixturePlan`, year one: `fixedCash` 190,000 of employment
+income, contributions 29,000, `spendTarget` 84,000, solver returns `G = 0`, and
+the entire `afterTax − 84,000` surplus is swept. The household deposited
+`29,000 + surplus` in a year in which it had only `surplus` to spare. **29,000
+invented every year** across a ~20-year contribution window, then compounding at
+the equity return. Not fixture-specific: it affected every accumulation-phase
+client.
+
+**Fix applied:** add `contribTotal` to `spendTarget`. It is fully accumulated by
+that point (asserted account contributions and `goalSaves` both pass
+`countAsContribution: true`, and both are genuine uses of household cash).
+Registered-destination lump sums pass `false` and stay excluded — a lump sum is
+an inflow being allocated, not cash the household must find. The sweep also
+passes `false`, so swept money never re-enters `contribTotal`: no circularity.
+Secondary benefit: the draw solver was blind to contributions, so a retiree
+still contributing will now either draw to fund it or show a real shortfall.
+
+**Design choice left open, and open to being overruled by Jeff or ChatGPT.** The
+narrower fix is to subtract `contribTotal` from `afterTax` when computing the
+surplus only, leaving `spendTarget` untouched. That is identical whenever there
+is a surplus (the common case) and differs only where the household must draw to
+fund a contribution. The `spendTarget` route was chosen so the solver, the
+shortfall flag and the sweep stay consistent with one another rather than
+patching the sweep alone.
+
+**Result: 227 tests passing**, clean typecheck.
+
+| Golden anchor | Before | After |
+|---|---|---|
+| Accumulation | 2,176,860 | **1,762,590** (−19.0%) |
+| Single filer | 201,470 | **201,470** — unmoved |
+| Couple | 411,408 | **411,408** — unmoved |
+
+The two zero-contribution fixtures are confirmed untouched, which is the
+asymmetry check: this defect can only reach a plan that contributes. The
+movement matched the prediction made before the change (materially downward,
+well over the 3% gate).
+
+One existing test had to be rewritten rather than kept: `engine.test.ts`'s
+"stretches the money further when the client saves more before retirement"
+asserted that a goal save REDUCED shortfall years on a fixture that is already
+short — true only because the saving was free money. Asserting it would
+re-enshrine the defect. It is now two tests: saving into an already-short plan
+cannot buy extra years, and on an affordable variant a TFSA goal save helps only
+through its tax treatment (terminal portfolio up, but under 5%, not the whole
+contribution compounded).
+
+**Lesson — a passing test is not evidence of correctness either.** That test was
+green *because* of the defect; it is the second time in this project a green
+test has certified a bug. Paired with the Erratum 5 lesson below (an unmoved
+anchor is not evidence of correctness), these are the same lesson from two
+directions: a signal only counts if the fixture actually exercises the behaviour
+in question.
+
+
 
 ### Erratum 5 — transferee's pension credit (Batch 0A) — IMPLEMENTED AND VERIFIED 2026-08-21
 
