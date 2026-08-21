@@ -80,10 +80,11 @@ describe("BC indexation pause, 2027-2030", () => {
 /**
  * Alberta correctness pass, 2026-08-21.
  *
- * Source: CRA, "TD1AB-WS Worksheet for the 2026 Alberta Personal Tax Credits
+ * Sources: CRA, "TD1AB-WS Worksheet for the 2026 Alberta Personal Tax Credits
  * Return" (2026 form): age amount $6,345, phase-out from net income $47,234 to
- * $89,534. Alberta.ca, "Personal income tax": 2026 thresholds and credit
- * amounts rise by 2%.
+ * $89,534. CRA, Form "TD1AB 2026 Alberta Personal Tax Credits Return"
+ * (td1ab-26e.pdf), line 3: pension income amount $1,753. Alberta.ca, "Personal
+ * income tax": 2026 thresholds and credit amounts rise by 2%.
  */
 describe("AB 2026 personal credits", () => {
   const ab = getTaxYear(2026).provinces["AB"]!;
@@ -93,10 +94,19 @@ describe("AB 2026 personal credits", () => {
     expect(ab.ageThresh).toBe(47234);
   });
 
+  // CRA Form TD1AB 2026, line 3: "Pension income amount - If you will receive
+  // regular pension payments ... enter whichever is less: $1,753 or your
+  // estimated annual pension income." Checked 2026-08-21.
+  it("pins the official 2026 TD1AB pension income amount", () => {
+    expect(ab.penAmt).toBe(1753);
+  });
+
   it("is consistent with the 2025 amounts indexed by Alberta's published 2%", () => {
     // CRA 2025 AB428: age amount 6,221, threshold 46,308.
     expect(ab.ageAmt).toBe(Math.round(6221 * 1.02));
     expect(ab.ageThresh).toBe(Math.round(46308 * 1.02));
+    // CRA 2025 AB428 line 58360: pension income amount 1,719.
+    expect(ab.penAmt).toBe(Math.round(1719 * 1.02));
   });
 
   it("leaves the verified 2026 bracket table and BPA alone", () => {
@@ -113,8 +123,8 @@ describe("AB 2026 personal credits", () => {
     expect(ab27.ageAmt).toBe(Math.round(6345 * 1.02));
     expect(ab27.ageThresh).toBe(Math.round(47234 * 1.02));
     // Alberta's pension income amount indexes in law (2024 1,685 -> 2025
-    // 1,719), so the derived-year indexing of penAmt is correct for AB. The
-    // 2026 *value* remains an open verification item (backlog AB-1).
-    expect(ab27.penAmt).toBe(Math.round(ab.penAmt * 1.02));
+    // 1,719 -> 2026 1,753), so the derived-year indexing of penAmt is correct
+    // for AB and runs from the verified 2026 value.
+    expect(ab27.penAmt).toBe(Math.round(1753 * 1.02));
   });
 });

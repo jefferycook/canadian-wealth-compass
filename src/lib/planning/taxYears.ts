@@ -181,14 +181,13 @@ const PROVINCES_2026: Record<string, ProvinceTax> = {
     // 2026-08-21 from a stale 6055 / 45210.
     ageAmt: 6345,
     ageThresh: 47234,
-    // CONST-UNVERIFIED for 2026 (see docs/ENGINE-CORRECTNESS-BACKLOG.md, AB-1).
-    // $1,685 is the 2024 Alberta pension income amount. CRA's 2025 AB428 line
-    // 58360 is $1,719, and Alberta.ca states 2026 credit amounts rise by 2%,
-    // which implies $1,753 — but the 2026 AB428 is not yet published, so the
-    // value is NOT changed here on a derivation. Alberta's pension income
-    // amount DOES index (2024 1,685 -> 2025 1,719), so the generic indexing of
-    // `penAmt` in derived years is correct behaviour for AB.
-    penAmt: 1685,
+    // VERIFIED 2026-08-21 — CRA Form "TD1AB 2026 Alberta Personal Tax Credits
+    // Return" (td1ab-26e.pdf), line 3: Alberta pension income amount is the
+    // lesser of $1,753 or the estimated annual pension. Corrected on
+    // 2026-08-21 from a stale 1685 (the 2024 amount). Alberta's pension income
+    // amount indexes (2024 1,685 -> 2025 1,719 -> 2026 1,753), so the generic
+    // indexing of `penAmt` in derived years is correct behaviour for AB.
+    penAmt: 1753,
     divCredit: 0.0812,
   },
   CUSTOM: {
