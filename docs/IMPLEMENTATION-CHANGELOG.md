@@ -91,6 +91,65 @@ Regression anchors — **all three held, no re-pinning**: Batch 0A single
 Status: **Batch 0C implemented; held for review.** No later batch started.
 
 
+### Jurisdiction verification, 2026-08-21 (Batch 0C follow-up)
+
+Four locked-in records reconciled against tier-1 regulators. No golden anchor
+moved (201,470 / 411,408 / 2,176,860 all unchanged).
+
+- **Alberta — promoted to VERIFIED.** Alberta Superintendent of Pensions,
+  *Interpretive Guideline #04 — Unlocking of Pension Benefits*
+  (https://open.alberta.ca/dataset/623fa691-3296-4bf4-ae01-ebd3cd657f99/resource/74e60c33-cf1c-4d3e-92da-b625a2c1a2b4/download/ig-04-unlocking-of-pension-benefits.pdf).
+  Confirms 50% from age 50, one-time, to cash / RRSP / RRIF — our coded values
+  were correct. `unlockEntitlement` and `destinationVehicle` are now VERIFIED;
+  `lifMaximum` stays APPROXIMATE (no published table). Recorded but not
+  modelled: the unlock must occur *as the money moves into* the LIF/LITB, and
+  Alberta's small-amount threshold is 20% of YMPE.
+- **Nova Scotia — promoted to VERIFIED.** NS Department of Finance, *Form 20*
+  (https://novascotia.ca/finance/pensions/docs/pensions-form-20.pdf). 50% at 55
+  from a Schedule 4A LIF, one-time with no second chance, invalid after 60 days.
+  Added `requiresVehicle: "ScheduleLIF"` and `transferWindowDays: 60`, the same
+  shape as Ontario's Schedule 1.1 LIF and the federal RLIF. `lifMaximum` stays
+  APPROXIMATE.
+- **British Columbia — promoted to VERIFIED as a confirmed absence.** BCFSA,
+  *Unlocking pension funds*
+  (https://www.bcfsa.ca/public-resources/pensions/unlocking-pension-funds):
+  BC legislation does not allow the 50% one-time unlocking provision. Our
+  `partialPct: 0` is now positively verified rather than merely unchecked. The
+  four permitted circumstances and the two YMPE thresholds (20% = $14,920 under
+  65; 40% = $29,840 at 65+) are recorded in `notes`.
+- **New Brunswick — WITHDRAWN as UNSUPPORTED.** FCNB, *Pension Transfers and
+  Withdrawals*
+  (https://fcnb.ca/en/personal-finances/pensions-and-retirement/pension-transfers-and-withdrawals):
+  the entitlement is the **lesser of** three times the annual amount or 25% of
+  the LIF balance, from a LIF, to a RRIF, with no stated age condition. Our flat
+  25%-at-55-to-an-RRSP record **overstated** the entitlement, an error in the
+  client's favour. All three components are UNSUPPORTED per the Saskatchewan
+  ruling (Erratum 4); nothing is substituted. Queued on the backlog.
+
+Two gating defects fixed in the same pass:
+
+1. **APPROXIMATE unlocking entitlements are now disclosed.** The projection's
+   unlock loop only disclosed an APPROXIMATE *destination vehicle*; the
+   entitlement — the percentage and minimum age that decide how much money
+   moves — raised nothing. §13.2 requires the flag wherever the number is
+   displayed, so a parallel, client-actionable disclosure was added.
+2. **`lifMaximumFor` reads the component, not the jurisdiction.** It returned
+   `juris === "ON" ? "VERIFIED" : "APPROXIMATE"`, making the jurisdiction the
+   source of truth in place of the component (§13.2a). It now returns
+   `r.lifMaximum.status`; the Ontario-table-versus-formula choice of which
+   number to compute is unchanged. A test pins the two together.
+
+Test tightening: the Manitoba projection assertion was a one-sided
+`> 0.3` floor that would pass on a 90% unlock. It is now two-sided
+(`> 0.30`, `< 0.45`) around the observed 0.369 year-end share — the exact-50%
+property is asserted structurally by `maxUnlockPctAtAge(UNLOCK_RULES.MB, 55)`.
+(The brief's suggested 0.40–0.60 band does not hold: the PRRIF pays its RRIF
+minimum in the unlock year while the locked side compounds, so the year-end
+share sits below 0.40. The upper bound is the half that matters and is kept.)
+
+**214 tests passing**, clean typecheck.
+
+
 ## Batch 0A correction — Erratum 5 (transferee pension credit) — implemented 2026-08-21
 
 Verified CRA defect (Form T1032, Step 4 / Note 1): a single scalar
