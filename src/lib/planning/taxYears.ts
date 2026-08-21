@@ -256,7 +256,7 @@ function indexProvince(p: ProvinceTax, f: number): ProvinceTax {
  * Derive a tax year beyond the last published table by indexing exactly the
  * amounts that index in law: the federal and provincial brackets and surtax
  * thresholds, the basic personal amounts, the age amount and its threshold,
- * the pension income amount, and the OAS recovery threshold.
+ * the provincial pension income amounts, and the OAS recovery threshold.
  *
  * Deliberately NOT indexed here:
  *  - CPP/OAS benefit maximums — the projection already inflates benefit
@@ -266,6 +266,10 @@ function indexProvince(p: ProvinceTax, f: number): ProvinceTax {
  *    rounds these itself, CRA-style, and flags them APPROXIMATE.
  *  - The Ontario Health Premium — its thresholds are fixed in statute and
  *    have not been indexed since 2004.
+ *  - `fedPenAmt`, the federal pension income amount (line 31400) — a fixed
+ *    $2,000 in ITA s.118(3), unchanged since 2006 and absent from CRA's
+ *    indexation-adjustment tables (verified 2026-08-21). Provincial pension
+ *    amounts DO index and are handled in `indexProvince`.
  */
 export function indexTaxYear(base: TaxYear, year: number, rate: number): TaxYear {
   if (year <= base.year) return base;
@@ -285,7 +289,6 @@ export function indexTaxYear(base: TaxYear, year: number, rate: number): TaxYear
     fedBpaPhaseHi: idx(base.fedBpaPhaseHi, f),
     fedAgeAmt: idx(base.fedAgeAmt, f),
     fedAgeThresh: idx(base.fedAgeThresh, f),
-    fedPenAmt: idx(base.fedPenAmt, f),
     oasThreshold: idx(base.oasThreshold, f),
   };
 }

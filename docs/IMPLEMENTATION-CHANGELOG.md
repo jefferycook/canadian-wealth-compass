@@ -188,3 +188,32 @@ The guards were re-expressed against the room ledger itself
 invariant directly. The invariant is unchanged and still enforced.
 
 Status: **Batch 0D implemented; held for review.** No later batch started.
+
+### 5. Federal pension income amount is not indexed (defect fix, 2026-08-21)
+
+`indexTaxYear()` was indexing `fedPenAmt`. The federal pension income amount
+(line 31400) is a **fixed $2,000** under ITA s.118(3): unchanged since 2006 and
+absent from CRA's indexation-adjustment tables
+(https://www.canada.ca/en/revenue-agency/services/tax/individuals/frequently-asked-questions-individuals/adjustment-personal-income-tax-benefit-amounts.html,
+verified 2026-08-21 — that pull also corroborates `fedBpaMin: 14829`,
+`fedAgeAmt: 9208` and `oasThreshold: 95323` as coded). Over 30 years at 2.1%
+the credit base drifted to ~$3,730, overstating the federal pension credit and
+**understating** household tax.
+
+`fedPenAmt` now carries through unindexed. **Provincial** pension amounts do
+index and `indexProvince()`'s `penAmt: idx(p.penAmt, f)` is unchanged
+(Ontario $1,796 for 2026).
+
+| Fixture | Before | After | Move |
+| --- | --- | --- | --- |
+| Single filer (Ontario) | 198,394 | **201,470** | +1.55% |
+| Couple | 407,458 | **411,408** | +0.97% |
+| Accumulation | 2,164,651 | **2,176,860** | +0.56% |
+
+All three move upward, all well inside the 3% sanity gate; the accumulation
+fixture moves least, as most of its run is pre-retirement. The
+`indexationRate: 0` single-filer isolation still reproduces **278,614** exactly.
+
+Tests: 3 new cases in `projection-integrity.test.ts` (pinned `fedPenAmt` at
+2060 with the other federal amounts strictly rising, ON `penAmt` still
+indexing, published 2026 untouched). **207 tests passing**, clean typecheck.

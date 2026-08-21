@@ -54,7 +54,7 @@ describe("indexation of statutory amounts (§12)", () => {
     expect(y.derivedFrom).toBe(2026);
     expect(y.fedBpaMax).toBe(Math.round(base.fedBpaMax * f));
     expect(y.oasThreshold).toBe(Math.round(base.oasThreshold * f));
-    expect(y.fedPenAmt).toBe(Math.round(base.fedPenAmt * f));
+    expect(y.fedPenAmt).toBe(base.fedPenAmt);
     expect(y.federal[0]!.up).toBe(Math.round(base.federal[0]!.up * f));
     // The top bracket has no ceiling and must stay unbounded, not become a
     // finite indexed number.
@@ -67,6 +67,22 @@ describe("indexation of statutory amounts (§12)", () => {
     expect(y.federal.map((b) => b.rate)).toEqual(base.federal.map((b) => b.rate));
     expect(y.divGrossUp).toBe(base.divGrossUp);
     expect(y.agePhaseRate).toBe(base.agePhaseRate);
+  });
+
+  it("never indexes the federal pension income amount (fixed $2,000 in law)", () => {
+    const base = getTaxYear(2026);
+    const y = getTaxYear(2060, 0.021);
+    expect(getTaxYear(2026).fedPenAmt).toBe(2000);
+    expect(y.fedPenAmt).toBe(2000);
+    // Two-sided: pinned deliberately, not because indexation is broken.
+    expect(y.fedBpaMax).toBeGreaterThan(base.fedBpaMax);
+    expect(y.fedAgeAmt).toBeGreaterThan(base.fedAgeAmt);
+    expect(y.oasThreshold).toBeGreaterThan(base.oasThreshold);
+    expect(y.federal[0]!.up).toBeGreaterThan(base.federal[0]!.up);
+  });
+
+  it("keeps indexing provincial pension amounts", () => {
+    expect(getTaxYear(2060, 0.021).provinces['ON']!.penAmt).toBeGreaterThan(1796);
   });
 
   it("indexing at zero reproduces the published table exactly", () => {
