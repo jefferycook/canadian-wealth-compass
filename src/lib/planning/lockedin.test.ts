@@ -19,7 +19,7 @@ import {
   tryUnlockRule,
   unlockRule,
 } from "./registered";
-import { regressionFixturePlan } from "./fixtures";
+import { lockedInGoldenFixturePlan, regressionFixturePlan } from "./fixtures";
 import type { AccountInput, JurisdictionKey, PlanInputs } from "./types";
 
 function lockedInPlan(juris: JurisdictionKey, unlockPct: number): PlanInputs {
@@ -302,5 +302,70 @@ describe("Batch 0C follow-up — jurisdiction verification, 2026-08-21", () => {
     expect(P.lockedInDisclosures.join(" ")).toMatch(
       /unlocking percentage .* have not been confirmed with the regulator/i,
     );
+  });
+});
+
+/**
+ * Phase 0 exit criterion 2 (§12) requires a locked-in golden alongside the
+ * single, couple and accumulation anchors. Pinned 2026-08-21.
+ */
+describe("Batch 0C — locked-in golden fixture (Phase 0 exit #2)", () => {
+  const LOCKEDIN_GOLDEN_TAX = 111905;
+  const LOCKEDIN_GOLDEN_TERMINAL = 144512;
+
+  it("reproduces the locked-in lifetime-tax and terminal-portfolio anchors", () => {
+    const r = projection(lockedInGoldenFixturePlan());
+    const lifetime = r.rows.reduce((s, x) => s + x.tax, 0);
+    expect(Math.round(lifetime)).toBe(LOCKEDIN_GOLDEN_TAX);
+    expect(Math.round(r.rows[r.rows.length - 1]!.totalPortfolio)).toBe(
+      LOCKEDIN_GOLDEN_TERMINAL,
+    );
+  });
+
+  it("is a funded plan, so the anchor measures rules and not a failure mode", () => {
+    const r = projection(lockedInGoldenFixturePlan());
+    expect(r.rows.some((x) => x.fundingShortfall)).toBe(false);
+    expect(r.rows.some((x) => x.lifBound)).toBe(false);
+    expect(r.rows.length).toBe(37);
+  });
+
+  it("takes Manitoba's two entitlements sequentially, 50% at 55 then the balance at 65", () => {
+    const r = projection(lockedInGoldenFixturePlan());
+    const at = (age: number) => r.rows.find((x) => x.age === age)!;
+    const locked = (age: number) => at(age).balances["acc_lira"] ?? 0;
+    const unlocked = (age: number) => at(age).balances["acc_lira_unlk"] ?? 0;
+
+    // 54: still a LIRA, nothing unlocked — the conversion age has not arrived.
+    expect(unlocked(54)).toBe(0);
+    // 55: exactly half of the year's locked balance moves.
+    expect(unlocked(55)).toBeGreaterThan(0);
+    expect(unlocked(55) / (unlocked(55) + locked(55))).toBeCloseTo(0.5, 6);
+    // 56-64: the 50% cap holds; the second entitlement is not yet available.
+    expect(locked(64)).toBeGreaterThan(0);
+    // 65: the remainder moves as an INCREMENT on the same account. A one-shot
+    // flag would leave this money locked for life.
+    expect(locked(65)).toBeCloseTo(0, 6);
+    expect(unlocked(65)).toBeGreaterThan(unlocked(64));
+  });
+
+  it("routes unlocked Manitoba money to a PRRIF, not an RRSP", () => {
+    const r = projection(lockedInGoldenFixturePlan());
+    expect(r.acctMeta.find((a) => a.id === "acc_lira_unlk")?.type).toBe("PRRIF");
+    // The source account is a LIF by then, not still a LIRA.
+    expect(r.acctMeta.find((a) => a.id === "acc_lira")?.type).toBe("LIF");
+  });
+
+  it("is load-bearing: withholding the 65 entitlement moves the anchor", () => {
+    const p = lockedInGoldenFixturePlan();
+    const capped: PlanInputs = {
+      ...p,
+      accounts: p.accounts.map((a) =>
+        a.id === "acc_lira" ? { ...a, unlock: 50 } : a,
+      ),
+    };
+    const lifetime = projection(capped).rows.reduce((s, x) => s + x.tax, 0);
+    expect(Math.round(lifetime)).not.toBe(LOCKEDIN_GOLDEN_TAX);
+    // Directional, not just different: leaving money locked defers tax.
+    expect(lifetime).toBeLessThan(LOCKEDIN_GOLDEN_TAX);
   });
 });
