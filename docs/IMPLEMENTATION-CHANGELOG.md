@@ -400,3 +400,44 @@ with zero returns and zero yields so the cash identity is exact):
    never silently absorb it.
 
 **Suite: 227 tests passing**, clean typecheck. Nothing deployed.
+
+
+---
+
+## BC correctness pass — stale age amount and wrongly-applied indexation — 2026-08-21
+
+Scoped correction found by independent overnight verification. Unrelated to the
+open CPP-survivor `[C]` blocker, which remains open and untouched.
+
+**Sources (tier 1).** Province of British Columbia, *B.C. basic personal income
+tax credits* (last updated 2026-04-20); Province of British Columbia, *Personal
+income tax rates* (last updated 2026-04-17) / Budget 2026 tax measures.
+
+**Defect 1 — stale BC credit amounts.** `TAX_2026.provinces.BC` carried
+`ageAmt: 5691` and `ageThresh: 42580`. The published 2026 figures are **$5,927**
+and **$44,119**. Corrected.
+
+**Defect 2 — BC indexation is paused 2027–2030.** Budget 2026 pauses indexation
+of BC brackets and non-refundable personal credit amounts for tax years
+**2027 through 2030**, resuming **2031**. `indexProvince()` indexed every
+province in every derived year, so BC was inflated across four years it should
+have been frozen. Indexation is now jurisdiction-aware:
+
+- `ProvinceTax.indexationPause?: { from, to }` records the frozen range.
+- New exported `provincialIndexationFactor(p, baseYear, year, rate)` returns `1`
+  inside the pause and the ordinary compounded factor otherwise; `indexTaxYear`
+  calls it per province instead of applying one federal factor to all of them.
+- 2031+ resumes from the **published 2026 base**, i.e. `(1 + r)^(year − 2026)`.
+- Ontario and Alberta are unaffected; control tests pin that.
+
+**Unchanged.** The BC bracket table, BPA $13,216, pension amount $1,000 and the
+12% eligible-dividend credit all match current BC sources.
+
+**Tests added** (`src/lib/planning/taxYears.test.ts`, 9 tests): BC 2026 age
+amount/threshold pinned; BC brackets, BPA, age amount, threshold and pension
+amount asserted equal to 2026 values in each of 2027, 2028, 2029, 2030; 2031
+asserted strictly higher and equal to the 2026 base compounded five years;
+controls asserting ON still indexes in 2027 and AB in 2028.
+
+**Suite: 255 tests passing**, clean typecheck. Golden anchors are Ontario-based
+and all three are **unmoved**: 201,470 / 411,408 / 1,762,590. Nothing deployed.

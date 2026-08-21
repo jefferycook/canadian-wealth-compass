@@ -4,10 +4,37 @@ Maintained by whichever agent finds an issue. Purpose: ChatGPT, Claude and Lovab
 can all see current blockers without Jeff relaying them. Update the entry until it is
 resolved, then move it to **Resolved**.
 
-**Last updated:** 2026-08-21 · by Claude (via Lovable MCP)
+**Last updated:** 2026-08-21 · by Lovable (BC correctness pass)
 
 ---
 
+
+## Resolved — BC tax correctness defect (stale age amount + indexation pause) — FIXED 2026-08-21
+
+Raised by independent overnight verification against BC primary sources. Unrelated
+to CPP-1 `[C]`, which remains **OPEN** and unchanged.
+
+- BC 2026 **age amount** was `5,691` and **threshold** `42,580`; published values
+  are **$5,927 / $44,119** (BC, *B.C. basic personal income tax credits*,
+  2026-04-20). Corrected.
+- BC indexation of brackets and non-refundable personal credits is **paused for
+  2027–2030**, resuming 2031 (BC, *Personal income tax rates*, 2026-04-17 /
+  Budget 2026). The engine indexed every province every derived year, so BC was
+  wrongly inflated in those four years. Indexation is now jurisdiction-aware
+  (`ProvinceTax.indexationPause` + `provincialIndexationFactor`), resuming from
+  the published 2026 base in 2031. ON/AB behaviour deliberately unchanged.
+- BC brackets, BPA, pension amount and dividend credit re-confirmed correct.
+
+Pinned by 9 new tests in `src/lib/planning/taxYears.test.ts`, including ON/AB
+controls. **255 tests passing**, clean typecheck, anchors unmoved at
+**201,470 / 411,408 / 1,762,590** (all Ontario-based, so an unmoved anchor here
+is expected and is *not* evidence the BC path is exercised — the new tests are).
+
+Lesson, consistent with the running theme: a constant can be wrong *and* the
+rule applying it can be wrong at the same time, and neither shows up in an
+anchor that never touches that jurisdiction.
+
+---
 
 ## OPEN — Procedural conditions are recorded but never surfaced to the client
 
