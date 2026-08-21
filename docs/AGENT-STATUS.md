@@ -4,9 +4,46 @@ Maintained by whichever agent finds an issue. Purpose: ChatGPT, Claude and Lovab
 can all see current blockers without Jeff relaying them. Update the entry until it is
 resolved, then move it to **Resolved**.
 
-**Last updated:** 2026-08-21 · by Lovable (BC-2 closed — BC pension amount no longer indexed)
+**Last updated:** 2026-08-21 · by Lovable (Ontario LIF maximum table corrected — two anchors moved and traced)
+
+**Current anchors: 201,184 / 411,408 / 1,762,590**, plus the frozen-bracket
+single-filer variant at **279,538**. The two single-filer figures moved on
+2026-08-21 for the reason recorded immediately below; the couple and
+accumulation anchors are unmoved because neither fixture holds a LIF.
 
 ---
+
+## Resolved — Ontario LIF maximum table was Appendix A shifted one age — FIXED 2026-08-21
+
+FSRA guidance **PE0196INF (Active), Appendix A** is keyed by the **age attained
+during the year**. `ON_LIF_MAX` held that table shifted down one age and rounded
+to two decimals (`live[n] = FSRA[n+1]`; age 65 read 7.38% instead of 7.25513%),
+so **every** Ontario LIF maximum was overstated. `lifMaxFactor` also returned
+100% from age **89**, while Appendix A gives 89 = **51.45631%** and 100% only at
+**90** — the engine emptied an Ontario LIF a year early.
+
+The shift encoded an unstated "age at January 1" convention with no support in
+the input contract (`PersonInput.curAge` is "current age in whole years"). It is
+gone: the table is now read **unshifted, five decimals, ages 41–90**, keyed
+directly by the projection row age. No `age + 1` was introduced. RRIF logic was
+deliberately left untouched.
+
+**Anchors moved, and the movement is fully traced** — not re-pinned blindly.
+Single filer **201,470 → 201,184** (−286); frozen-bracket variant
+**278,614 → 279,538** (+924); couple and accumulation unmoved; the Manitoba
+locked-in golden unmoved. The fixture's LIF is cap-bound every year from 64 to
+89: lower caps defer income and save ~$1,130 of tax to age 89, then the $11,046
+the old age-89 100% row had already emptied is drawn at 90 and taxed at +$844
+(+$2,141 with brackets frozen). Full row-level attribution is in the changelog.
+
+Follow-ups recorded in the backlog, not fixed here: **LIF-1 [A]** (no DOB, so
+the start-year age key can be one step conservative) and **LIF-2** (audit
+whether the RRIF minimum table uses a different age basis than Appendix A).
+
+272 tests pass, clean typecheck. CPP-1 `[C]` remains **OPEN**; Phase 0 not
+approved, Phase 1 not started, nothing deployed.
+
+
 
 ## Resolved — BC-2: BC pension income amount was being indexed — FIXED 2026-08-21
 
