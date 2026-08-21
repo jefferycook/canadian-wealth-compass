@@ -115,6 +115,12 @@ export interface PlanOutput {
   roomDisclosures: string[];
   /** Input-contract problems the client should correct (CRA figures that clash). */
   roomValidationErrors: string[];
+  /**
+   * Batch 0D. Approximation notices that must appear wherever these numbers
+   * are shown: indexed (unpublished) tax years, non-registered ACB events and
+   * the approximate estate tie-break behind an automatic withdrawal order.
+   */
+  methodDisclosures: string[];
 }
 
 
@@ -224,6 +230,11 @@ export function summarize(P: PlanResult): PlanOutput {
     accounts: P.acctMeta,
     roomDisclosures: P.roomDisclosures,
     roomValidationErrors: P.roomValidationErrors,
+    methodDisclosures: [
+      ...P.taxYearDisclosures,
+      ...P.nonregDisclosures,
+      ...(P.autoSelected && P.autoSelectionNote ? [P.autoSelectionNote] : []),
+    ],
   };
 
 

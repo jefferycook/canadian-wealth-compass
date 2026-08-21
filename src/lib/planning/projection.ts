@@ -25,8 +25,18 @@ import {
   rrifMinFactor,
   tryUnlockRule,
 } from "./registered";
+import {
+  applyDistributionsToAcb,
+  decomposeReturn,
+  resolveYields,
+} from "./nonreg";
 import { approxMarginal, householdTax } from "./tax";
-import { getTaxYear, type TaxYear } from "./taxYears";
+import {
+  getTaxYear,
+  indexationFactor,
+  LATEST_TAX_YEAR,
+  type TaxYear,
+} from "./taxYears";
 import { strategyOrder } from "./strategy";
 import { bridgeIsPensionEligible } from "./types";
 import {
@@ -46,6 +56,7 @@ import type {
   ProjectionOverride,
   ProjectionResult,
   ProjectionRow,
+  TaxSettings,
   WorkingAccount,
   WorkingAsset,
 } from "./types";
@@ -80,7 +91,13 @@ export function projection(
   inputs: PlanInputs,
   override: ProjectionOverride = {},
 ): ProjectionResult {
-  const ty: TaxYear = getTaxYear(inputs.taxYear);
+  // Batch 0D: the indexation rate defaults to the plan's inflation assumption
+  // and is overridable per plan. Published tax years are never indexed.
+  const idxRate =
+    inputs.indexationRate != null && Number.isFinite(inputs.indexationRate)
+      ? inputs.indexationRate
+      : inputs.inflation;
+  const ty: TaxYear = getTaxYear(inputs.taxYear, idxRate);
   const goalSaves =
     override.goalSaves ?? (override.goalSave ? [override.goalSave] : []);
 
@@ -207,6 +224,8 @@ export function projection(
   const roomDisclosures = new Set<string>();
   /** Batch 0C locked-in disclosures (withheld / approximate), point-of-use. */
   const lockedInDisclosures = new Set<string>();
+  const taxYearDisclosures = new Set<string>();
+  const nonregDisclosures = new Set<string>();
   /** The most recent closed year of each person's ledger. */
   let lastClosedRoom: PersonRoomYear[] = [];
   const roomValidationErrors = ledgers.flatMap((l) => l.validationErrors);
@@ -221,6 +240,27 @@ export function projection(
   for (let off = 0; off <= endAge - curAgeA; off++) {
     const yr = startYear + off;
     const infFac = Math.pow(1 + infl, off);
+    // Batch 0D: statutory amounts are indexed past the last published table
+    // rather than frozen, so a flat-real income does not drift into higher
+    // brackets over a 30-year projection.
+    const tyY = getTaxYear(yr, idxRate);
+    const idxFac = indexationFactor(LATEST_TAX_YEAR, yr, idxRate);
+    // The client's own statutory overrides (BPA, OAS threshold) are amounts
+    // that index in law, so they index with the table they were taken from.
+    const optsY: TaxSettings =
+      idxFac === 1
+        ? opts
+        : {
+            ...opts,
+            fedBPA: opts.fedBPA * idxFac,
+            provBPA: opts.provBPA * idxFac,
+            oasThresh: opts.oasThresh * idxFac,
+          };
+    if (tyY.derivedFrom != null) {
+      taxYearDisclosures.add(
+        `Tax years after ${tyY.derivedFrom} are indexed from the published ${tyY.derivedFrom} table at ${(idxRate * 100).toFixed(1)}% per year (APPROXIMATE): brackets, personal amounts, the age and pension amounts and the OAS recovery threshold. Published years are exact.`,
+      );
+    }
     const ages = people.map((p) => p.curAge + off);
     const alive = people.map((p) => !(p.deathAge > 0 && p.curAge + off >= p.deathAge));
 
@@ -229,7 +269,7 @@ export function projection(
     if (couple) {
       people.forEach((p, i) => {
         if (p.deathAge > 0 && p.curAge + off === p.deathAge) {
-          if (cppSurvEligible && p.cpp.amt > 0) deathBenefit += ty.cppDeathBenefit;
+          if (cppSurvEligible && p.cpp.amt > 0) deathBenefit += tyY.cppDeathBenefit;
           const survId = people[(i + 1) % 2]!.id;
           // The deceased's accounts roll to the survivor; joint accounts pass
           // wholly by right of survivorship.
@@ -365,6 +405,10 @@ export function projection(
       bridgeInc: number;
       nonregInterest: number;
       nonregDiv: number;
+      /** Batch 0D: capital-gains distributions (T3/T5008), before inclusion. */
+      nonregCgDist: number;
+      /** Batch 0D: gain realized because ROC drove the ACB through zero. */
+      nonregRocGain: number;
       /** Mandatory RRIF/LIF minimums. Always RRIF-status cash by construction. */
       mandatoryTaxable: number;
       /** Scheduled withdrawals from accounts in RRIF/LIF status this year. */
@@ -389,6 +433,8 @@ export function projection(
         bridgeInc: 0,
         nonregInterest: 0,
         nonregDiv: 0,
+        nonregCgDist: 0,
+        nonregRocGain: 0,
         mandatoryTaxable: 0,
         schedRrifCash: 0,
         schedRrspCash: 0,
@@ -409,7 +455,7 @@ export function projection(
               ages[i]!,
               raw[i]!.rawCpp,
               infFac,
-              ty,
+              tyY,
             );
           }
           penInc += inputs.survivorPct * raw[j]!.rawPen;
@@ -438,19 +484,36 @@ export function projection(
         const eq = (a.eq || 0) / 100;
         rate = eq * (activeShock.pct / 100) + (1 - eq) * fiRetGlobal + retDelta;
       }
-      const growth = a.bal * rate;
-      if (a.type === "NONREG" && growth > 0) {
-        const i = growth * a.mix.int;
-        const d = growth * a.mix.div;
+      if (a.type === "NONREG") {
+        // Batch 0D / spec §6.1: distributions are yields on the balance and
+        // accrue regardless of the sign of the price return. The old
+        // `growth > 0` gate handed the client a tax holiday in every down
+        // year and in every market-shock scenario.
+        const dec = decomposeReturn(
+          a.bal,
+          rate,
+          resolveYields(a.mix, a.ret + retDelta, a.yields),
+        );
         for (const [idx, fr] of splitOf(a)) {
-          P[idx]!.nonregInterest += i * fr;
-          P[idx]!.nonregDiv += d * fr;
+          P[idx]!.nonregInterest += dec.interest * fr;
+          P[idx]!.nonregDiv += dec.eligDiv * fr;
+          P[idx]!.nonregCgDist += dec.cgDist * fr;
         }
-        a.acb += i + d;
-        a.bal += growth;
+        const mv = applyDistributionsToAcb(a.acb, dec);
+        a.acb = mv.acb;
+        if (mv.realizedGain > 0) {
+          for (const [idx, fr] of splitOf(a)) {
+            P[idx]!.nonregRocGain += mv.realizedGain * fr;
+          }
+          nonregDisclosures.add(
+            `Return of capital reduced the adjusted cost base of "${
+              a.name || a.type
+            }" below zero; the excess is realized as a capital gain in that year, as required (§6.3).`,
+          );
+        }
+        a.bal += dec.growth;
       } else {
-        // In loss years no taxable yield accrues; the loss stays unrealized.
-        a.bal += growth;
+        a.bal += a.bal * rate;
       }
     }
 
@@ -793,7 +856,9 @@ export function projection(
           rrspNonEligibleCash +
           p.nonregInterest,
         div: p.nonregDiv,
-        gainTax: p.schedNonregGain * 0.5,
+        // Batch 0D: capital-gains distributions and any ROC-driven realized
+        // gain are taxable in the year they occur, at the 50% inclusion rate.
+        gainTax: (p.schedNonregGain + p.nonregCgDist + p.nonregRocGain) * 0.5,
         // Erratum 5: two typed streams instead of one scalar.
         pensionEligAnyAge: p.penInc + (bridgeElig ? p.bridgeInc : 0),
         pensionElig65Plus: p.age >= 65 ? rrifEligibleCash : 0,
@@ -907,9 +972,9 @@ export function projection(
       const { incs, drawCash } = incomesForG(G);
       const ht = householdTax(
         livingIdx.map((i) => incs[i]!),
-        opts,
+        optsY,
         canSplit,
-        ty,
+        tyY,
       );
       return { cash: fixedCash + drawCash - ht.tax, ht };
     };
@@ -959,6 +1024,50 @@ export function projection(
     const grossCash = fixedCash + drawn.reg + drawn.nonreg + drawn.tfsa;
     const afterTax = grossCash - tax;
     const shortfall = Math.max(0, spendTarget - afterTax);
+
+    /* --- 9b. Surplus sweep (Batch 0D) --- */
+    // After-tax cash above the spending target is real money — typically a
+    // forced RRIF minimum the household did not need. It is contributed back
+    // to the portfolio (TFSA first, to legally available room per Batch 0B,
+    // then non-registered) instead of vanishing from the balance sheet.
+    let surplusSwept = 0;
+    const surplus = afterTax - spendTarget;
+    if (surplus > 1) {
+      let rest = surplus;
+      const tfsaOwners = people
+        .map((_p, i) => i)
+        .filter((i) => alive[i])
+        .sort((x, y) => x - y);
+      for (const i of tfsaOwners) {
+        if (rest <= 0.005) break;
+        const tgt = accts.find((a) => a.type === "TFSA" && oi(a) === i);
+        if (!tgt) continue;
+        // Engine-generated: capped at KNOWN room, never at unknown room.
+        rest -= placeInAccount(tgt, rest, "generated", false);
+      }
+      if (rest > 0.005) {
+        const nr =
+          accts.find((a) => a.type === "NONREG" && alive[oi(a)]) ??
+          accts.find((a) => a.type === "NONREG");
+        if (nr) {
+          // Money contributed out of after-tax cash is fully in the ACB.
+          nr.bal += rest;
+          nr.acb += rest;
+          rest = 0;
+        }
+      }
+      surplusSwept = surplus - rest;
+    }
+
+    const distributionsTaxable = P.reduce(
+      (t, p) =>
+        t +
+        p.nonregInterest +
+        p.nonregDiv +
+        (p.nonregCgDist + p.nonregRocGain) * 0.5,
+      0,
+    );
+
     const totalPortfolio = accts.reduce((s, a) => s + Math.max(0, a.bal), 0);
     const assetTotal = assets.reduce((s, a) => s + Math.max(0, a.val), 0);
     const liabTotal = liabs.reduce((s, l) => s + Math.max(0, l.bal), 0);
@@ -973,7 +1082,7 @@ export function projection(
     // spouse's marginal rate, since a tax-aware plan taps them next.
     const finalIncs = incomesForG(G).incs;
     const margRate = livingIdx.length
-      ? Math.min(...livingIdx.map((i) => approxMarginal(finalIncs[i]!, opts, ty)))
+      ? Math.min(...livingIdx.map((i) => approxMarginal(finalIncs[i]!, optsY, tyY)))
       : 0;
 
     // TFSA withdrawals restore room on January 1 of the FOLLOWING year, so they
@@ -991,6 +1100,9 @@ export function projection(
     rows.push({
       roomLedger: closedRoom,
       rrspDeduction: rrspDeductions.reduce((s, v) => s + v, 0),
+      surplusSwept,
+      distributionsTaxable,
+      taxYearDerived: tyY.derivedFrom != null,
 
 
       off,
@@ -1055,6 +1167,8 @@ export function projection(
     rows,
     roomDisclosures: [...roomDisclosures, ...(spousalNote ? [spousalNote] : [])],
     lockedInDisclosures: [...lockedInDisclosures],
+    taxYearDisclosures: [...taxYearDisclosures],
+    nonregDisclosures: [...nonregDisclosures],
     roomValidationErrors,
 
 

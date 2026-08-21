@@ -31,6 +31,15 @@ function quietPlan(): PlanInputs {
 const bal = (p: PlanInputs, id: string) =>
   projection(p).rows[0]!.balances[id] ?? 0;
 
+/**
+ * Room actually consumed in the opening year by person A. Batch 0D added the
+ * after-tax surplus sweep, which also contributes to the TFSA, so a balance
+ * delta between two plans no longer isolates the lump sum. The ledger is the
+ * direct statement of the invariant these guards exist to protect.
+ */
+const roomYear0 = (p: PlanInputs) =>
+  projection(p).rows[0]!.roomLedger.find((r) => r.person === "A")!;
+
 describe("registered-destination lump sums respect room", () => {
   it("cannot place more than known TFSA room into a TFSA", () => {
     const base = quietPlan();
@@ -48,9 +57,18 @@ describe("registered-destination lump sums respect room", () => {
         taxable: false,
       },
     ];
-    const placed = bal(withLump, "acc_tfsa_a") - bal(base, "acc_tfsa_a");
-    expect(placed).toBeLessThanOrEqual(5000 + 0.01);
-    expect(placed).toBeCloseTo(5000, 2);
+    const led = roomYear0(withLump);
+    // The lump sum is capped by legally available room, and the whole 5,000
+    // of it is used: contributions equal the room, and none spills to excess.
+    expect(led.tfsa.contributions).toBeLessThanOrEqual(
+      led.tfsa.open + led.tfsa.accrual + led.tfsa.withdrawalsRestored + 0.01,
+    );
+    expect(led.tfsa.contributions).toBeCloseTo(5000, 2);
+    expect(led.tfsa.excess).toBeCloseTo(0, 2);
+    // And the account never receives more than the base plan plus that room.
+    expect(bal(withLump, "acc_tfsa_a")).toBeLessThanOrEqual(
+      bal(base, "acc_tfsa_a") + 5000 + 0.01,
+    );
   });
 
   it("cascades the remainder rather than losing it", () => {
@@ -73,11 +91,13 @@ describe("registered-destination lump sums respect room", () => {
         taxable: false,
       },
     ];
+    const led = roomYear0(withLump);
+    expect(led.tfsa.contributions).toBeCloseTo(5000, 2);
+    expect(led.rrsp.contributions).toBeCloseTo(20000, 2);
     const tfsa = bal(withLump, "acc_tfsa_a") - bal(base, "acc_tfsa_a");
     const rrsp = bal(withLump, "acc_rrsp_a") - bal(base, "acc_rrsp_a");
     const nonreg = bal(withLump, "acc_nonreg_j") - bal(base, "acc_nonreg_j");
-    expect(tfsa).toBeCloseTo(5000, 2);
-    expect(rrsp).toBeCloseTo(20000, 2);
+    // Nothing is lost: whatever room could not absorb lands non-registered.
     expect(tfsa + rrsp + nonreg).toBeGreaterThan(99000);
   });
 

@@ -145,3 +145,18 @@ only the former generates a pension adjustment that consumes RRSP room.
 equivalent) intake input, and drive PA uncertainty and the resulting
 registered-recommendation withholding from current membership rather than from
 pension entitlement alone.
+
+## Opened by Batch 0D (not implemented)
+
+- **Non-eligible (CCPC) dividends [G].** `nonreg.ts` deliberately refuses a
+  non-eligible yield rather than taxing one at eligible-dividend rates. Needs
+  per-province non-eligible gross-up and dividend tax credits in the verified
+  rules layer before the yield vector accepts the component.
+- **Intake for explicit yield vectors.** `AccountInput.yields` exists and is
+  honoured by the engine, but nothing in the wizard collects it; every plan
+  still resolves yields from the legacy `mix`.
+- **Terminal-year return (§7.8).** Until the estate is modelled with a real
+  final return, the automatic withdrawal-order tie-break stays APPROXIMATE.
+- **Indexation rate as an intake assumption.** `PlanInputs.indexationRate`
+  defaults to the plan's inflation assumption and has no UI control; CRA
+  indexation and price inflation are not the same series.

@@ -207,6 +207,18 @@ export interface AccountInput {
   wdStart: number;
   wdEnd: number;
   mix: ReturnMix;
+  /**
+   * Batch 0D (§6.1). Optional explicit distribution yields, as non-negative
+   * fractions of the balance. When absent the legacy `mix` convention applies,
+   * so saved plans need no migration. Non-eligible dividends are deliberately
+   * absent: §6.2 remains an open gap in the verified rules layer.
+   */
+  yields?: {
+    interest?: number | null;
+    eligDiv?: number | null;
+    cgDist?: number | null;
+    roc?: number | null;
+  } | null;
 }
 
 export interface ExpenseInput {
@@ -306,6 +318,11 @@ export interface PlanInputs {
   endAge: number;
   /** Annual inflation as a fraction. */
   inflation: number;
+  /**
+   * Batch 0D. Annual indexation rate applied to statutory amounts in years
+   * beyond the last published tax table. Null/absent = use `inflation`.
+   */
+  indexationRate?: number | null;
   /** Household after-tax spending need in retirement, today's dollars. */
   spendNeed: number;
   /**
@@ -453,7 +470,21 @@ export interface ProjectionRow {
   roomLedger: PersonRoomYear[];
   /** Total RRSP deduction claimed by the household this year. */
   rrspDeduction: number;
-
+  /**
+   * Batch 0D. After-tax cash above the spending target that was contributed
+   * back to the portfolio (TFSA to room, then non-registered) instead of
+   * disappearing. Typically a forced RRIF-minimum year.
+   */
+  surplusSwept: number;
+  /**
+   * Batch 0D. Taxable non-registered distributions accrued this year:
+   * interest + eligible dividends + the taxable half of capital-gains
+   * distributions and of any gain realized by return of capital. These accrue
+   * in loss years too (§6.1).
+   */
+  distributionsTaxable: number;
+  /** True when this year's tax table was derived by indexation, not published. */
+  taxYearDerived: boolean;
 }
 
 export interface AccountMeta {
@@ -485,6 +516,14 @@ export interface ProjectionResult {
   lockedInDisclosures: string[];
   /** Input-contract problems (e.g. the RRSP CRA identity failing). */
   roomValidationErrors: string[];
+  /**
+   * Batch 0D. Raised once when any projected year uses a tax table derived by
+   * indexation rather than a published one — an APPROXIMATE input that must be
+   * disclosed wherever those years' numbers are shown (§13).
+   */
+  taxYearDisclosures: string[];
+  /** Batch 0D. Non-registered distribution/ACB notices (e.g. ROC through zero). */
+  nonregDisclosures: string[];
 }
 
 
@@ -494,6 +533,14 @@ export interface PlanResult extends ProjectionResult {
   chosenStrategy: WithdrawalStrategy;
   /** True when "auto" picked the ordering rather than the user. */
   autoSelected: boolean;
+  /**
+   * Batch 0D (§7.8). The auto tie-break ranks orderings on an APPROXIMATE
+   * after-tax estate (flat 38% / 8% haircuts), not a terminal-year return.
+   * Present only when `autoSelected` is true, and surfaced wherever the chosen
+   * strategy is displayed.
+   */
+  autoSelectionStatus?: "APPROXIMATE";
+  autoSelectionNote?: string;
 }
 
 /**
