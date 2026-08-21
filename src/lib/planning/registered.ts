@@ -304,26 +304,31 @@ export const UNLOCK_RULES: Record<JurisdictionKey, UnlockRule> = {
     destinationType: "RRSP",
     oneTime: true,
     notes:
-      "Headline 50% from age 50, carried from the original engine and not re-verified against the Alberta superintendent for v1.2.",
+      "Age 50+: a one-time unlocking of up to 50% of the benefit value, to cash (less withholding), an RRSP or a RRIF on a tax-deferred basis. Procedural constraint NOT modelled: the entitlement must be exercised at the moment the money moves into the LIF/LITB account, not from an already-established LIF. Alberta's small-amount threshold is 20% of YMPE (not the 40%/50% used in some other jurisdictions).",
     unlockEntitlement: {
       source: {
-        title: "Alberta unlocking percentage carried from the original engine",
-        publisher: "Not re-verified for v1.2",
-        url: "internal://unverified",
-        tier: 3,
+        title:
+          "Interpretive Guideline #04 — Unlocking of Pension Benefits",
+        publisher: "Alberta Superintendent of Pensions",
+        url: "https://open.alberta.ca/dataset/623fa691-3296-4bf4-ae01-ebd3cd657f99/resource/74e60c33-cf1c-4d3e-92da-b625a2c1a2b4/download/ig-04-unlocking-of-pension-benefits.pdf",
+        tier: 1,
       },
       verifiedDate: "2026-08-21",
-      status: "APPROXIMATE",
+      status: "VERIFIED",
+      notes:
+        "\"the member or LIRA owner is age 50 or older\", up to \"50 per cent of the value of their benefit\", \"on a one-time basis\", and it \"must occur prior to funds being deposited in the LIF or LITB account\" — the engine does not model that timing constraint.",
     },
     destinationVehicle: {
       source: {
-        title: "Assumed RRSP destination, not re-verified",
-        publisher: "Not re-verified for v1.2",
-        url: "internal://unverified",
-        tier: 3,
+        title:
+          "Interpretive Guideline #04 — Unlocking of Pension Benefits",
+        publisher: "Alberta Superintendent of Pensions",
+        url: "https://open.alberta.ca/dataset/623fa691-3296-4bf4-ae01-ebd3cd657f99/resource/74e60c33-cf1c-4d3e-92da-b625a2c1a2b4/download/ig-04-unlocking-of-pension-benefits.pdf",
+        tier: 1,
       },
       verifiedDate: "2026-08-21",
-      status: "APPROXIMATE",
+      status: "VERIFIED",
+      notes: "Cash (less withholding), an RRSP, or a RRIF on a tax-deferred basis.",
     },
     lifMaximum: FORMULA_LIF_MAX,
   }),
