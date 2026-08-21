@@ -282,7 +282,8 @@ describe("registered account rules", () => {
 
   it("applies unlocking rules by pension jurisdiction, not by residence", () => {
     expect(unlockRule("ON").pct).toBe(50);
-    expect(unlockRule("NB").pct).toBe(25);
+    // NB withdrawn as UNSUPPORTED (FCNB lesser-of formula), Batch 0C follow-up.
+    expect(unlockRule("NB").pct).toBe(0);
     expect(unlockRule("BC").pct).toBe(0); // BC does not permit age-based unlocking
     expect(unlockRule("AB").minAge).toBe(50);
     expect(unlockRule("MB").full65).toBe(true);
