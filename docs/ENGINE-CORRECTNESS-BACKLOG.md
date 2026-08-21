@@ -374,3 +374,31 @@ already verified and unchanged: Alberta's pension income amount indexes
 (2024 $1,685 -> 2025 $1,719 -> 2026 $1,753), so no jurisdiction carve-out is
 needed and derived years now index from the verified 2026 value. Nothing about
 Alberta's pension income amount remains CONST-UNVERIFIED.
+
+---
+
+## LIF-1 [A] — LIF/RRIF age keying has no date-of-birth precision
+
+Recorded 2026-08-21 alongside the Ontario LIF Appendix A correction.
+
+FSRA Appendix A (and the RRIF minimum table) are keyed by the age **attained
+during the year**. The engine models whole years and holds no date of birth, so
+the projection row age is used directly as that key. For a plan started before
+the client's birthday, the applicable row can be one age step ahead of the
+engine's row, so the modelled maximum is **conservative** in the start year.
+
+Deliberately not "fixed" with a constant offset: an unconditional `age + 1`
+would be wrong for every client whose birthday has already passed, and would
+re-encode the unstated January-1 convention the Appendix A correction removed.
+The real fix is an optional DOB (or birth month) on `PersonInput` feeding a
+sub-annual age basis, and it must be applied consistently to the RRIF minimum
+table at the same time.
+
+## LIF-2 — audit the RRIF minimum table's age basis
+
+Split out from the Ontario LIF correction, which deliberately left RRIF logic
+untouched. `rrifMin` should be confirmed against the CRA basis (age **at the
+start of the year**, i.e. December 31 of the preceding year) rather than the
+"attained during year" basis Appendix A uses. If the two tables genuinely take
+different age bases, the engine currently keys both off the same row age and one
+of them is off by a year. Verify before Phase 1; no code change until verified.

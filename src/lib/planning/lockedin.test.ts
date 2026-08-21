@@ -150,16 +150,112 @@ describe("Batch 0C — Quebec maximum is age-gated", () => {
   });
 });
 
-describe("Batch 0C — Ontario LIF maximum", () => {
-  it("matches the FSRA table at ages 55, 65, 75 and 85 and is VERIFIED", () => {
-    for (const age of [55, 65, 75, 85]) {
+/**
+ * FSRA guidance PE0196INF (Active), Appendix A, re-checked 2026-08-21. The
+ * table is keyed by the age ATTAINED DURING THE YEAR and is read unshifted;
+ * the previous engine table was that same table shifted down one age and
+ * rounded to two decimals, which overstated every maximum.
+ */
+describe("Batch 0C — Ontario LIF maximum (FSRA PE0196INF Appendix A)", () => {
+  /** Appendix A verbatim, ages 41-90. */
+  const FSRA_APPENDIX_A: Record<number, number> = {
+    41: 5.98531,
+    42: 6.006,
+    43: 6.02808,
+    44: 6.05167,
+    45: 6.07687,
+    46: 6.10382,
+    47: 6.13265,
+    48: 6.1635,
+    49: 6.19655,
+    50: 6.23197,
+    51: 6.26996,
+    52: 6.31073,
+    53: 6.35454,
+    54: 6.40164,
+    55: 6.45234,
+    56: 6.50697,
+    57: 6.56589,
+    58: 6.62952,
+    59: 6.69833,
+    60: 6.77285,
+    61: 6.85367,
+    62: 6.94147,
+    63: 7.03703,
+    64: 7.14124,
+    65: 7.25513,
+    66: 7.37988,
+    67: 7.51689,
+    68: 7.66778,
+    69: 7.83449,
+    70: 8.0193,
+    71: 8.22496,
+    72: 8.4548,
+    73: 8.71288,
+    74: 9.00423,
+    75: 9.33511,
+    76: 9.71347,
+    77: 10.14952,
+    78: 10.65661,
+    79: 11.25255,
+    80: 11.9616,
+    81: 12.81773,
+    82: 13.87002,
+    83: 15.19207,
+    84: 16.89953,
+    85: 19.18515,
+    86: 22.39589,
+    87: 27.22561,
+    88: 35.29338,
+    89: 51.45631,
+    90: 100.0,
+  };
+
+  it("pins the requested ages 50, 55, 65, 75, 85, 89 and 90 exactly", () => {
+    for (const age of [50, 55, 65, 75, 85, 89, 90]) {
       const r = lifMaximumFor("ON", age, 6);
-      expect(r.applies).toBe(true);
-      expect(r.pct).toBeCloseTo(ON_LIF_MAX[age]!, 6);
-      expect(r.status).toBe("VERIFIED");
+      expect(r.applies, `age ${age}`).toBe(true);
+      expect(r.pct, `age ${age}`).toBeCloseTo(FSRA_APPENDIX_A[age]!, 5);
+      expect(r.status, `age ${age}`).toBe("VERIFIED");
+    }
+    // The boundary the shifted table got wrong: 89 is NOT 100%.
+    expect(lifMaximumFor("ON", 89, 6).pct).toBeCloseTo(51.45631, 5);
+    expect(lifMaximumFor("ON", 90, 6).pct).toBe(100);
+    expect(lifMaximumFor("ON", 95, 6).pct).toBe(100);
+  });
+
+  it("reproduces every published age 41-90 through the public path", () => {
+    for (const [k, v] of Object.entries(FSRA_APPENDIX_A)) {
+      const age = Number(k);
+      expect(lifMaximumFor("ON", age, 6).pct, `age ${age}`).toBeCloseTo(v, 5);
+      expect(ON_LIF_MAX[age], `ON_LIF_MAX[${age}]`).toBeCloseTo(v, 5);
+    }
+    // No stray ages beyond the published range live in the constant.
+    for (const k of Object.keys(ON_LIF_MAX)) {
+      expect(FSRA_APPENDIX_A[Number(k)], `extra key ${k}`).toBeDefined();
     }
   });
+
+  it("is monotonically non-decreasing across the table", () => {
+    for (let age = 42; age <= 90; age++) {
+      expect(
+        lifMaximumFor("ON", age, 6).pct,
+        `age ${age} vs ${age - 1}`,
+      ).toBeGreaterThan(lifMaximumFor("ON", age - 1, 6).pct);
+    }
+  });
+
+  it("falls back to the age-41 entry below the published floor, not age 50", () => {
+    expect(lifMaximumFor("ON", 40, 6).pct).toBeCloseTo(5.98531, 5);
+    expect(lifMaximumFor("ON", 30, 6).pct).toBeCloseTo(5.98531, 5);
+  });
+
+  it("ignores the reference-rate argument, since Ontario reads the table", () => {
+    expect(lifMaximumFor("ON", 65, 3).pct).toBeCloseTo(7.25513, 5);
+    expect(lifMaximumFor("ON", 65, 9).pct).toBeCloseTo(7.25513, 5);
+  });
 });
+
 
 describe("Batch 0C — unlocking follows pension jurisdiction, not residence", () => {
   it("uses Ontario rules for an Ontario LIRA held by a BC resident", () => {
