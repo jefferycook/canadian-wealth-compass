@@ -181,6 +181,8 @@ export function projection(
       }),
   );
   const roomDisclosures = new Set<string>();
+  /** The most recent closed year of each person's ledger. */
+  let lastClosedRoom: PersonRoomYear[] = [];
   const roomValidationErrors = ledgers.flatMap((l) => l.validationErrors);
 
   const rows: ProjectionRow[] = [];
@@ -384,9 +386,7 @@ export function projection(
     /* --- 5. Room ledgers, contributions and lump sums --- */
     // The ledger opens before any contribution is applied. Earned income for
     // the year creates room on January 1 of the FOLLOWING year, never this one.
-    const roomYears: PersonRoomYear[] = ledgers.map((l, i) =>
-      l.openYear(yr, ages[i]!, alive[i] ? raw[i]!.employInc : 0),
-    );
+    ledgers.forEach((l, i) => l.openYear(yr, ages[i]!, alive[i] ? raw[i]!.employInc : 0));
 
     /** Apply a contribution through the owner's ledger, and return what stuck. */
     const applyContribution = (
@@ -856,6 +856,7 @@ export function projection(
     });
 
     const closedRoom = ledgers.map((l) => l.closeYear());
+    lastClosedRoom = closedRoom;
     for (const ry of closedRoom) for (const d of ry.disclosures) roomDisclosures.add(d);
 
 
