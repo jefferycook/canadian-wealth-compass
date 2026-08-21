@@ -21,12 +21,15 @@ to CPP-1 `[C]`, which remains **OPEN** and unchanged.
   2027–2030**, resuming 2031 (BC, *Personal income tax rates*, 2026-04-17 /
   Budget 2026). The engine indexed every province every derived year, so BC was
   wrongly inflated in those four years. Indexation is now jurisdiction-aware
-  (`ProvinceTax.indexationPause` + `provincialIndexationFactor`), resuming from
-  the published 2026 base in 2031. ON/AB behaviour deliberately unchanged.
+  (`ProvinceTax.indexationPause` + `provincialIndexationFactor`), resuming
+  **prospectively from the frozen 2030 amount** in 2031 with **no catch-up**
+  (BC Income Tax Act **s.4.52(2)** with **s.4.52(4.25)**, current text checked
+  2026-08-21): 2031 = base x (1+r), 2032 = base x (1+r)^2. ON/AB behaviour
+  deliberately unchanged.
 - BC brackets, BPA, pension amount and dividend credit re-confirmed correct.
 
-Pinned by 9 new tests in `src/lib/planning/taxYears.test.ts`, including ON/AB
-controls. **255 tests passing**, clean typecheck, anchors unmoved at
+Pinned by 10 new tests in `src/lib/planning/taxYears.test.ts`, including ON/AB
+controls. **256 tests passing**, clean typecheck, anchors unmoved at
 **201,470 / 411,408 / 1,762,590** (all Ontario-based, so an unmoved anchor here
 is expected and is *not* evidence the BC path is exercised — the new tests are).
 
