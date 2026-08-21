@@ -851,7 +851,9 @@ export function projection(
           rrspNonEligibleCash +
           p.nonregInterest,
         div: p.nonregDiv,
-        gainTax: p.schedNonregGain * 0.5,
+        // Batch 0D: capital-gains distributions and any ROC-driven realized
+        // gain are taxable in the year they occur, at the 50% inclusion rate.
+        gainTax: (p.schedNonregGain + p.nonregCgDist + p.nonregRocGain) * 0.5,
         // Erratum 5: two typed streams instead of one scalar.
         pensionEligAnyAge: p.penInc + (bridgeElig ? p.bridgeInc : 0),
         pensionElig65Plus: p.age >= 65 ? rrifEligibleCash : 0,
@@ -1017,6 +1019,50 @@ export function projection(
     const grossCash = fixedCash + drawn.reg + drawn.nonreg + drawn.tfsa;
     const afterTax = grossCash - tax;
     const shortfall = Math.max(0, spendTarget - afterTax);
+
+    /* --- 9b. Surplus sweep (Batch 0D) --- */
+    // After-tax cash above the spending target is real money — typically a
+    // forced RRIF minimum the household did not need. It is contributed back
+    // to the portfolio (TFSA first, to legally available room per Batch 0B,
+    // then non-registered) instead of vanishing from the balance sheet.
+    let surplusSwept = 0;
+    const surplus = afterTax - spendTarget;
+    if (surplus > 1) {
+      let rest = surplus;
+      const tfsaOwners = people
+        .map((_p, i) => i)
+        .filter((i) => alive[i])
+        .sort((x, y) => x - y);
+      for (const i of tfsaOwners) {
+        if (rest <= 0.005) break;
+        const tgt = accts.find((a) => a.type === "TFSA" && oi(a) === i);
+        if (!tgt) continue;
+        // Engine-generated: capped at KNOWN room, never at unknown room.
+        rest -= placeInAccount(tgt, rest, "generated", false);
+      }
+      if (rest > 0.005) {
+        const nr =
+          accts.find((a) => a.type === "NONREG" && alive[oi(a)]) ??
+          accts.find((a) => a.type === "NONREG");
+        if (nr) {
+          // Money contributed out of after-tax cash is fully in the ACB.
+          nr.bal += rest;
+          nr.acb += rest;
+          rest = 0;
+        }
+      }
+      surplusSwept = surplus - rest;
+    }
+
+    const distributionsTaxable = P.reduce(
+      (t, p) =>
+        t +
+        p.nonregInterest +
+        p.nonregDiv +
+        (p.nonregCgDist + p.nonregRocGain) * 0.5,
+      0,
+    );
+
     const totalPortfolio = accts.reduce((s, a) => s + Math.max(0, a.bal), 0);
     const assetTotal = assets.reduce((s, a) => s + Math.max(0, a.val), 0);
     const liabTotal = liabs.reduce((s, l) => s + Math.max(0, l.bal), 0);
@@ -1049,6 +1095,9 @@ export function projection(
     rows.push({
       roomLedger: closedRoom,
       rrspDeduction: rrspDeductions.reduce((s, v) => s + v, 0),
+      surplusSwept,
+      distributionsTaxable,
+      taxYearDerived: tyY.derivedFrom != null,
 
 
       off,
@@ -1113,6 +1162,8 @@ export function projection(
     rows,
     roomDisclosures: [...roomDisclosures, ...(spousalNote ? [spousalNote] : [])],
     lockedInDisclosures: [...lockedInDisclosures],
+    taxYearDisclosures: [...taxYearDisclosures],
+    nonregDisclosures: [...nonregDisclosures],
     roomValidationErrors,
 
 
