@@ -201,6 +201,11 @@ const PROVINCES_2026: Record<string, ProvinceTax> = {
     // amount indexes (2024 1,685 -> 2025 1,719 -> 2026 1,753), so the generic
     // indexing of `penAmt` in derived years is correct behaviour for AB.
     penAmt: 1753,
+    // VERIFIED 2026-08-21 — Alberta Personal Income Tax Act s.21, as amended by
+    // Bill 35, Tax Statutes (Creating Jobs and Driving Innovation) Amendment
+    // Act (assent 2020-12-09): the eligible-dividend credit is 8.12% of the
+    // grossed-up dividend for 2021 and subsequent taxation years. No later
+    // change found on re-check.
     divCredit: 0.0812,
   },
   CUSTOM: {
