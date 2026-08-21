@@ -108,6 +108,13 @@ export interface PlanOutput {
   /** The full ledger behind the chart. */
   years: PlanYearDetail[];
   accounts: AccountMeta[];
+  /**
+   * Contribution-room disclosures: where the plan had to estimate, where a
+   * figure is missing, and where the tool is deliberately staying silent.
+   */
+  roomDisclosures: string[];
+  /** Input-contract problems the client should correct (CRA figures that clash). */
+  roomValidationErrors: string[];
 }
 
 
