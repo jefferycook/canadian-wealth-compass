@@ -803,6 +803,8 @@ export function projection(
     // Apply the chosen draw to the real balances.
     let rem = G;
     const drawn = { reg: 0, tfsa: 0, nonreg: 0 };
+    /** Discretionary TFSA cash taken, per owner — it restores room next Jan 1. */
+    const tfsaTakenBy = people.map(() => 0);
     for (const d of drawable) {
       const take = Math.min(d.cap, rem);
       if (take <= 0) break;
@@ -810,6 +812,7 @@ export function projection(
       const a = d.a;
       if (d.type === "TFSA") {
         drawn.tfsa += take;
+        tfsaTakenBy[d.owner] = (tfsaTakenBy[d.owner] ?? 0) + take;
       } else if (d.type === "NONREG") {
         const gain = take * d.gf;
         a.acb -= take - gain;
@@ -819,6 +822,7 @@ export function projection(
       }
       a.bal -= take;
     }
+
 
     const ht = evalG(G).ht;
     const tax = ht.tax;
