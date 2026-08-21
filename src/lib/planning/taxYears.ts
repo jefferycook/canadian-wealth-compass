@@ -38,6 +38,12 @@ export interface ProvinceTax {
   ageThresh: number;
   /** Pension income amount. */
   penAmt: number;
+  /**
+   * Whether this province's pension income amount is an indexed dollar amount.
+   * Defaults to true (ON, AB). BC fixes the credit base in statute at the
+   * smaller of $1,000 and eligible pension income, so BC sets this false.
+   */
+  penAmtIndexed?: boolean;
   /** Dividend tax credit, as a fraction of the grossed-up eligible dividend. */
   divCredit: number;
   /**
@@ -163,11 +169,13 @@ const PROVINCES_2026: Record<string, ProvinceTax> = {
     bpa: 13216,
     ageAmt: 5927,
     ageThresh: 44119,
-    // The BC table marks the pension amount NOT indexed ($1,000 in 2025 and
-    // 2026). The engine indexes every provincial penAmt in derived years, so
-    // BC's derived value drifts above $1,000 from 2031. Backlog BC-2; no value
-    // changed here, and the drift is small and conservative in direction.
+    // VERIFIED 2026-08-21 — BC Income Tax Act s.4.32 fixes the pension credit
+    // base at the SMALLER of $1,000 and eligible pension income. It is a fixed
+    // statutory dollar amount, not an indexed one (the BC credits table marks
+    // it "not indexed"), so it is excluded from derived-year indexation via
+    // `penAmtIndexed: false`. Resolves backlog BC-2.
     penAmt: 1000,
+    penAmtIndexed: false,
     divCredit: 0.12,
     // VERIFIED 2026-08-21 — Province of British Columbia, "Personal income tax
     // rates" (last updated 2026-04-17) / Budget 2026 tax measures: indexation
@@ -291,7 +299,9 @@ function indexProvince(p: ProvinceTax, f: number): ProvinceTax {
     bpa: idx(p.bpa, f),
     ageAmt: idx(p.ageAmt, f),
     ageThresh: idx(p.ageThresh, f),
-    penAmt: idx(p.penAmt, f),
+    // Per-jurisdiction indexability: a province whose pension income amount is
+    // a fixed statutory dollar figure (BC, ITA s.4.32) opts out.
+    penAmt: p.penAmtIndexed === false ? p.penAmt : idx(p.penAmt, f),
   };
 }
 

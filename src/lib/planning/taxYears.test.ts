@@ -189,15 +189,25 @@ describe("provincial eligible-dividend credits, 2026", () => {
     expect(t35.provinces["AB"]!.divCredit).toBe(0.0812);
   });
 
-  // BC's pension amount is published as NOT indexed ($1,000 in both 2025 and
-  // 2026). The engine indexes every provincial penAmt in derived years, so BC's
-  // derived value drifts above $1,000. Recorded as a backlog item (BC-2); the
-  // effect is small and conservative in direction, and no anchor depends on it.
-  it("documents that BC's non-indexed pension amount still drifts in derived years", () => {
+  // BC-2 RESOLVED 2026-08-21. BC Income Tax Act s.4.32 fixes the pension credit
+  // base at the smaller of $1,000 and eligible pension income; it is a fixed
+  // statutory amount, not an indexed one. `penAmtIndexed: false` keeps it at
+  // $1,000 in every derived year.
+  it("keeps BC's non-indexed pension amount at exactly $1,000 in every year", () => {
     expect(getTaxYear(2026).provinces["BC"]!.penAmt).toBe(1000);
-    // Frozen through the 2027-2030 indexation pause...
     expect(getTaxYear(2030, 0.02).provinces["BC"]!.penAmt).toBe(1000);
-    // ...but indexed from 2031, which BC's own table says should not happen.
-    expect(getTaxYear(2031, 0.02).provinces["BC"]!.penAmt).toBeGreaterThan(1000);
+    expect(getTaxYear(2031, 0.02).provinces["BC"]!.penAmt).toBe(1000);
+    expect(getTaxYear(2055, 0.03).provinces["BC"]!.penAmt).toBe(1000);
+  });
+
+  it("still indexes the ON and AB pension amounts, which do index in law", () => {
+    const on = getTaxYear(2026).provinces["ON"]!.penAmt;
+    const ab = getTaxYear(2026).provinces["AB"]!.penAmt;
+    expect(getTaxYear(2031, 0.02).provinces["ON"]!.penAmt).toBe(
+      Math.round(on * Math.pow(1.02, 5)),
+    );
+    expect(getTaxYear(2031, 0.02).provinces["AB"]!.penAmt).toBe(
+      Math.round(ab * Math.pow(1.02, 5)),
+    );
   });
 });

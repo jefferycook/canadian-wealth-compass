@@ -539,10 +539,13 @@ changed**; no golden anchor moved.
   2021 and subsequent taxation years).
 - **BC pension amount — VERIFIED, unchanged** at $1,000, and the BC table marks
   it **not indexed**.
-- **New backlog item BC-2 [A]** — the engine indexes every provincial `penAmt`,
-  so BC's non-indexed $1,000 drifts upward from 2031 (the 2027-2030 pause masks
-  it until then). Documented by a test, not fixed; Ontario and Alberta pension
-  amounts do index, so the fix is a per-jurisdiction flag.
+- **BC-2 RESOLVED** — added a per-jurisdiction `penAmtIndexed` flag
+  (`ProvinceTax`, default true) so BC's fixed statutory pension credit base
+  (BC ITA s.4.32, smaller of $1,000 and eligible pension income) stays at
+  exactly $1,000 in every derived year instead of drifting upward from 2031.
+  `indexProvince()` carries `penAmt` through unchanged when the flag is false;
+  ON and AB still index. Tests pin BC at $1,000 in 2026/2030/2031/2055 and ON/AB
+  indexation to 2031; the old drift-documenting test was replaced.
 - Source comments added to `TAX_2026.provinces.ON`, `.BC` and `.AB`; spec
   §13.3a gains a verification subsection and the STILL CONST-UNVERIFIED list
   and backlog CR-2 no longer carry the provincial age/pension/dividend items.
