@@ -47,59 +47,92 @@ export function rrifMinFactor(age: number): number {
 }
 
 /**
- * FSRA Ontario LIF maximum withdrawal percentages by age. The reference rate
- * is floored at 6%, which has left this table unchanged since 2021.
+ * Ontario LIF/LRIF maximum annual income payment percentages.
+ *
+ * Source: FSRA guidance PE0196INF (Active), "Life Income Fund (LIF) and
+ * Locked-In Retirement Income Fund (LRIF) Maximum Annual Income Payment Amount
+ * Table", Appendix A (C/F formula in s.6 of Schedules 1, 1.1 and 2 to
+ * R.R.O. 1990, Reg. 909), effective 2021-01-01, re-checked 2026-08-21. The
+ * CANSIM reference rate is floored at 6%, which has left the table unchanged
+ * since 2021.
+ *
+ * KEYING: exactly as FSRA publishes it — by the age ATTAINED DURING THE YEAR,
+ * unshifted, to five decimals. The engine's annual projection row age is used
+ * directly as that key; no January-1 / start-of-year convention is applied
+ * anywhere.
+ *
+ * ANNUAL-GRANULARITY CAVEAT: the engine models whole years and has no date of
+ * birth, so for a plan started before the client's birthday the applicable
+ * FSRA row can be one age step ahead of the engine's row, making the modelled
+ * maximum conservative in the start year. DOB-aware sub-annual refinement is a
+ * separate, out-of-scope item; it is deliberately NOT approximated with a
+ * constant age offset.
  */
 export const ON_LIF_MAX: Record<number, number> = {
-  50: 6.27,
-  51: 6.31,
-  52: 6.35,
-  53: 6.4,
-  54: 6.45,
-  55: 6.51,
-  56: 6.57,
-  57: 6.63,
-  58: 6.7,
-  59: 6.77,
-  60: 6.85,
-  61: 6.94,
-  62: 7.04,
-  63: 7.14,
-  64: 7.26,
-  65: 7.38,
-  66: 7.52,
-  67: 7.67,
-  68: 7.83,
-  69: 8.02,
-  70: 8.22,
-  71: 8.45,
-  72: 8.71,
-  73: 9.0,
-  74: 9.34,
-  75: 9.71,
-  76: 10.15,
-  77: 10.66,
-  78: 11.25,
-  79: 11.96,
-  80: 12.82,
-  81: 13.87,
-  82: 15.19,
-  83: 16.9,
-  84: 19.19,
-  85: 22.4,
-  86: 27.23,
-  87: 35.29,
-  88: 51.46,
-  89: 100.0,
+  41: 5.98531,
+  42: 6.006,
+  43: 6.02808,
+  44: 6.05167,
+  45: 6.07687,
+  46: 6.10382,
+  47: 6.13265,
+  48: 6.1635,
+  49: 6.19655,
+  50: 6.23197,
+  51: 6.26996,
+  52: 6.31073,
+  53: 6.35454,
+  54: 6.40164,
+  55: 6.45234,
+  56: 6.50697,
+  57: 6.56589,
+  58: 6.62952,
+  59: 6.69833,
+  60: 6.77285,
+  61: 6.85367,
+  62: 6.94147,
+  63: 7.03703,
+  64: 7.14124,
+  65: 7.25513,
+  66: 7.37988,
+  67: 7.51689,
+  68: 7.66778,
+  69: 7.83449,
+  70: 8.0193,
+  71: 8.22496,
+  72: 8.4548,
+  73: 8.71288,
+  74: 9.00423,
+  75: 9.33511,
+  76: 9.71347,
+  77: 10.14952,
+  78: 10.65661,
+  79: 11.25255,
+  80: 11.9616,
+  81: 12.81773,
+  82: 13.87002,
+  83: 15.19207,
+  84: 16.89953,
+  85: 19.18515,
+  86: 22.39589,
+  87: 27.22561,
+  88: 35.29338,
+  89: 51.45631,
+  90: 100.0,
 };
+
+/** Lowest and highest ages published in FSRA Appendix A. */
+const ON_LIF_MIN_AGE = 41;
+const ON_LIF_MAX_AGE = 90;
 
 /**
  * LIF maximum withdrawal factor as a percentage of the balance.
  *
- * Ontario uses the published FSRA table. Other jurisdictions use the
- * annuity-formula approximation at the reference rate — an approximation the
- * original tool disclosed, and one to replace with published tables before
- * relying on it for a specific client.
+ * Ontario reads FSRA Appendix A directly by the age attained during the year
+ * (see `ON_LIF_MAX`): age 89 is 51.45631% and only age 90 and above is 100%.
+ * Other jurisdictions use the annuity-formula approximation at the reference
+ * rate — an approximation the original tool disclosed, and one to replace with
+ * published tables before relying on it for a specific client.
  */
 export function lifMaxFactor(
   age: number,
@@ -107,8 +140,8 @@ export function lifMaxFactor(
   ratePct: number,
 ): number {
   if (provinceKey === "ON") {
-    if (age >= 89) return 100;
-    if (age < 50) return ON_LIF_MAX[50]!;
+    if (age >= ON_LIF_MAX_AGE) return 100;
+    if (age < ON_LIF_MIN_AGE) return ON_LIF_MAX[ON_LIF_MIN_AGE]!;
     return ON_LIF_MAX[age] ?? 100;
   }
   if (age >= 90) return 100;
@@ -117,6 +150,7 @@ export function lifMaxFactor(
   const a = (1 - Math.pow(1 + r, -n)) / r;
   return Math.min(100, 100 / a);
 }
+
 
 /* ------------------------------------------------------------------ */
 /* Batch 0C — locked-in rule records with COMPONENT-LEVEL status       */
