@@ -237,3 +237,50 @@ re-triggers for Manitoba, which is correctly `oneTime: false`.
 enforce the flag as a guard. The federal record explicitly states that
 unlocking less than 50% forfeits the remainder, so a partial exercise must not
 leave a residual entitlement.
+
+---
+
+## Constants reconciliation follow-up (2026-08-21) — recorded from spec §13.3a
+
+The §13.3 CONST-UNVERIFIED list was worked against CRA primary sources on
+2026-08-21. Every reachable constant matched exactly; the federal brackets and
+credits, the 2026 TFSA/RRSP limits, the full 25-entry RRIF minimum table, and
+the ON/BC/AB brackets, BPAs, Ontario surtax and health premium are now VERIFIED
+in the specification. What remains open is recorded here.
+
+### CR-1 [G] — provincial low-income tax reductions are not modelled
+
+CRA T4032-BC: British Columbia gives a tax reduction of up to **$575** for
+income at or below **$25,570**, phasing out at **3.56%** of income above that
+and reaching zero at **$41,722**. Ontario has an equivalent provision.
+
+`ProvinceTax` has no field for it and `computeTax` does not apply it, so
+provincial tax is **overstated** for any client in that band — up to $575 a year
+for a modest-income BC retiree, every year of the projection. Conservative in
+direction, hence [G] not [C].
+
+*Required change:* add the low-income reduction (maximum amount, income
+threshold, phase-out rate) to the tax-jurisdiction rules record and apply it in
+`computeTax`. §14.3 now carries the row. **The field must exist before the
+remaining ten jurisdictions are cut**, or all thirteen records will need
+re-cutting — the same trap already flagged for non-eligible dividend credits.
+
+### CR-2 — constants still CONST-UNVERIFIED (launch blocker, §11.4)
+
+- **Provincial age amounts / age thresholds / pension income amounts** — ON
+  ($6,342 / $47,210 / $1,796), BC ($5,691 / $42,580 / $1,000), AB ($6,055 /
+  $45,210 / $1,685). Tier-1 source is TD1ON / TD1BC / TD1AB; the CRA PDF host
+  blocked automated retrieval on 2026-08-21. Ontario's $1,796 has tier-3
+  corroboration only (KPMG), which may not satisfy §13.1.
+- **Provincial dividend tax credits** — ON 10%, BC 12%, AB 8.12% of the
+  grossed-up eligible dividend. Ontario's 10% is tier-3 / open-data only.
+- **`fedDivCredit` 0.150198 and `divGrossUp` 1.38** — CRA line 40425 publishes
+  no rate; verify against **Federal Worksheet 5000-D1**.
+- **FSRA Ontario LIF maximum table digits** (`ON_LIF_MAX`, ages 50–89) — the
+  rule is VERIFIED but the fifty percentages have not been compared line by
+  line the way the RRIF table now has been. Same shape of task, one page.
+- **2026 CPP/OAS benefit amounts** — `oasMax65` 9,023.64, `oasMax75` 9,926.04,
+  `cppMax65` 18,091.80, `cppAvgNew65` 10,464, and the four survivor/combined
+  figures. Verified against ESDC quarterly tables in v1.0; amounts move
+  quarterly, so the §13.2 staleness rule applies — re-pull for the current
+  quarter with a fresh `verifiedDate`.
