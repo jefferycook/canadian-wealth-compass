@@ -9,7 +9,7 @@
  */
 
 import type { PlanDraft, PersonDraft } from "./draft";
-import { unlockRule } from "./registered";
+import { recordStatus, tryUnlockRule } from "./registered";
 import { extraSavingTargets, isExtraSavingSupported, type ScenarioPatch } from "./scenario";
 import { monthlyFromAnnual } from "./units";
 
@@ -172,7 +172,15 @@ export function buildOpportunities(draft: PlanDraft): Opportunity[] {
   const locked = draft.accounts.filter((a) => a.type === "LIRA" || a.type === "LIF");
   if (locked.length > 0) {
     const names = [
-      ...new Set(locked.map((a) => (a.juris ? unlockRule(a.juris).name : "not yet specified"))),
+      ...new Set(
+        locked.map((a) => {
+          const r = tryUnlockRule(a.juris);
+          if (!r) return "not yet specified";
+          return recordStatus(a.juris) === "UNSUPPORTED"
+            ? `${r.name} (not yet supported \u2014 results withheld)`
+            : r.name;
+        }),
+      ),
     ].join(", ");
     out.push({
       id: "unlock",

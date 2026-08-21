@@ -34,7 +34,9 @@ export type JurisdictionKey =
   | "NS"
   | "NB"
   | "BC"
-  | "QC";
+  | "QC"
+  /** Saskatchewan is UNSUPPORTED in Batch 0C (Erratum 4); saved plans must still load. */
+  | "SK";
 
 export type AccountType =
   | "RRSP"
@@ -42,6 +44,8 @@ export type AccountType =
   | "LIRA"
   | "LIF"
   | "DCPP"
+  /** Manitoba prescribed RRIF: RRIF minimums, no maximum, pension-eligible at 65+. */
+  | "PRRIF"
   | "TFSA"
   | "NONREG";
 
@@ -459,6 +463,11 @@ export interface ProjectionResult {
   hadInvestableAssets: boolean;
   /** Distinct room/contribution disclosures raised anywhere in the run. */
   roomDisclosures: string[];
+  /**
+   * Locked-in (Batch 0C) disclosures: withheld calculations for UNSUPPORTED
+   * jurisdictions and flagged APPROXIMATE numbers, gated at the point of use.
+   */
+  lockedInDisclosures: string[];
   /** Input-contract problems (e.g. the RRSP CRA identity failing). */
   roomValidationErrors: string[];
 }
@@ -527,8 +536,17 @@ export interface ProjectionOverride {
 export interface WorkingAccount extends AccountInput {
   /** Blended expected return, derived from the equity allocation. */
   ret: number;
-  /** Set once a locked-in account has been partially unlocked. */
+  /**
+   * Cumulative fraction (0–1) of this locked-in account already unlocked.
+   * Batch 0C: replaces the one-shot `_split` boolean so a partial unlock at 55
+   * and a later full unlock at 65 are both representable. `_split` is still
+   * read at load time for saved-plan compatibility.
+   */
+  unlockedFraction?: number;
+  /** @deprecated Batch 0C legacy flag, migrated to `unlockedFraction` on load. */
   _split?: boolean;
+  /** Id of the destination account created by an unlock from this account. */
+  _unlockDestId?: string;
 }
 
 /** A hard asset as mutated during a projection run. */

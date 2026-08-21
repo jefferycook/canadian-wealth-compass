@@ -19,7 +19,12 @@
  */
 
 import { cppFactor, cppSurvivorBenefit, oasFactor } from "./benefits";
-import { lifMaxFactor, rrifMinFactor, unlockRule } from "./registered";
+import {
+  lifMaximumFor,
+  maxUnlockPctAtAge,
+  rrifMinFactor,
+  tryUnlockRule,
+} from "./registered";
 import { approxMarginal, householdTax } from "./tax";
 import { getTaxYear, type TaxYear } from "./taxYears";
 import { strategyOrder } from "./strategy";
@@ -122,12 +127,25 @@ export function projection(
     pIndex[p.id] = i;
   });
 
-  const accts: WorkingAccount[] = inputs.accounts.map((a) => ({
-    ...a,
-    mix: { ...a.mix },
-    ret: accountReturn(a, inputs.eqRet, inputs.fiRet),
-    owner: couple && (a.owner === "B" || a.owner === "JOINT") ? a.owner : "A",
-  }));
+  const accts: WorkingAccount[] = inputs.accounts.map((a) => {
+    // Saved-plan compatibility (Batch 0C): the retired one-shot `_split`
+    // boolean becomes a cumulative unlocked fraction. `true` means the
+    // account's previous unlock percentage was already taken (1.0 when the
+    // percentage is not recoverable); absent/false means nothing is unlocked.
+    const legacySplit = (a as AccountInput & { _split?: boolean })._split === true;
+    const unlockedFraction = legacySplit
+      ? a.unlock > 0
+        ? Math.min(1, a.unlock / 100)
+        : 1
+      : 0;
+    return {
+      ...a,
+      mix: { ...a.mix },
+      ret: accountReturn(a, inputs.eqRet, inputs.fiRet),
+      owner: couple && (a.owner === "B" || a.owner === "JOINT") ? a.owner : "A",
+      unlockedFraction,
+    };
+  });
   override.acctMod?.(accts);
 
   /** Owner index into the people/P arrays. */
@@ -187,6 +205,8 @@ export function projection(
       }),
   );
   const roomDisclosures = new Set<string>();
+  /** Batch 0C locked-in disclosures (withheld / approximate), point-of-use. */
+  const lockedInDisclosures = new Set<string>();
   /** The most recent closed year of each person's ledger. */
   let lastClosedRoom: PersonRoomYear[] = [];
   const roomValidationErrors = ledgers.flatMap((l) => l.validationErrors);
@@ -221,29 +241,75 @@ export function projection(
     }
 
     /* --- 2. LIRA/LIF unlock, governed by the money's pension jurisdiction --- */
+    // Batch 0C: entitlements are SEQUENTIAL. Each year every locked-in account
+    // is re-evaluated against the age-appropriate maximum and only the
+    // incremental fraction is moved, so Manitoba's 50%-at-55 and its
+    // balance-at-65 are both available to the same client.
     for (const a of [...accts]) {
-      if (a._split) continue;
       if (!(a.type === "LIRA" || a.type === "DCPP" || a.type === "LIF")) continue;
-      const jr = unlockRule(a.juris);
+      const jr = tryUnlockRule(a.juris);
+      // No silent Ontario default. An unknown jurisdiction, or one whose
+      // unlocking entitlement is UNSUPPORTED, has its unlock WITHHELD — the
+      // rest of the client's projection and tax are unaffected (§13.2a).
+      if (!jr || jr.unlockEntitlement.status === "UNSUPPORTED") {
+        if ((override.unlockAll ?? a.unlock ?? 0) > 0 || !jr) {
+          lockedInDisclosures.add(
+            `Pension jurisdiction ${a.juris ?? "(not specified)"} is not yet supported: unlocking for "${
+              a.name || a.type
+            }" is withheld. No other jurisdiction's rule is substituted.`,
+          );
+        }
+        continue;
+      }
       const idx = pIndex[a.owner] ?? 0;
       const ageNow = people[idx]!.curAge + off;
-      let maxPct = jr.pct;
-      if (jr.full65 && ageNow >= 65) maxPct = 100; // e.g. Manitoba
+      const maxPct = maxUnlockPctAtAge(jr, ageNow);
+      if (maxPct <= 0) continue;
       const desired = override.unlockAll != null ? override.unlockAll : a.unlock || 0;
-      const eff = Math.min(desired, maxPct);
-      if (eff <= 0) continue;
+      if (desired <= 0) continue;
+      // Cumulative target fraction of the ORIGINAL locked-in money.
+      const target = Math.min(desired, maxPct) / 100;
+      const already = a.unlockedFraction ?? 0;
+      if (target <= already + 1e-9) continue;
       const uAge =
         a.type === "LIF"
-          ? Math.max(jr.minAge, people[idx]!.curAge)
-          : Math.max(jr.minAge, convAgeOf(a));
-      if (ageNow >= uAge) {
-        a._split = true;
-        const moved = (a.bal * Math.min(100, eff)) / 100;
-        a.bal -= moved;
+          ? Math.max(jr.partialMinAge, people[idx]!.curAge)
+          : Math.max(jr.partialMinAge, convAgeOf(a));
+      if (ageNow < uAge) continue;
+
+      // The incremental share is taken from what remains locked. Moving from
+      // `already` to `target` of the original balance means taking
+      // (target - already) / (1 - already) of the CURRENT locked balance.
+      const remainingFrac = Math.max(0, 1 - already);
+      const takeFrac =
+        remainingFrac <= 1e-9 ? 0 : Math.min(1, (target - already) / remainingFrac);
+      const moved = a.bal * takeFrac;
+      if (moved <= 0.01) {
+        a.unlockedFraction = target;
+        continue;
+      }
+      a.bal -= moved;
+      a.unlockedFraction = target;
+      if (jr.destinationVehicle.status === "APPROXIMATE") {
+        lockedInDisclosures.add(
+          `${jr.name}: the destination vehicle for unlocked locked-in money is modelled as an ${jr.destinationType} but has not been verified against the regulator.`,
+        );
+      }
+      const dest = accts.find((d) => d.id === a._unlockDestId);
+      if (dest) {
+        dest.bal += moved;
+        dest.acb += moved;
+      } else {
+        const destId = a.id + "_unlk";
+        a._unlockDestId = destId;
         accts.push({
-          id: a.id + "_unlk",
-          name: (a.name || "LIRA") + " (unlocked\u2192RRSP)",
-          type: "RRSP",
+          id: destId,
+          name:
+            (a.name || "LIRA") +
+            (jr.destinationType === "PRRIF"
+              ? " (unlocked\u2192PRRIF)"
+              : " (unlocked\u2192RRSP)"),
+          type: jr.destinationType,
           owner: a.owner,
           bal: moved,
           acb: moved,
@@ -258,11 +324,10 @@ export function projection(
           wd: 0,
           wdStart: 0,
           wdEnd: 0,
-          _split: true,
+          unlockedFraction: 0,
         });
-        if (a.type !== "LIF") a.type = "LIF"; // the still-locked remainder
-        a.unlock = 0;
       }
+      if (a.type !== "LIF") a.type = "LIF"; // the still-locked remainder
     }
 
     /* --- 3. Raw per-person guaranteed income, as if alive --- */
@@ -515,9 +580,12 @@ export function projection(
     // A LIRA/LIF unlock moves that share to RRIF treatment, so no maximum
     // applies to the unlocked portion.
     const lifCapRemaining: Record<string, number> = {};
+    // A PRRIF is in RRIF status from the moment it is created: minimums start
+    // immediately, and no maximum applies to it.
     const isRRIFnow = (a: WorkingAccount, age: number) =>
       a.type === "RRIF" ||
       a.type === "LIF" ||
+      a.type === "PRRIF" ||
       ((a.type === "RRSP" || a.type === "LIRA" || a.type === "DCPP") &&
         age >= convAgeOf(a));
     const isLockedIn = (a: WorkingAccount, age: number) =>
@@ -530,10 +598,23 @@ export function projection(
         const minF = rrifMinFactor(age) / 100;
         let minW = a.bal * minF;
         if (isLockedIn(a, age)) {
-          const jr = unlockRule(a.juris);
-          // Quebec removed the LIF maximum for 55+, so leave it uncapped.
-          if (!(jr.noMax55 && age >= 55)) {
-            const maxF = lifMaxFactor(age, a.juris ?? provinceKey, opts.lifRate) / 100;
+          // Point-of-use gating (§13.2a): Quebec applies NO maximum from 55
+          // (verified) but still applies one below 55; Ontario reads the FSRA
+          // table; everywhere else the annuity approximation is flagged.
+          const lm = lifMaximumFor(a.juris, age, opts.lifRate);
+          if (lm.status === "UNSUPPORTED") {
+            lockedInDisclosures.add(
+              `Pension jurisdiction ${a.juris ?? "(not specified)"} is not yet supported: the LIF maximum for "${
+                a.name || a.type
+              }" is withheld and no other jurisdiction's table is substituted.`,
+            );
+          } else if (lm.applies) {
+            if (lm.status === "APPROXIMATE") {
+              lockedInDisclosures.add(
+                `LIF maximum for ${a.juris} is an approximation (annuity formula at the reference rate), not the published table.`,
+              );
+            }
+            const maxF = lm.pct / 100;
             lifCapRemaining[a.id] = Math.max(0, a.bal * maxF - minW);
           }
         }
@@ -970,6 +1051,7 @@ export function projection(
   return {
     rows,
     roomDisclosures: [...roomDisclosures, ...(spousalNote ? [spousalNote] : [])],
+    lockedInDisclosures: [...lockedInDisclosures],
     roomValidationErrors,
 
 

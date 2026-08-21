@@ -151,7 +151,7 @@ export function SelectField<T extends string>({
   hint?: string | undefined;
   value: T | null;
   onChange: (v: T) => void;
-  options: { value: T; label: string }[];
+  options: { value: T; label: string; disabled?: boolean }[];
   placeholder?: string | undefined;
 }) {
   return (
@@ -162,7 +162,7 @@ export function SelectField<T extends string>({
         </SelectTrigger>
         <SelectContent>
           {options.map((o) => (
-            <SelectItem key={o.value} value={o.value}>
+            <SelectItem key={o.value} value={o.value} disabled={o.disabled ?? false}>
               {o.label}
             </SelectItem>
           ))}

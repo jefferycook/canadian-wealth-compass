@@ -98,6 +98,8 @@ export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   NONREG: "Non-registered account",
   LIRA: "LIRA",
   LIF: "LIF",
+  PRRIF: "Prescribed RRIF (PRRIF)",
+
   DCPP: "Defined-contribution pension",
 };
 
