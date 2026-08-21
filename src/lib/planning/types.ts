@@ -34,7 +34,9 @@ export type JurisdictionKey =
   | "NS"
   | "NB"
   | "BC"
-  | "QC";
+  | "QC"
+  /** Saskatchewan is UNSUPPORTED in Batch 0C (Erratum 4); saved plans must still load. */
+  | "SK";
 
 export type AccountType =
   | "RRSP"
@@ -42,6 +44,8 @@ export type AccountType =
   | "LIRA"
   | "LIF"
   | "DCPP"
+  /** Manitoba prescribed RRIF: RRIF minimums, no maximum, pension-eligible at 65+. */
+  | "PRRIF"
   | "TFSA"
   | "NONREG";
 

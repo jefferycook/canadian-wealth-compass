@@ -182,9 +182,9 @@ export interface UnlockRule {
   /** @deprecated use `partialMinAge`. */
   minAge: number;
   /** @deprecated use `fullUnlockAge`. */
-  full65?: boolean;
+  full65?: boolean | undefined;
   /** @deprecated use `lifMaxNoneFromAge`. */
-  noMax55?: boolean;
+  noMax55?: boolean | undefined;
   /** @deprecated use `unlockEntitlement.status`. */
   verified?: boolean;
 }
