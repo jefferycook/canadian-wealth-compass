@@ -111,6 +111,26 @@ before re-issuing anything.
 
 ---
 
+## RESOLVED 2026-08-21 — Ontario credits and the three provincial dividend tax credits verified (no value changed)
+
+Independent, non-dependent constants verification while CPP-1 [C] stays OPEN.
+Sources re-opened directly: CRA Form **TD1ON 2026** (`td1on-26e.pdf`) — BPA
+$12,989, age amount $6,342 phasing out from $47,210, pension income amount
+$1,796; **Ontario.ca** *Ontario dividend tax credit* (updated 2026-04-27) —
+10.0%; **Province of BC** *B.C. basic personal income tax credits* (2026
+table) — pension amount $1,000 marked NOT indexed, eligible-dividend credit
+12%; **Alberta PITA s.21** as amended by Bill 35 (assent 2020-12-09) — 8.12%
+for 2021 and subsequent years. **Every live value matched; nothing changed.**
+Pinned by new tests in `taxYears.test.ts`; source comments added; spec §13.3a,
+backlog CR-2 and the changelog updated. 267 tests pass, clean typecheck,
+anchors unmoved at 201,470 / 411,408 / 1,762,590.
+
+**One new finding, backlog BC-2 [A]:** the engine indexes every provincial
+`penAmt`, but BC publishes its $1,000 pension amount as non-indexed. The
+2027-2030 pause masks it; drift begins in 2031 and understates BC tax.
+Documented by a test, not fixed — ON and AB pension amounts do index, so this
+needs a per-jurisdiction flag.
+
 ## OPEN [C] — the combined retirement + survivor CPP rule is an unsupported shortcut (superseded by primary law)
 
 **Raised:** 2026-08-21, `benefits.ts` audit. **Escalated to [C] the same night** by independent overnight review against primary law. **Status:** behaviour deliberately UNCHANGED in this pass. Requires a dedicated implementation pass. **Phase 0 must not be approved and Phase 1 must not begin while this is open.**
