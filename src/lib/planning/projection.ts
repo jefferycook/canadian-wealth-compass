@@ -797,9 +797,27 @@ export function projection(
       (p, i) => alive[i] && ages[i]! < (p.retAge || 999),
     );
     const baseSpend = curSpend0 != null && stillWorking ? curSpend0 : spend0;
+    // `contribTotal` belongs here and MUST NOT be removed. A contribution is a
+    // committed *use* of after-tax cash, not free money: the employment income
+    // that funds it is already sitting in `fixedCash`, and `applyContribution`
+    // has already added the same dollars to the account balance. Without this
+    // term both halves count, and the Batch 0D surplus sweep then deposits
+    // `contribTotal + surplus` in a year the household only had `surplus` to
+    // spare — inventing money every contribution year and compounding it.
+    // (Before 0D the surplus vanished at year end, which silently paid for the
+    // contributions and hid the double count.) Including it also makes the draw
+    // solver and `fundingShortfall` aware of contributions, so a retiree who is
+    // still contributing draws enough to fund it or is flagged.
+    //
+    // Only `countAsContribution: true` placements are in `contribTotal`:
+    // asserted account contributions and goal saves, both genuine outflows.
+    // Registered-destination lump sums and the sweep itself pass `false` — a
+    // lump sum is an inflow being allocated, and excluding the sweep is what
+    // keeps this from being circular.
     const spendTarget = Math.max(
       0,
       baseSpend * infFac +
+        contribTotal +
         expense +
         purchaseCash +
         liabPay -
@@ -807,6 +825,7 @@ export function projection(
         lumpCash -
         deathBenefit,
     );
+
 
     /* --- Other income streams, per person --- */
     const otherTax = people.map(() => 0);

@@ -292,4 +292,13 @@ describe("engine integration", () => {
 // Holding indexationRate at 0 isolates cause 2 at 3545773.
 // 0D defect fix, 2164651 -> 2176860: the federal pension income amount is a
 // fixed $2,000 in law and no longer indexes (CRA indexation tables, 2026-08-21).
-const ACCUMULATION_GOLDEN = 2176860;
+// 0D defect [C] fix, 2176860 -> 1762590 (-19.0%): contributions are now a use
+// of household cash (added to `spendTarget`), so the surplus sweep no longer
+// deposits the contribution AND the employment income that funded it. This
+// fixture contributes 29,000/yr across a ~20-year window, and that invented
+// money used to compound at the equity return for the rest of the run. The
+// movement is large and DOWNWARD by design: smaller balances -> less
+// investment income -> less lifetime tax. The single-filer and couple anchors
+// have `contrib: 0` throughout and did not move at all, which is the check
+// that this fix touched only contributing plans.
+const ACCUMULATION_GOLDEN = 1762590;

@@ -458,9 +458,45 @@ describe("scenario overrides", () => {
     expect(shortfallYears(less)).toBeLessThan(shortfallYears(base));
   });
 
-  it("stretches the money further when the client saves more before retirement", () => {
+  /**
+   * Rewritten by the Batch 0D [C] surplus-sweep fix (2026-08-21). This test
+   * used to assert that saving MORE produced FEWER shortfall years on this
+   * fixture — which was only true because a contribution was free money: it
+   * landed in the portfolio without ever being taken out of household cash.
+   * Now that contributions are a use of cash, saving into a plan that is
+   * already short cannot help, and asserting that it does would re-enshrine
+   * the defect. What a goal save genuinely buys is the TFSA's tax treatment.
+   */
+  it("does not conjure money when the client saves more — the saving is funded from cash", () => {
     const saver = runPlan(inputs, { goalSaves: [{ amt: 12000, type: "TFSA", owner: "A" }] });
-    expect(shortfallYears(saver)).toBeLessThan(shortfallYears(base));
+    // The seeded plan runs short, so there is no spare cash to save out of.
+    // Redirecting money it does not have cannot buy it extra years.
+    expect(shortfallYears(saver)).toBeGreaterThanOrEqual(shortfallYears(base));
+    expect(lasts(saver)).toBeLessThanOrEqual(lasts(base));
+  });
+
+  it("rewards saving into a TFSA only by its tax treatment, not by inventing the deposit", () => {
+    // Same fixture with enough spending cut to create a real surplus, so the
+    // goal save is affordable and the sweep is active in both runs.
+    const afford = { spendAdj: -40000 };
+    const spender = runPlan(inputs, afford);
+    const saver = runPlan(inputs, {
+      ...afford,
+      goalSaves: [{ amt: 12000, type: "TFSA", owner: "A" }],
+    });
+    const terminal = (P: ReturnType<typeof runPlan>) =>
+      P.rows[P.rows.length - 1]!.totalPortfolio;
+
+    // Better off — the money grows tax-free instead of being swept into a
+    // taxable account — and holding more TFSA at the end is the mechanism.
+    expect(terminal(saver)).toBeGreaterThan(terminal(spender));
+    expect(saver.rows[saver.rows.length - 1]!.balances["acc_tfsa"]!).toBeGreaterThan(
+      spender.rows[spender.rows.length - 1]!.balances["acc_tfsa"]!,
+    );
+    // But only modestly. Under the pre-fix behaviour the saver banked the whole
+    // contribution on top of an unchanged sweep and compounded it for decades;
+    // the honest gain is a tax difference, comfortably under 5%.
+    expect(terminal(saver) / terminal(spender)).toBeLessThan(1.05);
   });
 
   it("scales smoothly — each extra dollar of spending is never an improvement", () => {
