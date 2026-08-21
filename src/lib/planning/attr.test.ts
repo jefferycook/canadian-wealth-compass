@@ -3,10 +3,10 @@ import { runPlan } from "./engine";
 import { regressionFixturePlan, accumulationGoldenFixturePlan } from "./fixtures";
 const lt = (r:any)=>r.rows.reduce((s:number,x:any)=>s+x.tax,0);
 it("attr", () => {
-  const a = regressionFixturePlan();
-  console.log("single idx0", Math.round(lt(runPlan({...a, indexationRate: 0}))));
-  console.log("single idx", Math.round(lt(runPlan(a))));
-  const b = accumulationGoldenFixturePlan();
-  console.log("acc idx0", Math.round(lt(runPlan({...b, indexationRate: 0}))));
-  console.log("acc idx", Math.round(lt(runPlan(b))));
+  for (const [n,p] of [["single",regressionFixturePlan()],["acc",accumulationGoldenFixturePlan()]] as any) {
+    const r = runPlan({...p, indexationRate: 0});
+    console.log(n, "tax", Math.round(lt(r)),
+      "swept", Math.round(r.rows.reduce((s:number,x:any)=>s+x.surplusSwept,0)),
+      "dist", Math.round(r.rows.reduce((s:number,x:any)=>s+x.distributionsTaxable,0)));
+  }
 });
