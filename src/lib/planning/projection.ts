@@ -51,6 +51,7 @@ import type {
   ProjectionOverride,
   ProjectionResult,
   ProjectionRow,
+  TaxSettings,
   WorkingAccount,
   WorkingAsset,
 } from "./types";
