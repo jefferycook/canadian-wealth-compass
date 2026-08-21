@@ -602,4 +602,6 @@ describe("couple golden fixture", () => {
 /** See the note on the test above before changing this number. */
 // Batch 0D re-pin, 554616 -> 411408, from indexation of the statutory
 // amounts in the derived tax years. Erratum 5 behaviour is unchanged.
+// 0D defect fix, 407458 -> 411408: the federal pension income amount is fixed
+// at $2,000 in law and no longer indexes.
 const COUPLE_GOLDEN = 411408;

@@ -290,4 +290,6 @@ describe("engine integration", () => {
 //     disappear from the balance sheet and is now reinvested, so it earns
 //     taxable distributions (up).
 // Holding indexationRate at 0 isolates cause 2 at 3545773.
+// 0D defect fix, 2164651 -> 2176860: the federal pension income amount is a
+// fixed $2,000 in law and no longer indexes (CRA indexation tables, 2026-08-21).
 const ACCUMULATION_GOLDEN = 2176860;
