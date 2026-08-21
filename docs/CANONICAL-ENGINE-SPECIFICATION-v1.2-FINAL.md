@@ -1264,7 +1264,64 @@ Sources consulted directly while producing v1.0–v1.2 (tier 1/2 unless noted):
 | **New Brunswick** locked-in — the one-time entitlement is the **lesser of** three times the annual amount or **25% of the LIF balance**, from a LIF, to a RRIF, with no stated age condition; our former flat 25%-at-55-to-an-RRSP record overstated it and was **withdrawn to UNSUPPORTED** | FCNB, Pension Transfers and Withdrawals | Aug 2026 |
 | 2026 CPP/OAS amounts and CPP survivor rules (60% at 65+; flat-rate + 37.5% at 45–64; 1/120 reduction 35–44; survivor and combined maximums; $2,500 death benefit) | ESDC quarterly benefit tables (carried in both codebases; re-checked in v1.0) | Aug 2026 |
 
-**Everything else is CONST-UNVERIFIED for the purposes of this document** — including all 2026 bracket thresholds, BPA/age/pension amounts, the OAS clawback threshold, RRIF minimum table digits, the FSRA LIF maximum table digits, and the TFSA/RRSP dollar limits. The *mechanisms* are verified; the *numbers* are inherited from the codebases' own comments. Reconciling each to a tier-1/2 source with a `verifiedDate` is Phase 0/Phase 2 work and a launch blocker (§11.4).
+**Everything not listed above or in §13.3a is CONST-UNVERIFIED for the purposes of this document.** The *mechanisms* are verified; those remaining *numbers* are inherited from the codebases' own comments. Reconciling each to a tier-1/2 source with a `verifiedDate` is Phase 0/Phase 2 work and a launch blocker (§11.4).
+
+## 13.3a Constants reconciliation, 2026-08-21
+
+Worked through the §13.3 CONST-UNVERIFIED list against CRA primary sources on **2026-08-21**. **Every constant reachable that night matched the regulator exactly — not one digit was wrong.** `verifiedDate` for everything in this subsection is **2026-08-21**.
+
+### VERIFIED — federal
+
+Sources (tier 1): CRA, *Current year tax rates and income brackets (2026)*; CRA, *Indexation adjustment for personal income tax and benefit amounts*.
+
+- **Brackets:** $58,523 / $117,045 / $181,440 / $258,482 at **14% / 20.5% / 26% / 29% / 33%** — every threshold and rate matches `TAX_2026.federal`.
+- **`fedBpaMax` 16,452**, **`fedBpaMin` 14,829**, and the phase-out range **`fedBpaPhaseLo` 181,440 → `fedBpaPhaseHi` 258,482** (the 29% and 33% bracket entry points, which is correct).
+- **`fedAgeAmt` 9,208** and **`fedAgeThresh` 46,432**.
+- **`agePhaseRate` 0.15** — derived from CRA's 2025 age-amount figures: max $9,028 beginning to reduce at $45,522, zero at $105,709; `(105,709 − 45,522) × 0.15 = 9,028.05`. Confirmed by arithmetic on the regulator's own figures.
+- **`oasThreshold` 95,323**.
+- **`fedPenAmt` 2,000**, confirmed **not indexed** (already recorded above).
+- 2026 federal indexation factor is **2.0%**, for reference.
+
+### VERIFIED — registered plan limits
+
+Source (tier 1): CRA, *MP, DB, RRSP, DPSP, ALDA, TFSA limits, YMPE and the YAMPE*.
+
+- **`tfsaNewRoom` 7,000** and **`rrspLimit` 33,810** for 2026.
+- **YMPE 2026 = $74,600**, YAMPE $85,000. Recorded because it independently corroborates four locked-in thresholds already in this specification: BCFSA's $14,920 and $29,840 are exactly 20% and 40% of YMPE; OSFI's federal small balance of $37,300 is exactly 50%; the hardship ceiling of $55,950 is exactly 75%. Four numbers from three regulators reconcile to one verified YMPE.
+
+### VERIFIED — RRIF minimum factors, in full
+
+Source (tier 1): CRA, *Chart – Prescribed factors*.
+
+All **twenty-five** entries of the "All other RRIFs" column were compared against `RRIF_MIN`, age by age from 71 to 95+: .0528, .0540, .0553, .0567, .0582, .0598, .0617, .0636, .0658, .0682, .0708, .0738, .0771, .0808, .0851, .0899, .0955, .1021, .1099, .1192, .1306, .1449, .1634, .1879, .2000. **Every digit matches.** CRA also states that at age 70 or younger the prescribed factor is `1 / (90 − age)`, which is exactly `rrifMinFactor`'s `100 / (90 - age)` branch. This item moves from CONST-UNVERIFIED to **VERIFIED** outright.
+
+For the record: CRA publishes two further columns (pre-March-1986 and qualifying RRIFs) with different, lower factors for pre-1993 contracts. The engine models only the "all other RRIFs" column — correct for essentially every current client, and now stated rather than implicit.
+
+### VERIFIED — provincial brackets and basic personal amounts
+
+Brackets from the CRA current-year page; BPAs from the CRA T4032 payroll tables per province (tier 1).
+
+- **Ontario:** $53,891 / $107,785 / $150,000 / $220,000 at 5.05 / 9.15 / 11.16 / 12.16 / 13.16%. **BPA $12,989.**
+- **Ontario surtax:** both tiers — 20% of basic provincial tax over $5,818 plus 36% over $7,446 — matching the code, and confirming the tiers are **cumulative**, not exclusive.
+- **Ontario Health Premium:** brackets $20,000 / $36,000 / $48,000 / $72,000 / $200,000 with maxima $300 / $450 / $600 / $750 / $900. This independently confirms the Batch 0D decision **not** to index the health premium — unchanged statutory figures since 2004.
+- **British Columbia:** $50,363 / $100,728 / $115,648 / $140,430 / $190,405 / $265,545 at 5.6 / 7.7 / 10.5 / 12.29 / 14.7 / 16.8 / 20.5%. **BPA $13,216.**
+- **Alberta:** $61,200 / $154,259 / $185,111 / $246,813 / $370,220 at 8 / 10 / 12 / 13 / 14 / 15%. **BPA $22,769** (CRA T4127).
+
+### NEW GAP [G] — provincial low-income tax reductions are not modelled
+
+CRA T4032-BC gives British Columbia a tax reduction of **up to $575** for income at or below **$25,570**, phasing out at **3.56%** of income above that and reaching zero at **$41,722**. Ontario has an equivalent provision.
+
+`ProvinceTax` has no field for it and `computeTax` does not apply it, so provincial tax is **overstated** for any client in that band. The direction is conservative, so this is `[G]`, not `[C]` — but it is real: a modest-income BC retiree drawing to the bottom of the bracket is shown up to $575 a year more provincial tax than they will pay, every year of the projection.
+
+**Sequencing consequence.** §14.3 must carry a low-income-reduction row (amount, income threshold, phase-out rate) **before** the remaining ten jurisdictions are cut, or all thirteen records will need re-cutting when it is implemented — the same trap §14.3 already flags for non-eligible dividend credits. The row is added in §14.3 below.
+
+### STILL CONST-UNVERIFIED — the outstanding balance of the §13.3 launch blocker
+
+- **Provincial age amounts, age thresholds and pension income amounts** — ON ($6,342 / $47,210 / $1,796), BC ($5,691 / $42,580 / $1,000), AB ($6,055 / $45,210 / $1,685). Ontario's $1,796 has tier-3 corroboration (KPMG 2026 credit table) only, which may not satisfy §13.1. TD1ON / TD1BC / TD1AB carry all of these and are the right tier-1 source; the CRA PDF host blocked automated retrieval on 2026-08-21.
+- **Provincial dividend tax credits** — ON 10%, BC 12%, AB 8.12% of the grossed-up eligible dividend. Ontario's 10% has tier-3 and open-data corroboration only.
+- **`fedDivCredit` 0.150198 and `divGrossUp` 1.38** — CRA's line 40425 page describes the credit but publishes no rate; it points to **Federal Worksheet 5000-D1**, which is where these must be verified.
+- **FSRA Ontario LIF maximum table digits** (`ON_LIF_MAX`, ages 50–89). The *rule* is VERIFIED and the record cites the FSRA table, but the fifty individual percentages have not been compared line by line the way the RRIF table now has been.
+- **2026 CPP/OAS benefit amounts** — `oasMax65` 9,023.64, `oasMax75` 9,926.04, `cppMax65` 18,091.80, `cppAvgNew65` 10,464, and the four survivor/combined figures. Recorded above as verified against ESDC quarterly tables in v1.0; benefit amounts move quarterly, so the §13.2 staleness rule applies and they must be re-pulled for the current quarter with a fresh `verifiedDate`.
 
 ---
 
@@ -1321,6 +1378,7 @@ Each province/territory needs a **year-specific, source-backed** record. Beyond 
 | **Pension income amount** | Provincial equivalent of the federal $2,000 |
 | **Eligible dividend tax credit** | As a fraction of the grossed-up dividend |
 | **Non-eligible dividend tax credit** | Required **when §6.2 is implemented**; the field should exist from the outset so records are not re-cut later |
+| **Low-income tax reduction** | Maximum amount, income threshold, and phase-out rate (e.g. BC: up to $575 at ≤$25,570, phasing out at 3.56%, zero at $41,722; ON has an equivalent). Not yet modelled (§13.3a NEW GAP [G]) — the field must exist **before** the remaining ten jurisdictions are cut, or all thirteen records need re-cutting |
 | **Surtaxes** | Thresholds and rates (ON, NL; confirm others) — levied on **provincial tax**, not on income |
 | **Health premiums / levies** | Where applicable (ON health premium; confirm any others) — levied on taxable income |
 | **Indexation rules** | Provincial/territorial indexation factor and **which** amounts it applies to; some jurisdictions do not index some amounts. Feeds §1.13 |
