@@ -576,37 +576,53 @@ export function projection(
 
     // Per-person fixed (non-discretionary) pieces. Non-registered interest and
     // dividends are taxable but reinvested, so they are income without cash.
-    const fixed = P.map((p, i) => ({
-      ordinary:
-        p.employInc +
-        p.cppInc +
-        p.oasFull +
-        p.penInc +
-        p.bridgeInc +
-        otherTax[i]! +
-        lumpTaxInc[i]! +
-        p.mandatoryTaxable +
-        p.schedRegCash +
-        p.nonregInterest,
-      div: p.nonregDiv,
-      gainTax: p.schedNonregGain * 0.5,
-      pensionElig:
-        p.penInc + p.bridgeInc + p.mandatoryTaxable + (p.age >= 65 ? p.schedRegCash : 0),
-      oas: p.oasFull,
-      age: p.age,
-      cash:
-        p.employInc +
-        p.cppInc +
-        p.oasFull +
-        p.penInc +
-        p.bridgeInc +
-        otherTax[i]! +
-        otherNon[i]! +
-        p.mandatoryTaxable +
-        p.schedRegCash +
-        p.schedTfsaCash +
-        p.schedNonregCash,
-    }));
+    //
+    // Pension-income eligibility (canonical spec v1.2 FINAL + Erratum 1):
+    //   pensionEligible = rppLifetimePension
+    //                   + (age >= 65 ? rrifEligibleCash : 0)
+    //                   + (bridgeEligibleAffirmed ? bridgeInc : 0)
+    // Plain RRSP cash is never eligible; RRIF/LIF cash (including mandatory
+    // minimums) is eligible only from 65. This single value feeds both the
+    // pension income credit and the household splitting optimizer.
+    const fixed = P.map((p, i) => {
+      const rrifEligibleCash = p.mandatoryTaxable + p.schedRrifCash;
+      const rrspNonEligibleCash = p.schedRrspCash;
+      const bridgeElig = bridgeIsPensionEligible(people[i]?.bridge);
+      return {
+        ordinary:
+          p.employInc +
+          p.cppInc +
+          p.oasFull +
+          p.penInc +
+          p.bridgeInc +
+          otherTax[i]! +
+          lumpTaxInc[i]! +
+          rrifEligibleCash +
+          rrspNonEligibleCash +
+          p.nonregInterest,
+        div: p.nonregDiv,
+        gainTax: p.schedNonregGain * 0.5,
+        pensionElig:
+          p.penInc +
+          (bridgeElig ? p.bridgeInc : 0) +
+          (p.age >= 65 ? rrifEligibleCash : 0),
+        oas: p.oasFull,
+        age: p.age,
+        cash:
+          p.employInc +
+          p.cppInc +
+          p.oasFull +
+          p.penInc +
+          p.bridgeInc +
+          otherTax[i]! +
+          otherNon[i]! +
+          rrifEligibleCash +
+          rrspNonEligibleCash +
+          p.schedTfsaCash +
+          p.schedNonregCash,
+      };
+    });
+
     const fixedCash = fixed.reduce((s, f) => s + f.cash, 0);
     if (saleGainTaxA) fixed[0]!.gainTax += saleGainTaxA;
 
