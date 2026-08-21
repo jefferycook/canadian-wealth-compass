@@ -222,6 +222,9 @@ export function summarize(P: PlanResult): PlanOutput {
     chart,
     years,
     accounts: P.acctMeta,
+    roomDisclosures: P.roomDisclosures,
+    roomValidationErrors: P.roomValidationErrors,
   };
+
 
 }
