@@ -84,6 +84,10 @@ export function lifetimeTax(P: ProjectionResult): number {
   return P.rows.reduce((s, r) => s + r.tax, 0);
 }
 
+/** Caveat shown wherever the auto-selected withdrawal order is displayed. */
+export const AUTO_SELECTION_NOTE =
+  "Automatic ordering is chosen on fewest shortfall years, then on an approximate after-tax estate (registered taxed at a flat 38%, non-registered at 8%). It is a comparison rule, not a proof of optimality.";
+
 export function runPlan(
   inputs: PlanInputs,
   override: ProjectionOverride = {},
@@ -105,5 +109,14 @@ export function runPlan(
       best = { s, P, short, est };
     }
   }
-  return { ...best!.P, chosenStrategy: best!.s, autoSelected: true };
+  return {
+    ...best!.P,
+    chosenStrategy: best!.s,
+    autoSelected: true,
+    // Batch 0D (§7.8): the tie-break is an approximation until the terminal
+    // return is modelled in Phase 1. Labelled here so every display of the
+    // chosen strategy can carry the caveat.
+    autoSelectionStatus: "APPROXIMATE",
+    autoSelectionNote: AUTO_SELECTION_NOTE,
+  };
 }

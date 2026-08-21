@@ -516,6 +516,14 @@ export interface ProjectionResult {
   lockedInDisclosures: string[];
   /** Input-contract problems (e.g. the RRSP CRA identity failing). */
   roomValidationErrors: string[];
+  /**
+   * Batch 0D. Raised once when any projected year uses a tax table derived by
+   * indexation rather than a published one — an APPROXIMATE input that must be
+   * disclosed wherever those years' numbers are shown (§13).
+   */
+  taxYearDisclosures: string[];
+  /** Batch 0D. Non-registered distribution/ACB notices (e.g. ROC through zero). */
+  nonregDisclosures: string[];
 }
 
 
@@ -525,6 +533,14 @@ export interface PlanResult extends ProjectionResult {
   chosenStrategy: WithdrawalStrategy;
   /** True when "auto" picked the ordering rather than the user. */
   autoSelected: boolean;
+  /**
+   * Batch 0D (§7.8). The auto tie-break ranks orderings on an APPROXIMATE
+   * after-tax estate (flat 38% / 8% haircuts), not a terminal-year return.
+   * Present only when `autoSelected` is true, and surfaced wherever the chosen
+   * strategy is displayed.
+   */
+  autoSelectionStatus?: "APPROXIMATE";
+  autoSelectionNote?: string;
 }
 
 /**
