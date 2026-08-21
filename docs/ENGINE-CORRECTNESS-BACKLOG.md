@@ -302,3 +302,25 @@ the recovery at the OAS actually received; no fixed upper bound and no
 age-specific constant exists in the code. Pinned by a derived test in
 `engine.test.ts`.
 
+
+
+## CPP-1 [C] — combined retirement + survivor CPP must be implemented from CPP s.58(2) (2026-08-21)
+
+**Discovered:** overnight independent review of `benefits.ts` against primary law. **Not implemented in this pass — behaviour deliberately unchanged.** Full statement and citations: `docs/AGENT-STATUS.md`, OPEN [C] entry.
+
+**Today:** `cppSurvivorBenefit` applies `b = min(b, max(0, cppCombinedMax × infFac − survOwnCpp))`, where `survOwnCpp` is the survivor's pension **as actually received** (post-`cppFactor`).
+
+**Law:** **CPP, R.S.C. 1985, c. C-8, s. 58(2)**, read with s. 46 — <https://laws-lois.justice.gc.ca/eng/acts/C-8/section-58.html>.
+
+- The survivor's own retirement pension enters under **s.46(1) disregarding s.46(3)–(6)** (early/late adjustment), adjusted only per **s.45(2)** — i.e. **unadjusted for claiming age**.
+- **s.58(2)(c)** (65+, post-1997 retirement pension) reduces **component-by-component**: A−B, where **B = the lesser of 40% of the deceased-derived survivor component and 40% of the survivor's own corresponding unadjusted retirement-pension portion**. Parallel formulas cover the enhanced (post-2019) portions.
+
+**Direction of error today:** understates for deferrers (can zero the benefit entirely — an outcome the tool's own deferral recommendations create); overstates for early starters.
+
+**Explicitly rejected shortcuts:** swapping `survOwnCpp` for `base65`; multiplying `cppCombinedMax` by the survivor's `cppFactor`; using the retirement maximum instead of the combined maximum. The three candidate readings recorded on the original audit entry are **superseded** — the Act gives a component formula, not a scalar ceiling.
+
+**Required work:** a dedicated pass splitting base and enhanced portions, implementing the A−B reduction, sourcing the survivor's unadjusted own pension, and building fixtures for deferrer / early-starter / 65-crossing cases. `cppCombinedMax` becomes a cross-check.
+
+**Status vocabulary:** the `cppCombinedMax` **value** stays **VERIFIED**; the **application rule** is **APPROXIMATE (legacy conservative shortcut)** and must never be presented as exact client-facing.
+
+**Gate:** Phase 0 approval and Phase 1 start are blocked until this is resolved.
