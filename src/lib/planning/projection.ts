@@ -263,7 +263,7 @@ export function projection(
     if (couple) {
       people.forEach((p, i) => {
         if (p.deathAge > 0 && p.curAge + off === p.deathAge) {
-          if (cppSurvEligible && p.cpp.amt > 0) deathBenefit += ty.cppDeathBenefit;
+          if (cppSurvEligible && p.cpp.amt > 0) deathBenefit += tyY.cppDeathBenefit;
           const survId = people[(i + 1) % 2]!.id;
           // The deceased's accounts roll to the survivor; joint accounts pass
           // wholly by right of survivorship.
@@ -443,7 +443,7 @@ export function projection(
               ages[i]!,
               raw[i]!.rawCpp,
               infFac,
-              ty,
+              tyY,
             );
           }
           penInc += inputs.survivorPct * raw[j]!.rawPen;
@@ -941,9 +941,9 @@ export function projection(
       const { incs, drawCash } = incomesForG(G);
       const ht = householdTax(
         livingIdx.map((i) => incs[i]!),
-        opts,
+        optsY,
         canSplit,
-        ty,
+        tyY,
       );
       return { cash: fixedCash + drawCash - ht.tax, ht };
     };
@@ -1007,7 +1007,7 @@ export function projection(
     // spouse's marginal rate, since a tax-aware plan taps them next.
     const finalIncs = incomesForG(G).incs;
     const margRate = livingIdx.length
-      ? Math.min(...livingIdx.map((i) => approxMarginal(finalIncs[i]!, opts, ty)))
+      ? Math.min(...livingIdx.map((i) => approxMarginal(finalIncs[i]!, optsY, tyY)))
       : 0;
 
     // TFSA withdrawals restore room on January 1 of the FOLLOWING year, so they
