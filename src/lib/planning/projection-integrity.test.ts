@@ -38,13 +38,13 @@ describe("indexation of statutory amounts (§12)", () => {
   it("returns published years untouched and unindexed", () => {
     const published = getTaxYear(LATEST_TAX_YEAR, 0.05);
     expect(published.derivedFrom).toBeUndefined();
-    expect(getTaxYear(LATEST_TAX_YEAR).fedBPA).toBe(published.fedBPA);
+    expect(getTaxYear(LATEST_TAX_YEAR).fedBpaMax).toBe(published.fedBpaMax);
   });
 
   it("never indexes backwards from the published table", () => {
     expect(indexationFactor(2026, 2020, 0.02)).toBe(1);
     const back = indexTaxYear(getTaxYear(2026), 2020, 0.02);
-    expect(back.fedBPA).toBe(getTaxYear(2026).fedBPA);
+    expect(back.fedBpaMax).toBe(getTaxYear(2026).fedBpaMax);
   });
 
   it("indexes brackets, personal amounts and the OAS threshold forward", () => {
@@ -52,26 +52,25 @@ describe("indexation of statutory amounts (§12)", () => {
     const y = getTaxYear(2036, 0.02);
     const f = Math.pow(1.02, 10);
     expect(y.derivedFrom).toBe(2026);
-    expect(y.fedBPA).toBe(Math.round(base.fedBPA * f));
+    expect(y.fedBpaMax).toBe(Math.round(base.fedBpaMax * f));
     expect(y.oasThreshold).toBe(Math.round(base.oasThreshold * f));
-    expect(y.pensionAmount).toBe(Math.round(base.pensionAmount * f));
-    expect(y.fedBrackets[0]!.upTo).toBe(Math.round(base.fedBrackets[0]!.upTo * f));
+    expect(y.fedPenAmt).toBe(Math.round(base.fedPenAmt * f));
+    expect(y.federal[0]!.up).toBe(Math.round(base.federal[0]!.up * f));
     // The top bracket has no ceiling and must stay unbounded, not become a
     // finite indexed number.
-    expect(y.fedBrackets[y.fedBrackets.length - 1]!.upTo).toBe(Infinity);
+    expect(y.federal[y.federal.length - 1]!.up).toBe(Infinity);
   });
 
   it("leaves rates alone — only amounts index", () => {
     const base = getTaxYear(2026);
     const y = getTaxYear(2046, 0.02);
-    expect(y.fedBrackets.map((b) => b.rate)).toEqual(
-      base.fedBrackets.map((b) => b.rate),
-    );
-    expect(y.oasRecoveryRate).toBe(base.oasRecoveryRate);
+    expect(y.federal.map((b) => b.rate)).toEqual(base.federal.map((b) => b.rate));
+    expect(y.divGrossUp).toBe(base.divGrossUp);
+    expect(y.agePhaseRate).toBe(base.agePhaseRate);
   });
 
   it("indexing at zero reproduces the published table exactly", () => {
-    expect(getTaxYear(2050, 0).fedBPA).toBe(getTaxYear(2026).fedBPA);
+    expect(getTaxYear(2050, 0).fedBpaMax).toBe(getTaxYear(2026).fedBpaMax);
   });
 
   it("lowers lifetime tax versus frozen brackets on an inflating plan", () => {
@@ -151,7 +150,8 @@ describe("non-registered return decomposition (§6.1)", () => {
         projection({
           ...p,
           indexationRate: 0,
-          returns: { ...p.returns, eq: rate, fi: rate },
+          eqRet: rate,
+          fiRet: rate,
         }),
       );
     };
