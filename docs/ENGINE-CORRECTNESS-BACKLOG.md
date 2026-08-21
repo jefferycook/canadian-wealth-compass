@@ -274,8 +274,6 @@ re-cutting — the same trap already flagged for non-eligible dividend credits.
   corroboration only (KPMG), which may not satisfy §13.1.
 - **Provincial dividend tax credits** — ON 10%, BC 12%, AB 8.12% of the
   grossed-up eligible dividend. Ontario's 10% is tier-3 / open-data only.
-- **`fedDivCredit` 0.150198 and `divGrossUp` 1.38** — CRA line 40425 publishes
-  no rate; verify against **Federal Worksheet 5000-D1**.
 - **FSRA Ontario LIF maximum table digits** (`ON_LIF_MAX`, ages 50–89) — the
   rule is VERIFIED but the fifty percentages have not been compared line by
   line the way the RRIF table now has been. FSRA's consumer table page 404s and
@@ -284,10 +282,20 @@ re-cutting — the same trap already flagged for non-eligible dividend credits.
   guidance floors the reference rate at 6% and the table stands unless the
   November CANSIM V122487 rate exceeds it, so what it needs is a periodic
   check that the floor still binds (recorded in spec §13.3a).
-- **`cppAvgNew65` 10,464** ($872/month) — the average new retirement pension at
-  65. A statistic, not a maximum, so it is absent from the ESDC quarterly
-  maximums page; CPP's "How much you could receive" page carries it. The single
-  remaining CPP/OAS item.
+**Struck 2026-08-21 — `cppAvgNew65`, and it was WRONG.** Canada.ca's CPP "How
+much you could receive" page publishes $877.01/month for July-September 2026,
+i.e. **$10,524.12/year**, not the 10,464 ($872/month) the code carried. The
+constant has been corrected and pinned by `estimates.test.ts`. It is a
+statistic used only by the estimator, no fixture uses the estimator, and no
+golden anchor moved. It is a **quarterly** figure and needs re-pulling on that
+cadence. This is the first confirmed constant defect of the verification pass.
+
+**Struck 2026-08-21 — federal eligible-dividend constants.** CRA's T5 Guide
+states the 38% gross-up and the 15.0198% federal dividend tax credit on the
+taxable eligible dividend for 2012 and later, confirming `divGrossUp = 1.38` and
+`fedDivCredit = 0.150198` exactly. VERIFIED, no behaviour change. The
+**provincial** dividend tax credits (ON 10%, BC 12%, AB 8.12%) remain
+outstanding.
 
 **Struck 2026-08-21 — CPP/OAS maximums.** Every other CPP and OAS constant
 (`cppMax65`, the four survivor/combined figures, `cppDeathBenefit`, `oasMax65`,

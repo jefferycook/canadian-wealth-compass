@@ -212,7 +212,11 @@ export const TAX_2026: TaxYear = {
   oasMax75: 9926.04,
 
   cppMax65: 18091.8, // $1,507.65/mo
-  cppAvgNew65: 10464, // $872/mo — average new retirement pension taken at 65
+  // VERIFIED 2026-08-21 against Canada.ca "CPP: How much you could receive"
+  // (July-September 2026): $877.01/mo average new retirement pension at 65.
+  // A statistic, not a statutory maximum; used only by the estimator.
+  // Corrected from a stale 10,464 ($872/mo) on 2026-08-21.
+  cppAvgNew65: 10524.12, // $877.01/mo x 12
   cppSurvFlat: 238.17 * 12,
   cppSurvMaxU65: 803.54 * 12,
   cppSurvMax65: 904.59 * 12,
