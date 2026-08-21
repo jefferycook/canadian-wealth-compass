@@ -449,7 +449,11 @@ export function projection(
           for (const [idx, fr] of splitOf(a)) P[idx]!.schedNonregGain += gain * fr;
           p.schedNonregCash += w;
         } else {
-          p.schedRegCash += w;
+          // Source-aware: only cash out of an account that is actually in
+          // RRIF/LIF status this year can ever be pension-income eligible.
+          if (isRRIFnow(a, age)) p.schedRrifCash += w;
+          else p.schedRrspCash += w;
+
         }
         a.bal -= w;
       }
