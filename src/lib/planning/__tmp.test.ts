@@ -1,8 +1,8 @@
 import { describe, it } from "vitest";
-import { defaultPlanInputs } from "./defaults";
+import { regressionFixturePlan } from "./fixtures";
 import { projection } from "./projection";
 describe("tmp", () => { it("x", () => {
-  const i = defaultPlanInputs();
+  const i = regressionFixturePlan();
   const b = projection(i, {});
   const s = projection(i, { goalSaves: [{ amt: 12000, type: "TFSA", owner: "A" }] } as any);
   const sy = (P:any)=>P.rows.filter((r:any)=>r.fundingShortfall).length;
