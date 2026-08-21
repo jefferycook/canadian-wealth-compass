@@ -173,11 +173,17 @@ export function projection(
       new PersonRoomLedger(p, {
         planStartYear: startYear,
         inflation: infl,
-        // A DB pension or an employer DC plan means a pension adjustment
-        // consumes RRSP room; PA is never silently assumed to be zero.
+        // Membership in a workplace plan means a pension adjustment consumes
+        // RRSP room; PA is never silently assumed to be zero. A LIRA is NOT
+        // evidence of membership — it is locked-in money from a FORMER
+        // employer, and by itself implies no current-year PA.
+        // LIMITATION: the input model records a DB pension amount and an
+        // employer DC account, but has no explicit "currently a member of a
+        // registered pension plan" flag, so a DB pension entitlement that has
+        // already stopped accruing is still treated as membership here.
         pensionMember:
-          p.pen.amt > 0 ||
-          accts.some((a) => a.owner === p.id && (a.type === "DCPP" || a.type === "LIRA")),
+          p.pen.amt > 0 || accts.some((a) => a.owner === p.id && a.type === "DCPP"),
+
       }),
   );
   const roomDisclosures = new Set<string>();
@@ -388,11 +394,12 @@ export function projection(
     // the year creates room on January 1 of the FOLLOWING year, never this one.
     ledgers.forEach((l, i) => l.openYear(yr, ages[i]!, alive[i] ? raw[i]!.employInc : 0));
 
-    /** Apply a contribution through the owner's ledger, and return what stuck. */
-    const applyContribution = (
+    /** Place money in an account through the owner's room ledger. */
+    const placeInAccount = (
       a: WorkingAccount,
       amount: number,
       source: "asserted" | "generated",
+      countAsContribution: boolean,
     ): number => {
       const idx = oi(a);
       const led = ledgers[idx];
@@ -404,10 +411,19 @@ export function projection(
       if (applied <= 0) return 0;
       a.bal += applied;
       if (a.type === "NONREG") a.acb += applied;
-      contribTotal += applied;
-      contribBy[a.id] = (contribBy[a.id] ?? 0) + applied;
+      if (countAsContribution) {
+        contribTotal += applied;
+        contribBy[a.id] = (contribBy[a.id] ?? 0) + applied;
+      }
       return applied;
     };
+
+    /** Apply a contribution through the owner's ledger, and return what stuck. */
+    const applyContribution = (
+      a: WorkingAccount,
+      amount: number,
+      source: "asserted" | "generated",
+    ): number => placeInAccount(a, amount, source, true);
 
     let contribTotal = 0;
     const contribBy: Record<string, number> = {};
@@ -422,14 +438,18 @@ export function projection(
     // advice, so they may only use KNOWN legal room, and overflow cascades
     // TFSA -> RRSP -> non-registered.
     const CASCADE: readonly AccountType[] = ["TFSA", "RRSP", "NONREG"];
-    for (const gs of goalSaves) {
-      if (!(gs.amt > 0)) continue;
-      const ownerIdx = pIndex[gs.owner] ?? 0;
-      if (ages[ownerIdx]! >= (people[ownerIdx]!.retAge || 999)) continue;
-      const start = CASCADE.indexOf(gs.type);
+    /** Walk the approved cascade from `startType`, returning what is left. */
+    const cascadePlace = (
+      ownerIdx: number,
+      startType: AccountType,
+      amount: number,
+      source: "asserted" | "generated",
+      countAsContribution: boolean,
+    ): number => {
+      const start = CASCADE.indexOf(startType);
       const order: AccountType[] =
-        start >= 0 ? [...CASCADE.slice(start)] : [gs.type, "NONREG"];
-      let remaining = gs.amt * infFac;
+        start >= 0 ? [...CASCADE.slice(start)] : [startType, "NONREG"];
+      let remaining = amount;
       for (const type of order) {
         if (remaining <= 0.005) break;
         const tgt =
@@ -438,8 +458,22 @@ export function projection(
             ? accts.find((a) => a.type === "NONREG" && a.owner === "JOINT")
             : undefined);
         if (!tgt) continue;
-        remaining -= applyContribution(tgt, remaining, "generated");
+        remaining -= placeInAccount(tgt, remaining, source, countAsContribution);
       }
+      return Math.max(0, remaining);
+    };
+
+    for (const gs of goalSaves) {
+      if (!(gs.amt > 0)) continue;
+      const ownerIdx = pIndex[gs.owner] ?? 0;
+      if (ages[ownerIdx]! >= (people[ownerIdx]!.retAge || 999)) continue;
+      const remaining = cascadePlace(
+        ownerIdx,
+        gs.type,
+        gs.amt * infFac,
+        "generated",
+        true,
+      );
       if (remaining > 1) {
         roomDisclosures.add(
           "Part of the extra saving could not be placed: the registered room available is smaller than the amount, and there is no non-registered account to receive the remainder.",
@@ -455,6 +489,15 @@ export function projection(
       if (ls.age > 0 && ages[idx] === ls.age && ls.amt > 0) {
         const amt = ls.amt * infFac;
         if (ls.taxable) lumpTaxInc[idx]! += amt; // e.g. severance
+        if (ls.dest === "TFSA" || ls.dest === "RRSP") {
+          // A lump sum directed at a registered plan is a PLANNED allocation,
+          // not a completed contribution, so it may only use known legal room.
+          // Whatever will not fit cascades on to the next destination; any
+          // final remainder is spendable cash rather than money that vanishes.
+          const left = cascadePlace(idx, ls.dest, amt, "generated", false);
+          if (left > 0.005) lumpCash += left;
+          continue;
+        }
         const tgt =
           accts.find((a) => a.type === ls.dest && a.owner === ls.owner) ??
           accts.find((a) => a.type === ls.dest);
@@ -466,6 +509,7 @@ export function projection(
         }
       }
     }
+
 
     /* --- 6a. Mandatory RRIF/LIF minimums --- */
     // A LIRA/LIF unlock moves that share to RRIF treatment, so no maximum
