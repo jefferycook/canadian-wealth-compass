@@ -310,7 +310,14 @@ describe("the default plan (regression fixture)", () => {
     // credit disappears in the ages 60-64 rows and lifetime tax rises by
     // $2,288 to 278614. The direction is correct: a credit was being claimed
     // five years too early.
-    expect(Math.round(lifetimeTax(P))).toBe(278614);
+    // Batch 0D re-pin. Statutory amounts are now indexed past the last
+    // published table instead of frozen in nominal terms, so a plan whose
+    // income inflates no longer drifts into higher brackets every year.
+    // With indexationRate forced to 0 this fixture reproduces the Batch 0A
+    // number 278614 exactly, so the whole move is indexation and neither the
+    // non-registered decomposition nor the surplus sweep touched it (this
+    // fixture sweeps $0).
+    expect(Math.round(lifetimeTax(P))).toBe(198394);
   });
 
   it("takes at least the mandatory RRIF minimum every year from 71 until the registered money is gone", () => {
