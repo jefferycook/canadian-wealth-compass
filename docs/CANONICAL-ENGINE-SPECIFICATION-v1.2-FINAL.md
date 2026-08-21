@@ -23,7 +23,7 @@
 |---|---|
 | v1.0 | Initial audit + specification. |
 | v1.1 | Corrected the pension-splitting **double-50% cap** (search reached only 25% of eligible pension) to **[C]**; stated province-table coverage precisely (ON/BC/AB/CUSTOM only; other keys **throw**); added Appendix B second-pass verification of every `[ok]`. |
-| **v1.2 FINAL + Erratum 5 (transferee pension credit)** | Batch 0A correction, verified against CRA. A single scalar `pensionEligible` cannot express the receiving spouse's independent age test, so a transferee was earning the $2,000 credit on split RRIF income regardless of their own age. `pensionEligible` splits into `pensionEligibleAnyAge` and `pensionEligible65Plus`; the transferee's credit applies their own age test. Couple golden re-pinned. See §1.5 Erratum 5. |
+| **v1.2 FINAL + Erratum 5 (transferee pension credit)** | Batch 0A correction, verified against CRA. A single scalar `pensionEligible` cannot express the receiving spouse's independent age test, so a transferee was earning the $2,000 credit on split RRIF income regardless of their own age. `pensionEligible` splits into `pensionEligibleAnyAge` and `pensionEligible65Plus`; the transferee's credit applies their own age test. Implemented 2026-08-21; the couple golden anchor did **not** move, because in that fixture the transferor's any-age RPP pension already exceeds the pension amount the transferee can absorb — a cap result, not evidence that the correction is inert. See §1.5 Erratum 5. |
 | **v1.2 FINAL + Erratum 4 (SK scope + status granularity)** | Batch 0C scope consistency only, no methodology change. **4A — Option A adopted:** Saskatchewan stays **`UNSUPPORTED`**; `PRRIF` is built for Manitoba, no SK behaviour is implemented, and the MB/SK PRRIF test is split. **4B — status is component-level**, gated at the point of use (resolves Quebec's mixed verified/approximate rules). See §13.2a and the corrected Batch 0C rows. |
 | **v1.2 FINAL + Erratum 3 (spousal-RRSP scope)** | Scope consistency only, no methodology change. §2.7 defers spousal RRSPs while §2.6/Batch 0B required a younger-spouse contribution test — irreconcilable. **Ruled Option A: spousal RRSPs are fully deferred.** Batch 0B models only `contributor === owner`; post-71 room accrues but stays dormant with a disclosure. See §2.6 item 4 and the corrected year-71 tests. |
 | **v1.2 FINAL + Erratum 2 (opening-year room semantics)** | Narrow Batch 0B input-contract correction, no audit, no other methodology change. v1.2 as issued had no plan-start-year special case, so a literal implementation would **double-count opening contribution room** (the UI's "room available" already includes the current year's statutory accrual), and it conflated RRSP **contribution room** with **deduction limit**. **Verified against CRA and corrected.** See §2.6 Erratum 2 for the rulings and the exact ledger formulas. |
@@ -177,7 +177,7 @@ This is the highest-value tax interaction in a retirement plan and it carries **
 
 1. Track registered withdrawals as **two streams**: `rrifEligible` (RRIF/LIF minimums + any withdrawal from an account in RRIF/LIF status) and `rrspNonEligible` (withdrawals from an account still in RRSP/LIRA status). *(Bug A)*
 2. `pensionEligible = rppLifetimePension + (age≥65 ? rrifEligible : 0)` — **no unconditional bridge term**; see **Erratum 1** below. Do **not** include plain RRSP withdrawals at any age. *(Bug A)*
-3. Feed only `pensionEligible` to both the $2,000 credit and the splitting optimizer. *(Bug A)*
+3. Feed only `pensionEligible` (as amended by Erratum 5 — two typed streams, with the transferee's own age test) to both the $2,000 credit and the splitting optimizer. *(Bug A)*
 4. Search the split over the **entire statutory range, 0% through 50% of eligible pension income**, both directions; always test the 0% and 50% endpoints; keep the lowest combined household tax. *(Bug B)*
 - **Tests (both bugs):**
   - **Split range:** a lopsided couple whose optimum is the **full 50%** must return `splitAmt ≈ 0.5 × pensionEligible` (not `0.25 ×`). Construct a case where 50% is strictly better than 25% and assert the optimizer picks ≥ 49%.
@@ -188,70 +188,48 @@ This is the highest-value tax interaction in a retirement plan and it carries **
 
 ### Erratum 5 — the transferee's pension credit needs its own age test [C, narrow]
 
-**Defect.** The specification modelled pension-income eligibility as a single
-scalar, `pensionEligible`, carried on `IncomeComponents`. Household splitting
-therefore did `transferee.pensionEligible += T`, which handed the receiving
-spouse the $2,000 federal pension income amount (and the provincial equivalent)
-on split RRIF income no matter how old that spouse was. The engine implemented
-the specification faithfully; the specification was wrong, because one scalar
-cannot express two different age tests.
+**The defect.** v1.2 + Erratum 1 defined a single scalar `pensionEligible` and said it "feeds both the $2,000 credit and the splitting search." That is right for the **pensioner** but wrong for the **transferee**. The implementation faithfully followed it — `householdTax()` does `ti.pensionEligible += T` — so a spouse *receiving* split income earns the pension income amount regardless of their own age. The spec, not the implementation, was incomplete.
 
-**Authority.** CRA, pension income splitting / Form T1032, verified 2026-08-21:
+**Verified against CRA (Aug 2026), pension income splitting / Form T1032:**
 
-> "The pension that qualifies for the pension income amount for the
-> transferring spouse or common-law partner **does not necessarily qualify**
-> for the pension income amount for the receiving spouse or common-law partner
-> because eligibility can depend on age."
+> *"The pension that qualifies for the pension income amount for the transferring spouse or common-law partner **does not necessarily qualify** for the pension income amount for the receiving spouse or common-law partner because eligibility can depend on age."*
 
-RRIF and RRSP-annuity income qualifies for the RECEIVING spouse only when that
-spouse is 65+ (or receives it because of a spouse's death). RPP lifetime
-retirement benefits qualify at any age. The transferee is assessed
-independently — T1032 Step 4 / Note 1.
+CRA further confirms RRIF and RRSP annuity payments qualify for the **receiving** spouse only where that spouse is **65 or older** (or receives them due to a spouse's death), while **RPP lifetime retirement benefits** qualify at any age. The receiving spouse's entitlement is assessed independently, per Step 4 / Note 1 of Form T1032.
 
-**Two typed streams.** `IncomeComponents.pensionEligible` is replaced by:
+**What is and is not affected.** The *split itself* remains valid — eligibility to allocate is the transferor's test, and shifting income to a lower-bracket spouse is legitimate. Only the **transferee's line 31400 claim** was wrong. Transferor-side treatment (reducing their own eligible amount by the transferred sum) was already correct.
 
-| Stream | Contents | Pensioner's own credit | Transferee's credit |
-| --- | --- | --- | --- |
-| `pensionEligibleAnyAge` | RPP lifetime retirement benefits; a bridge affirmed as `RPP_LIFETIME` | any age | any age |
-| `pensionEligible65Plus` | RRIF / LIF / PRRIF cash (already gated to 65+ for the holder by Erratum 1) | 65+ | only if the TRANSFEREE is 65+ |
+**Why a scalar cannot express this.** The transferee's test depends on the *type* of the income received, so `pensionEligible` must carry type. Split it into two streams:
 
-**Credit base and splitting.**
+| Stream | Contents | Credit eligibility |
+|---|---|---|
+| `pensionEligibleAnyAge` | RPP lifetime retirement benefits; a bridge affirmed as `RPP_LIFETIME` (Erratum 1) | Any age — pensioner **and** transferee |
+| `pensionEligible65Plus` | RRIF / LIF / PRRIF cash (already gated to 65+ for the holder by Erratum 1) | Holder: as today. **Transferee: only if the transferee is 65+** |
+
+**Required behaviour**
 
 ```
-creditBase  = pensionEligibleAnyAge + (age >= 65 ? pensionEligible65Plus : 0)
-splittable  = 0.50 * (anyAge + p65)          // transferor's pool, unchanged
+creditBase(person) = pensionEligibleAnyAge
+                   + (person.age >= 65 ? pensionEligible65Plus : 0)
 
-fracAnyAge  = anyAge / (anyAge + p65)        // 0 when the pool is 0
-T_anyAge    = T * fracAnyAge   -> transferee.pensionEligibleAnyAge
-T_65Plus    = T - T_anyAge     -> transferee.pensionEligible65Plus
-// the transferor's two streams fall by the same proportional shares
+splittable(transferor) = 0.50 × (pensionEligibleAnyAge + pensionEligible65Plus)
+        // unchanged: the transferor qualifies on both streams
+
+// A transfer T is drawn PROPORTIONALLY from the transferor's two streams.
+// T1032 elects a single amount from one pool; the taxpayer cannot cherry-pick
+// the any-age portion to maximise the transferee's credit.
+fracAnyAge   = anyAge / (anyAge + p65)                    // 0 when the pool is 0
+T_anyAge     = T × fracAnyAge          → transferee's pensionEligibleAnyAge
+T_65Plus     = T − T_anyAge            → transferee's pensionEligible65Plus
+                                        (counts for their credit only at 65+)
 ```
 
-The draw is **proportional, not cherry-picked**: T1032 elects a single amount
-out of one pool, so a taxpayer cannot preferentially allocate the any-age
-portion in order to inflate a young transferee's credit. Allocation eligibility
-remains the transferor's test, so the split itself is unaffected, as is the
-movement of ordinary income. Transferor-side treatment (reducing their own
-eligible amount by `T`) was already correct.
+Ordinary-income movement is unchanged: `T` leaves the transferor's `ordinary` and joins the transferee's.
 
-**Client impact.** Couples with an age gap where the older spouse's eligible
-income is RRIF/LIF-sourced and the younger spouse is under 65. Their household
-tax was understated by up to the value of one pension amount per year until the
-younger spouse turns 65. Where the transferor also holds an RPP lifetime
-pension large enough that the proportional any-age share exceeds the pension
-amount, nothing changes, because the credit is capped by the pension amount
-rather than by the stream.
+**Client impact.** Any couple where one spouse is 65+ with RRIF/LIF income and the other is under 65 — an ordinary age gap — previously received a credit the transferee was not entitled to, understating household tax. It also biased the split search toward transfers chasing a credit that does not exist.
 
-**Tests.** Pensioner 66 with RRIF income splitting to a spouse aged 64 (credit
-base excludes the split portion; household tax strictly higher than the
-pre-Erratum-5 behaviour); the same couple with the transferee aged 65 (it
-counts); pensioner 60 with an RPP lifetime pension splitting to a spouse aged
-55 (it counts); a proportional-draw assertion on both streams for both spouses;
-and a single filer, unaffected because there is no transfer path.
+**Scope.** Changes the transferee's credit base only. No change to the 0–50% split range (Erratum-A/Bug B), to eligibility classification (Erratum 1), or to any other methodology.
 
-**Scope.** Nothing else changes. `PlanInputs` is untouched, so saved plans are
-unaffected; the legacy scalar is still accepted and read as
-`pensionEligibleAnyAge`. The single-filer golden must not move.
+**Implementation note (2026-08-21).** Landed in `types.ts`, `projection.ts` and `tax.ts`; 184 tests green at the time, 214 today. The couple golden anchor did **not** move: in `coupleGoldenFixturePlan` the transferor holds a $24,000 RPP lifetime pension, so the proportional draw sends the transferee more any-age income than the $2,000 federal / $1,796 Ontario pension amount can absorb, and the capped credit is unchanged. An unmoved anchor is not evidence of correctness — the mechanism is proved instead by the projection-level tests in `pension-eligibility.test.ts` ("Erratum 5 end-to-end — the projection feeds two typed streams").
 
 ### Erratum 1 — bridge benefits are not lifetime retirement benefits [C, narrow]
 
@@ -1125,7 +1103,7 @@ Keep the existing 53 tests. Add, at minimum:
 |---|---|
 | **Files / functions** | `core/tax.ts` → `householdTax()`, `tryDir()`, `computeTax()` (pension credit input). `core/projection.ts` → the `fixed[]` accumulator that builds `pensionEligible`, and the `P[]` per-person accumulators (`mandatoryTaxable`, `schedRegCash`). |
 | **Type / interface changes** | `IncomeComponents`: keep `pensionEligible` but populate it from a new split of registered cash. In the projection's per-person accumulator add `rrifEligibleCash` (withdrawals from accounts in RRIF/LIF/PRRIF status, including mandatory minimums) and `rrspNonEligibleCash` (withdrawals from accounts still in RRSP/LIRA status). **Erratum 1:** `BridgeInput` gains `sourceClass?: "rpp" \| "rca" \| "employerSupplement" \| "other"` (default `"rpp"`) and `eligibleAffirmed?: boolean` (default **false**) — both optional, so **saved plans remain compatible** and existing bridges become non-eligible on load, which is the intended correction. No other `PlanInputs` change. |
-| **Methodology** | (1) **Split range:** search the transfer over the **full 0% → 50% of eligible pension income**, both directions, always evaluating the endpoints. Either pass the un-halved eligible amount with `f ∈ [0, 0.50]`, or keep `maxT = 0.5 × eligible` with `f ∈ [0, 1.0]`. Use a fine step (≤2%) or a bounded 1-D solve; keep the lowest combined household tax. (2) **Eligibility — amended by Erratum 1:**<br>`pensionEligible = rppLifetimePension + (age >= 65 ? rrifEligibleCash : 0) + (bridgeEligibleAffirmed ? bridgeInc : 0)`<br>where `bridgeEligibleAffirmed` defaults to **false**. Plain RRSP withdrawals are **never** eligible, at any age. Under 65, only RPP **lifetime** pension qualifies (plus death-of-spouse cases) — so a RRIF minimum taken at 60 is **not** eligible, and **a bridge benefit is not eligible merely because it is paid from a pension plan** (CRA: bridging benefits are not lifetime retirement benefits). `bridgeInc` remains fully taxable ordinary income regardless. The same `pensionEligible` feeds both the $2,000 credit and the splitting search. |
+| **Methodology** | (1) **Split range:** search the transfer over the **full 0% → 50% of eligible pension income**, both directions, always evaluating the endpoints. Either pass the un-halved eligible amount with `f ∈ [0, 0.50]`, or keep `maxT = 0.5 × eligible` with `f ∈ [0, 1.0]`. Use a fine step (≤2%) or a bounded 1-D solve; keep the lowest combined household tax. (2) **Eligibility — amended by Erratum 1:**<br>`pensionEligible = rppLifetimePension + (age >= 65 ? rrifEligibleCash : 0) + (bridgeEligibleAffirmed ? bridgeInc : 0)`<br>where `bridgeEligibleAffirmed` defaults to **false**. Plain RRSP withdrawals are **never** eligible, at any age. Under 65, only RPP **lifetime** pension qualifies (plus death-of-spouse cases) — so a RRIF minimum taken at 60 is **not** eligible, and **a bridge benefit is not eligible merely because it is paid from a pension plan** (CRA: bridging benefits are not lifetime retirement benefits). `bridgeInc` remains fully taxable ordinary income regardless. The same `pensionEligible` feeds both the $2,000 credit and the splitting search **(as amended by Erratum 5**: `pensionEligible` is two typed streams, and a transferee claims the credit on the 65+ stream only when the transferee themselves is 65+**)**. |
 | **Tests required** | **Hand-calculated:** a two-person fixture with $90,000 eligible pension vs $0 other income where the optimum is the full 50% — assert `splitAmt ≈ 45,000`, not `22,500`, and assert combined tax equals a hand-computed figure. **Endpoints:** 0% and 50% both evaluated. **Cap regression guard:** a 25%-capped search is strictly worse on that fixture. **Eligibility matrix:** 66-year-old with only RRSP withdrawals → no credit, no split; same person after RRIF conversion → both; 60-year-old with a RRIF minimum → not eligible; DB pension at 60 → eligible. **Bridge (Erratum 1):** a 60-year-old with an RPP lifetime pension **plus** a bridge has `pensionEligible` equal to the lifetime portion only — assert the bridge is excluded from both the credit and the split, and that it still appears in `ordinary` income and in household cash; setting `eligibleAffirmed = true` includes it; a bridge with `sourceClass = "rca"` is never eligible even when affirmed. **Never** accept a one-sided `splitAmt <= 50%` assertion as sufficient. |
 | **Saved-plan compatibility** | No input-schema change. Fully backward compatible. |
 | **Regression figures that change** | **Single-filer $276,326 → will change** (eligibility affects the pension credit on RRIF minimums at 65+). **Erratum 1 adds a second cause:** any fixture with a bridge benefit loses the credit/split on that amount, so **bridge fixtures move upward in tax**; the default single-filer fixture has no bridge, so Erratum 1 alone does not move it. **Couple fixtures → will change materially** (split range). A **new couple golden fixture must be added in this batch** — one does not exist today, which is why the 25% cap survived 53 passing tests. |
@@ -1279,6 +1257,11 @@ Sources consulted directly while producing v1.0–v1.2 (tier 1/2 unless noted):
 | RRSP **`Deduction Limit = Unused (undeducted) Contributions + Available Contribution Room`**, therefore `Available Contribution Room = Deduction Limit − Unused Contributions` (per the Notice of Assessment / RRSP Deduction Limit Statement) | CRA NOA relationship, via PWL Capital summary (tier 3 restating the CRA statement) | Aug 2026 |
 | Bridging benefits are **not** lifetime retirement benefits — *"Bridging benefits, by definition, are not lifetime retirement benefits"*; bridging = benefits payable for a temporary period ending no later than a date known when payments start | CRA, Registered Pension Plans Glossary | Aug 2026 |
 | Eligible pension income for the pension income amount / splitting describes the RPP entry as **"RPP lifetime retirement benefits"** (T4A box 016) at both age bands, with **no** mention of bridging benefits; conditional bridge eligibility noted in professional guidance (tier 3, Sun Life) | CRA, line 31400 eligible pension income tables | Aug 2026 |
+| Federal pension income amount (line 31400) is a **fixed $2,000**, not an indexed amount — it does not appear among the amounts adjusted annually for inflation. (Provincial pension amounts *do* index.) | CRA, indexation adjustment for personal income tax and benefit amounts | Aug 2026 |
+| **Alberta** locked-in — 50% one-time unlocking from age 50, to cash / RRSP / RRIF, and it must be done **as the money moves into** the LIF/LITB; small-amount threshold 20% of YMPE | Alberta Superintendent of Pensions, Interpretive Guideline #04 — Unlocking of Pension Benefits | Aug 2026 |
+| **Nova Scotia** locked-in — 50% one-time unlocking at 55 from a **Schedule 4A LIF**, no second chance, application invalid after **60 days** | Nova Scotia Department of Finance, Form 20 | Aug 2026 |
+| **British Columbia** locked-in — BC legislation does **not** allow the 50% one-time unlocking provision (a verified absence, not an unchecked zero); four permitted circumstances; thresholds 20% YMPE under 65, 40% YMPE at 65+ | BCFSA, Unlocking pension funds | Aug 2026 |
+| **New Brunswick** locked-in — the one-time entitlement is the **lesser of** three times the annual amount or **25% of the LIF balance**, from a LIF, to a RRIF, with no stated age condition; our former flat 25%-at-55-to-an-RRSP record overstated it and was **withdrawn to UNSUPPORTED** | FCNB, Pension Transfers and Withdrawals | Aug 2026 |
 | 2026 CPP/OAS amounts and CPP survivor rules (60% at 65+; flat-rate + 37.5% at 45–64; 1/120 reduction 35–44; survivor and combined maximums; $2,500 death benefit) | ESDC quarterly benefit tables (carried in both codebases; re-checked in v1.0) | Aug 2026 |
 
 **Everything else is CONST-UNVERIFIED for the purposes of this document** — including all 2026 bracket thresholds, BPA/age/pension amounts, the OAS clawback threshold, RRIF minimum table digits, the FSRA LIF maximum table digits, and the TFSA/RRSP dollar limits. The *mechanisms* are verified; the *numbers* are inherited from the codebases' own comments. Reconciling each to a tier-1/2 source with a `verifiedDate` is Phase 0/Phase 2 work and a launch blocker (§11.4).
