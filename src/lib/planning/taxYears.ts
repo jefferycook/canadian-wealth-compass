@@ -149,11 +149,18 @@ const PROVINCES_2026: Record<string, ProvinceTax> = {
     ],
     surtax: [],
     healthPremium: false,
+    // VERIFIED 2026-08-21 — Province of British Columbia, "B.C. basic personal
+    // income tax credits" (last updated 2026-04-20).
     bpa: 13216,
-    ageAmt: 5691,
-    ageThresh: 42580,
+    ageAmt: 5927,
+    ageThresh: 44119,
     penAmt: 1000,
     divCredit: 0.12,
+    // VERIFIED 2026-08-21 — Province of British Columbia, "Personal income tax
+    // rates" (last updated 2026-04-17) / Budget 2026 tax measures: indexation
+    // of BC brackets and non-refundable personal credits is PAUSED for tax
+    // years 2027 through 2030, resuming in 2031.
+    indexationPause: { from: 2027, to: 2030 },
   },
   AB: {
     name: "Alberta",
