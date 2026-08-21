@@ -345,3 +345,58 @@ existing golden anchors did not move** (201,470 / 411,408 / 2,176,860).
    recorded the continuing §6.2 non-eligible-dividend deferral (both above).
 
 **Suite after the patch: 223 tests passing** (was 214), clean typecheck.
+
+
+## Batch 0D defect [C] — contributions are a use of cash — 2026-08-21
+
+**Severity [C]: the engine overstated client wealth on every contributing
+plan.** Raised by Jeff and recorded in `AGENT-STATUS.md` before the code change.
+
+`applyContribution` added `a.contrib * infFac` to the account balance and to
+`contribTotal`, but nothing was subtracted from `fixedCash` and nothing added to
+`spendTarget`, while `fixedCash` already held the full `employInc` funding it.
+The same dollars counted twice. Before Batch 0D the error was self-cancelling
+and invisible — the year-end surplus vanished, implicitly paying for the
+contributions. **0D's sweep removed the vanishing without adding the outflow.**
+
+On `accumulationGoldenFixturePlan`, year one: 190,000 of employment income,
+29,000 of contributions, an 84,000 spend target, solver at `G = 0`, and the
+whole surplus swept — a deposit of `29,000 + surplus` in a year the household
+had only `surplus` to spare, repeated across a ~20-year contribution window and
+compounded at the equity return.
+
+**Fix.** `contribTotal` is now a term in `spendTarget`, with a comment at the
+site recording why (it is exactly the kind of line a later edit would innocently
+delete). Only `countAsContribution: true` placements are included — asserted
+account contributions and goal saves, both genuine outflows. Registered lump
+sums pass `false` (an inflow being allocated, not cash to find) and so does the
+sweep, which is what keeps it non-circular. Secondary effect: the draw solver
+and `fundingShortfall` now see contributions, so a retiree still contributing
+draws to fund it or is flagged.
+
+*Alternative not taken, recorded for review:* subtracting `contribTotal` from
+`afterTax` for the surplus only. Identical whenever there is a surplus; differs
+only where the household must draw. The `spendTarget` route was chosen so
+solver, shortfall flag and sweep stay consistent. Open to being overruled.
+
+| Golden anchor | Before | After |
+|---|---|---|
+| Accumulation | 2,176,860 | **1,762,590** (−19.0%, downward as predicted) |
+| Single filer | 201,470 | **201,470** — unmoved (`contrib: 0` throughout) |
+| Couple | 411,408 | **411,408** — unmoved (`contrib: 0` throughout) |
+
+**Tests added** (`projection-integrity.test.ts`, controlled one-year fixtures
+with zero returns and zero yields so the cash identity is exact):
+
+1. *Conservation* — total placed into accounts equals `contribTotal +
+   surplusSwept` and is `<= grossCash − tax − baseSpend + 0.01`; pre-fix it
+   exceeded that by exactly the contribution.
+2. *One-for-one displacement* — two plans differing only by a $10,000 TFSA
+   contribution: tax identical, `surplusSwept` lower by exactly 10,000, and
+   year-end portfolio equal to within a dollar. Pre-fix the contributing plan
+   ended 10,000 richer from nowhere. This is the assertion that pins it closed.
+3. *Solver awareness* — a retiree whose pension covers spending but not
+   spending plus the contribution must draw or report `fundingShortfall`,
+   never silently absorb it.
+
+**Suite: 227 tests passing**, clean typecheck. Nothing deployed.

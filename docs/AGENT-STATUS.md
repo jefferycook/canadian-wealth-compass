@@ -8,7 +8,7 @@ resolved, then move it to **Resolved**.
 
 ---
 
-## OPEN — [C] Batch 0D surplus sweep creates money (contributions are not a use of cash)
+## FIXED (was OPEN [C]) — Batch 0D surplus sweep created money (contributions are not a use of cash)
 
 **Raised by Jeff, 2026-08-21. Recorded before the fix so the other agents see it
 immediately. Severity [C] — it overstates client wealth.**
@@ -50,7 +50,28 @@ contribution. The `spendTarget` route was chosen so the solver, the shortfall
 flag and the sweep are consistent with one another rather than patching the
 sweep alone.
 
-**Anchor expectation:** accumulation moves materially DOWNWARD (smaller
+**RESULT (same day, 2026-08-21).** Fix applied as described. **227 tests
+passing**, clean typecheck.
+
+| Golden anchor | Before | After |
+|---|---|---|
+| Accumulation | 2,176,860 | **1,762,590** (−19.0%) |
+| Single filer | 201,470 | **201,470** — unmoved |
+| Couple | 411,408 | **411,408** — unmoved |
+
+The two zero-contribution fixtures are confirmed untouched, which is the
+asymmetry check: this defect can only reach a plan that contributes.
+
+One existing test had to be rewritten rather than kept: `engine.test.ts`'s
+"stretches the money further when the client saves more before retirement"
+asserted that a goal save REDUCED shortfall years on a fixture that is already
+short — true only because the saving was free money. Asserting it would
+re-enshrine the defect. It is now two tests: saving into an already-short plan
+cannot buy extra years, and on an affordable variant a TFSA goal save helps
+only through its tax treatment (terminal portfolio up, but under 5%, not the
+whole contribution compounded).
+
+**Anchor expectation (as predicted before the change):** accumulation moves materially DOWNWARD (smaller
 balances → less investment income → less lifetime tax), by well over the 3%
 gate. The single-filer and couple fixtures have `contrib: 0` on every account
 and must NOT move — that asymmetry is the check.
