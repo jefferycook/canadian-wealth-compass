@@ -19,7 +19,12 @@ import { describe, expect, it } from "vitest";
 import { coupleGoldenFixturePlan } from "./fixtures";
 import { projection } from "./projection";
 import { rrifMinFactor } from "./registered";
-import { computeTax, householdTax } from "./tax";
+import {
+  computeTax,
+  householdTax,
+  pensionCreditBase,
+  pensionSplittable,
+} from "./tax";
 import { getTaxYear } from "./taxYears";
 import type {
   AccountInput,
