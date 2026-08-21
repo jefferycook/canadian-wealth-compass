@@ -448,3 +448,46 @@ controls asserting ON still indexes in 2027 and AB in 2028.
 
 **Suite: 256 tests passing**, clean typecheck. Golden anchors are Ontario-based
 and all three are **unmoved**: 201,470 / 411,408 / 1,762,590. Nothing deployed.
+
+
+---
+
+## Alberta constants verification pass — 2026-08-21
+
+Independent verification pass, scoped to Alberta tax data. Unrelated to the open
+CPP s.58(2) [C] blocker, which is untouched. All BC corrections, including the
+no-catch-up 2031 rule, are preserved.
+
+**Sources (tier 1).** CRA, *TD1AB-WS Worksheet for the 2026 Alberta Personal Tax
+Credits Return* (2026 form); CRA, *AB428 Alberta Tax and Credits* (2025);
+Alberta.ca, *Personal income tax* ("In 2026, thresholds and credit amounts will
+rise by 2%"). Checked 2026-08-21.
+
+**Defect — stale Alberta age amount and threshold.** `TAX_2026.provinces.AB`
+carried `ageAmt: 6055` and `ageThresh: 45210`. The 2026 TD1AB worksheet states
+the age amount is **$6,345** and the phase-out runs from net income **$47,234**
+to $89,534. This also reconciles to the 2025 figures indexed by Alberta's
+published 2%: `6,221 x 1.02 = 6,345`, `46,308 x 1.02 = 47,234`. Corrected.
+
+**Inspected, deliberately NOT changed — Alberta `penAmt: 1685`.**
+- *Indexation behaviour is correct.* Alberta's pension income amount does index:
+  the 2024 amount is $1,685 and CRA's 2025 AB428 line 58360 is **$1,719**
+  (= `1,685 x 1.02` rounded). Alberta.ca confirms 2026 credit amounts rise 2%.
+  The engine's generic indexing of provincial `penAmt` in derived years is
+  therefore right for Alberta, and was left alone.
+- *The 2026 value looks stale by two years.* $1,685 is the **2024** amount; the
+  implied 2026 amount is **$1,753**. The 2026 AB428 is not yet published, so
+  this is a derivation, not a tier-1 figure, and per the pass instructions the
+  value was **not** changed on inference. Recorded as backlog **AB-1**, to be
+  closed against the 2026 AB428 when CRA publishes it.
+
+**Tests added** (`src/lib/planning/taxYears.test.ts`, 4 tests): AB 2026 age
+amount and threshold pinned; the same two values cross-checked against the 2025
+figures indexed at 2%; the AB bracket table, BPA and dividend credit asserted
+unchanged; AB asserted to carry no `indexationPause`, with 2027 age amount,
+threshold and pension amount all indexing normally.
+
+**Suite: 260 tests passing** (was 256), clean typecheck. Golden anchors are
+Ontario-based and all three are **unmoved**: 201,470 / 411,408 / 1,762,590.
+CPP-1 [C] remains OPEN, Phase 0 remains unapproved, Phase 1 has not started,
+nothing deployed.
