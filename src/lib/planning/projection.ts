@@ -640,14 +640,31 @@ export function projection(
         if (lifCapRemaining[a.id] != null) cap = Math.min(cap, lifCapRemaining[a.id]!);
         const gf =
           a.type === "NONREG" && a.bal > 0 ? Math.max(0, (a.bal - a.acb) / a.bal) : 0;
-        return { a, cap: Math.max(0, cap), gf, type: a.type, owner: oi(a), split: splitOf(a) };
+        return {
+          a,
+          cap: Math.max(0, cap),
+          gf,
+          type: a.type,
+          owner: oi(a),
+          split: splitOf(a),
+          // Classified once, from the account's actual status this year.
+          rrifStatus: isRRIFnow(a, ages[oi(a)]!),
+        };
       })
       .filter((d) => d.cap > 0.01);
     const totalDrawable = drawable.reduce((s, d) => s + d.cap, 0);
 
     /** Per-person incomes produced by drawing a gross budget G, in order. */
     function incomesForG(G: number): { incs: IncomeComponents[]; drawCash: number } {
-      const add = P.map(() => ({ ord: 0, gainTax: 0, tfsa: 0, nonreg: 0, reg: 0 }));
+      const add = P.map(() => ({
+        ord: 0,
+        gainTax: 0,
+        tfsa: 0,
+        nonreg: 0,
+        reg: 0,
+        /** Registered draw from an account in RRIF/LIF status this year. */
+        regRrif: 0,
+      }));
       let rem = G;
       for (const d of drawable) {
         const take = Math.min(d.cap, rem);
@@ -662,16 +679,18 @@ export function projection(
         } else {
           x.ord += take;
           x.reg += take;
+          if (d.rrifStatus) x.regRrif += take;
         }
       }
       const incs: IncomeComponents[] = fixed.map((f, i) => ({
         ordinary: f.ordinary + add[i]!.ord,
         eligDiv: f.div,
         capGainsTaxable: f.gainTax + add[i]!.gainTax,
-        pensionEligible: f.pensionElig + (P[i]!.age >= 65 ? add[i]!.reg : 0),
+        pensionEligible: f.pensionElig + (P[i]!.age >= 65 ? add[i]!.regRrif : 0),
         oasReceived: f.oas,
         age: f.age,
       }));
+
       const drawCash = add.reduce((s, x) => s + x.reg + x.nonreg + x.tfsa, 0);
       return { incs, drawCash };
     }
