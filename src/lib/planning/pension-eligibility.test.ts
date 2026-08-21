@@ -288,6 +288,127 @@ describe("pension splitting search endpoints", () => {
   });
 });
 
+describe("Erratum 5 — the transferee applies their own age test", () => {
+  const settings = ON;
+
+  /** Hand-built two-sided comparison, the same style as the classification tests. */
+  const pair = (x: IncomeComponents, y: IncomeComponents) =>
+    computeTax(x, settings, TY).tax + computeTax(y, settings, TY).tax;
+
+  it("a spouse aged 64 gets NO credit on split RRIF income, so tax is higher", () => {
+    // Pensioner 66, all eligible income RRIF-sourced. Transferee 64.
+    const a = inc({ age: 66, ordinary: 90000, pensionEligible65Plus: 90000 });
+    const b = inc({ age: 64, ordinary: 0 });
+    const r = householdTax([a, b], settings, true, TY);
+    const T = r.splitAmt;
+    expect(T).toBeGreaterThan(0);
+
+    // Erratum 5 behaviour: the whole transfer lands in the 65+ stream, and the
+    // 64-year-old transferee's credit base is therefore zero.
+    const post = pair(
+      { ...a, ordinary: a.ordinary - T, pensionEligible65Plus: 90000 - T },
+      { ...b, ordinary: T, pensionEligible65Plus: T },
+    );
+    expect(r.tax).toBeCloseTo(post, 6);
+    expect(pensionCreditBase({ ...b, ordinary: T, pensionEligible65Plus: T })).toBe(0);
+
+    // Pre-Erratum-5 behaviour credited the transferee regardless of age, which
+    // understated household tax. The corrected answer must be strictly higher.
+    const preErratum5 = pair(
+      { ...a, ordinary: a.ordinary - T, pensionEligible65Plus: 90000 - T },
+      { ...b, ordinary: T, pensionEligibleAnyAge: T },
+    );
+    expect(r.tax).toBeGreaterThan(preErratum5);
+  });
+
+  it("the same split RRIF portion DOES count once the transferee is 65", () => {
+    const b64 = inc({ age: 64, ordinary: 20000, pensionEligible65Plus: 20000 });
+    const b65 = inc({ ...b64, age: 65 });
+    expect(pensionCreditBase(b64)).toBe(0);
+    expect(pensionCreditBase(b65)).toBe(20000);
+    // The credit is worth the pension amount at the lowest federal+provincial
+    // rates, so the 65-year-old pays strictly less on identical income.
+    expect(computeTax(b65, settings, TY).tax).toBeLessThan(
+      computeTax(b64, settings, TY).tax,
+    );
+  });
+
+  it("an RPP lifetime pension split to a spouse aged 55 DOES count for them", () => {
+    const a = inc({ age: 60, ordinary: 80000, pensionEligibleAnyAge: 80000 });
+    const b = inc({ age: 55, ordinary: 0 });
+    const r = householdTax([a, b], settings, true, TY);
+    const T = r.splitAmt;
+    expect(T).toBeGreaterThan(0);
+    const transferee = { ...b, ordinary: T, pensionEligibleAnyAge: T };
+    expect(pensionCreditBase(transferee)).toBeCloseTo(T, 6);
+    expect(r.tax).toBeCloseTo(
+      pair(
+        { ...a, ordinary: a.ordinary - T, pensionEligibleAnyAge: 80000 - T },
+        transferee,
+      ),
+      6,
+    );
+  });
+
+  it("draws the transfer proportionally from both streams", () => {
+    // 25% any-age, 75% RRIF-sourced. A transferee aged 64 may only credit the
+    // any-age quarter, and cannot elect to move that quarter preferentially.
+    const anyAge = 20000;
+    const p65 = 60000;
+    const a = inc({
+      age: 70,
+      ordinary: 120000,
+      pensionEligibleAnyAge: anyAge,
+      pensionEligible65Plus: p65,
+    });
+    const b = inc({ age: 64, ordinary: 0 });
+    const r = householdTax([a, b], settings, true, TY);
+    const T = r.splitAmt;
+    expect(T).toBeGreaterThan(0);
+    // The 50% ceiling is measured on the combined pool.
+    expect(T).toBeLessThanOrEqual((anyAge + p65) * 0.5 + 1e-9);
+
+    const fracAny = anyAge / (anyAge + p65);
+    const tAny = T * fracAny;
+    const t65 = T - tAny;
+    const transferee = {
+      ...b,
+      ordinary: T,
+      pensionEligibleAnyAge: tAny,
+      pensionEligible65Plus: t65,
+    };
+    const transferor = {
+      ...a,
+      ordinary: a.ordinary - T,
+      pensionEligibleAnyAge: anyAge - tAny,
+      pensionEligible65Plus: p65 - t65,
+    };
+    // Transferee receives the proportional shares; transferor falls by the same.
+    expect(pensionCreditBase(transferee)).toBeCloseTo(tAny, 6);
+    expect(pensionSplittable(transferor)).toBeCloseTo(anyAge + p65 - T, 6);
+    expect(r.tax).toBeCloseTo(pair(transferor, transferee), 6);
+  });
+
+  it("treats the legacy scalar as the any-age stream", () => {
+    const legacy = inc({ age: 60, ordinary: 40000, pensionEligible: 40000 });
+    const explicitAny = inc({ age: 60, ordinary: 40000, pensionEligibleAnyAge: 40000 });
+    expect(pensionCreditBase(legacy)).toBe(pensionCreditBase(explicitAny));
+    expect(computeTax(legacy, settings, TY).tax).toBeCloseTo(
+      computeTax(explicitAny, settings, TY).tax,
+      9,
+    );
+  });
+
+  it("leaves a single filer untouched — there is no transfer path", () => {
+    const solo = inc({ age: 66, ordinary: 90000, pensionEligible65Plus: 90000 });
+    const r = householdTax([solo], settings, true, TY);
+    expect(r.splitAmt).toBe(0);
+    expect(r.tax).toBeCloseTo(computeTax(solo, settings, TY).tax, 9);
+    // A 66-year-old holder still gets their own credit on RRIF income.
+    expect(pensionCreditBase(solo)).toBe(90000);
+  });
+});
+
 describe("couple golden fixture", () => {
   const P = projection(coupleGoldenFixturePlan());
   const lifetime = P.rows.reduce((s, r) => s + r.tax, 0);
@@ -305,6 +426,18 @@ describe("couple golden fixture", () => {
     // Batch 0A anchor. Pinned after the eligibility classification landed:
     // A's RRIF cash counts (age 66+), A's bridge does not (temporary, not
     // affirmed), and B's plain RRSP cash never does.
+    //
+    // Erratum 5 (transferee pension credit) was expected to move this number
+    // upward, because B is 64 in year one and previously earned the $2,000
+    // pension amount on split RRIF income. It did NOT move, and the reason is
+    // arithmetic rather than a missed correction: A holds a $24,000 RPP
+    // lifetime pension alongside the RRIF cash, so the proportional draw sends
+    // several thousand dollars of ANY-AGE pension income to B every year —
+    // far more than the $2,000 federal / $1,673 Ontario pension amount can
+    // absorb. B's credit is capped by the pension amount, not by the size of
+    // the eligible stream, so it is unchanged. The correction is exercised
+    // directly by the Erratum 5 tests above, where the transferor holds only
+    // RRIF-sourced income and the transferee's credit correctly falls to zero.
     expect(Math.round(lifetime)).toBe(COUPLE_GOLDEN);
   });
 });
