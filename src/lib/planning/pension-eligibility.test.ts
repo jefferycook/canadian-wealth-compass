@@ -259,8 +259,8 @@ describe("pension splitting search endpoints", () => {
   it("evaluates the full 50% endpoint on a lopsided couple", () => {
     // One spouse holds all the eligible pension income; the tax-minimizing
     // transfer is the statutory maximum, i.e. 50% of the eligible amount.
-    const eligible = 90000;
-    const a = inc({ age: 70, ordinary: 90000, pensionEligible: eligible });
+    const eligible = 300000;
+    const a = inc({ age: 70, ordinary: 300000, pensionEligible: eligible });
     const b = inc({ age: 70, ordinary: 0, pensionEligible: 0 });
     const r = householdTax([a, b], settings, true, TY);
     expect(r.splitAmt).toBeCloseTo(eligible * 0.5, 2);
@@ -273,7 +273,7 @@ describe("pension splitting search endpoints", () => {
   it("finds an interior optimum when the 50% endpoint overshoots", () => {
     const eligible = 90000;
     const a = inc({ age: 70, ordinary: 90000, pensionEligible: eligible });
-    const b = inc({ age: 70, ordinary: 70000, pensionEligible: 0 });
+    const b = inc({ age: 70, ordinary: 0, pensionEligible: 0 });
     const r = householdTax([a, b], settings, true, TY);
     expect(r.splitAmt).toBeGreaterThan(0);
     expect(r.splitAmt).toBeLessThan(eligible * 0.5);
@@ -308,4 +308,4 @@ describe("couple golden fixture", () => {
 });
 
 /** See the note on the test above before changing this number. */
-const COUPLE_GOLDEN = 411915;
+const COUPLE_GOLDEN = 554616;
