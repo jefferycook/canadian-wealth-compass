@@ -84,7 +84,7 @@ function oneYearPlan(opts: {
         firstName: "",
         lastName: "",
         curAge: opts.age,
-        retAge: 0,
+        retAge: 55, // already retired, so bridge timing rules apply
         employ: 0,
         deathAge: 0,
         cpp: { amt: 0, age: 65 },
@@ -187,7 +187,7 @@ describe("employer pension and bridge classification", () => {
 
   it("age 60, lifetime pension plus an ordinary bridge: only the lifetime pension is eligible", () => {
     const pen = 30000;
-    const bridge = 12000;
+    const bridge = 40000;
     const P = projection(
       oneYearPlan({
         age: 60,
@@ -205,7 +205,7 @@ describe("employer pension and bridge classification", () => {
   });
 
   it("a bridge affirmed as an RPP lifetime benefit does enter pensionEligible", () => {
-    const bridge = 12000;
+    const bridge = 40000;
     const P = projection(
       oneYearPlan({
         age: 60,
@@ -221,14 +221,14 @@ describe("employer pension and bridge classification", () => {
   });
 
   it("affirmation defaults to false on plans saved without the new fields", () => {
-    const bridge = 12000;
+    const bridge = 40000;
     // No sourceClass, no eligibleAffirmed — exactly an older stored plan.
     const P = projection(oneYearPlan({ age: 60, bridge: { amt: bridge, end: 65 } }));
     expect(P.rows[0]!.tax).toBeCloseTo(taxWith(60, bridge, 0), 4);
   });
 
   it("a non-RPP supplement cannot be affirmed into eligibility", () => {
-    const bridge = 12000;
+    const bridge = 40000;
     for (const sourceClass of ["RCA", "SERP", "NONREG", "OTHER", "RPP_BRIDGE"] as const) {
       const P = projection(
         oneYearPlan({
