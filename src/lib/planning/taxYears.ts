@@ -221,6 +221,9 @@ export const TAX_2026: TaxYear = {
 
   tfsaNewRoom: 7000,
   rrspLimit: 33810,
+
+  // Planning default only. Overridden by the plan's inflation assumption.
+  indexationRate: 0.02,
 };
 
 const TAX_YEARS: Record<number, TaxYear> = {
@@ -230,14 +233,93 @@ const TAX_YEARS: Record<number, TaxYear> = {
 /** The most recent tax year with published constants. */
 export const LATEST_TAX_YEAR = 2026;
 
-/**
- * Look up a tax year's constants. Years beyond the published tables fall back
- * to the latest available year rather than throwing, because a projection
- * necessarily runs past the last year anyone has published.
- */
-export function getTaxYear(year: number): TaxYear {
-  return TAX_YEARS[year] ?? TAX_YEARS[LATEST_TAX_YEAR]!;
+/** CRA rounds indexed statutory amounts to the nearest dollar. */
+const idx = (v: number, f: number): number =>
+  v === Infinity ? Infinity : Math.round(v * f);
+
+function indexProvince(p: ProvinceTax, f: number): ProvinceTax {
+  return {
+    ...p,
+    brackets: p.brackets.map((b) => ({ up: idx(b.up, f), rate: b.rate })),
+    // Ontario's surtax thresholds are indexed annually along with the brackets.
+    surtax: p.surtax.map((s) => ({ over: idx(s.over, f), rate: s.rate })),
+    bpa: idx(p.bpa, f),
+    ageAmt: idx(p.ageAmt, f),
+    ageThresh: idx(p.ageThresh, f),
+    penAmt: idx(p.penAmt, f),
+  };
 }
+
+/**
+ * Batch 0D — indexation (spec §12, Batch 0D).
+ *
+ * Derive a tax year beyond the last published table by indexing exactly the
+ * amounts that index in law: the federal and provincial brackets and surtax
+ * thresholds, the basic personal amounts, the age amount and its threshold,
+ * the pension income amount, and the OAS recovery threshold.
+ *
+ * Deliberately NOT indexed here:
+ *  - CPP/OAS benefit maximums — the projection already inflates benefit
+ *    amounts through its own inflation factor; indexing them here as well
+ *    would double-count.
+ *  - `tfsaNewRoom` / `rrspLimit` — the room ledger (`room.ts`) indexes and
+ *    rounds these itself, CRA-style, and flags them APPROXIMATE.
+ *  - The Ontario Health Premium — its thresholds are fixed in statute and
+ *    have not been indexed since 2004.
+ */
+export function indexTaxYear(base: TaxYear, year: number, rate: number): TaxYear {
+  if (year <= base.year) return base;
+  const f = Math.pow(1 + rate, year - base.year);
+  const provinces: Record<string, ProvinceTax> = {};
+  for (const [k, p] of Object.entries(base.provinces)) provinces[k] = indexProvince(p, f);
+  return {
+    ...base,
+    year,
+    derivedFrom: base.year,
+    indexationRate: rate,
+    federal: base.federal.map((b) => ({ up: idx(b.up, f), rate: b.rate })),
+    provinces,
+    fedBpaMax: idx(base.fedBpaMax, f),
+    fedBpaMin: idx(base.fedBpaMin, f),
+    fedBpaPhaseLo: idx(base.fedBpaPhaseLo, f),
+    fedBpaPhaseHi: idx(base.fedBpaPhaseHi, f),
+    fedAgeAmt: idx(base.fedAgeAmt, f),
+    fedAgeThresh: idx(base.fedAgeThresh, f),
+    fedPenAmt: idx(base.fedPenAmt, f),
+    oasThreshold: idx(base.oasThreshold, f),
+  };
+}
+
+const DERIVED_CACHE = new Map<string, TaxYear>();
+
+/**
+ * Look up a tax year's constants.
+ *
+ * Published years are returned exactly. Years beyond the last published table
+ * are DERIVED by indexation (Batch 0D) rather than frozen at the last
+ * published year, which used to make a flat-real income drift into higher
+ * brackets over a 30-year projection. Derived years carry `derivedFrom`, so
+ * callers can disclose that the table is indexed rather than published.
+ */
+export function getTaxYear(year: number, rate?: number): TaxYear {
+  const published = TAX_YEARS[year];
+  if (published) return published;
+  const base = TAX_YEARS[LATEST_TAX_YEAR]!;
+  if (year < LATEST_TAX_YEAR) return base;
+  const r = rate ?? base.indexationRate;
+  const key = `${year}:${r}`;
+  const hit = DERIVED_CACHE.get(key);
+  if (hit) return hit;
+  const derived = indexTaxYear(base, year, r);
+  DERIVED_CACHE.set(key, derived);
+  return derived;
+}
+
+/** The factor by which statutory amounts are indexed between two years. */
+export function indexationFactor(fromYear: number, toYear: number, rate: number): number {
+  return toYear <= fromYear ? 1 : Math.pow(1 + rate, toYear - fromYear);
+}
+
 
 export function getProvince(taxYear: TaxYear, key: ProvinceKey): ProvinceTax {
   const p = taxYear.provinces[key];
