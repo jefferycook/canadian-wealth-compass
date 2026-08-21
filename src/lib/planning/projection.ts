@@ -267,8 +267,13 @@ export function projection(
       bridgeInc: number;
       nonregInterest: number;
       nonregDiv: number;
+      /** Mandatory RRIF/LIF minimums. Always RRIF-status cash by construction. */
       mandatoryTaxable: number;
-      schedRegCash: number;
+      /** Scheduled withdrawals from accounts in RRIF/LIF status this year. */
+      schedRrifCash: number;
+      /** Scheduled registered withdrawals that are NOT RRIF-status (plain RRSP, etc.). */
+      schedRrspCash: number;
+
       schedTfsaCash: number;
       schedNonregCash: number;
       schedNonregGain: number;
