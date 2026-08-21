@@ -318,6 +318,11 @@ export interface PlanInputs {
   endAge: number;
   /** Annual inflation as a fraction. */
   inflation: number;
+  /**
+   * Batch 0D. Annual indexation rate applied to statutory amounts in years
+   * beyond the last published tax table. Null/absent = use `inflation`.
+   */
+  indexationRate?: number | null;
   /** Household after-tax spending need in retirement, today's dollars. */
   spendNeed: number;
   /**
