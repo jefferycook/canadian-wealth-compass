@@ -131,3 +131,17 @@ CRA-consistent default. A future UX batch must add:
 - disclosure text explaining that CRA treats bridging benefits as temporary
   benefits distinct from RPP lifetime retirement benefits, so affirming
   incorrectly overstates the pension income credit and splitting room.
+
+## Later accumulation/intake enhancement — explicit pension-plan membership
+
+**Not Batch 0C. Not scheduled. Do not implement with the 0C instruction.**
+
+Pension-adjustment uncertainty is currently driven by `p.pen.amt > 0 || owns a
+DCPP`. That test cannot distinguish a **currently accruing** DB plan member from
+someone who merely holds a **deferred DB entitlement from a former employer**;
+only the former generates a pension adjustment that consumes RRSP room.
+
+*Required change (future):* add an explicit `currentPensionPlanMember` (or
+equivalent) intake input, and drive PA uncertainty and the resulting
+registered-recommendation withholding from current membership rather than from
+pension entitlement alone.
