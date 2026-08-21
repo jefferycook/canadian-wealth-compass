@@ -38,6 +38,12 @@ export interface ProvinceTax {
   ageThresh: number;
   /** Pension income amount. */
   penAmt: number;
+  /**
+   * Whether this province's pension income amount is an indexed dollar amount.
+   * Defaults to true (ON, AB). BC fixes the credit base in statute at the
+   * smaller of $1,000 and eligible pension income, so BC sets this false.
+   */
+  penAmtIndexed?: boolean;
   /** Dividend tax credit, as a fraction of the grossed-up eligible dividend. */
   divCredit: number;
   /**
