@@ -4,9 +4,30 @@ Maintained by whichever agent finds an issue. Purpose: ChatGPT, Claude and Lovab
 can all see current blockers without Jeff relaying them. Update the entry until it is
 resolved, then move it to **Resolved**.
 
-**Last updated:** 2026-08-21 · by Lovable (Alberta constants pass — AB-1 closed)
+**Last updated:** 2026-08-21 · by Lovable (BC-2 closed — BC pension amount no longer indexed)
 
 ---
+
+## Resolved — BC-2: BC pension income amount was being indexed — FIXED 2026-08-21
+
+BC Income Tax Act s.4.32 fixes the pension credit base at the **smaller of
+$1,000 and eligible pension income** — a fixed statutory dollar amount, not an
+indexed one. The engine indexed every provincial `penAmt`, so BC drifted above
+$1,000 from 2031 (the 2027-2030 pause masked it until then), slightly
+understating BC tax for pensioners.
+
+**Fix:** optional `penAmtIndexed` field on `ProvinceTax` (defaults true);
+BC sets it `false` and `indexProvince()` carries the amount through unchanged.
+A general per-jurisdiction mechanism, not a BC special case. Tests now pin BC
+at exactly $1,000 in 2026 / 2030 / 2031 / 2055, and a companion test confirms
+ON and AB pension amounts still index normally. The old test that documented
+the known-wrong drift was replaced.
+
+268 tests pass, clean typecheck, anchors unmoved at **201,470 / 411,408 /
+1,762,590**. CPP-1 `[C]` remains **OPEN**; Phase 0 not approved, Phase 1 not
+started, nothing deployed.
+
+
 
 
 ## Resolved — BC tax correctness defect (stale age amount + indexation pause) — FIXED 2026-08-21
