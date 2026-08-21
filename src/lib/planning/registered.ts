@@ -289,14 +289,18 @@ export const UNLOCK_RULES: Record<JurisdictionKey, UnlockRule> = {
     },
     lifMaximum: {
       source: {
-        title: "LIF maximum withdrawal percentages table",
+        title:
+          "Life Income Fund (LIF) and Locked-In Retirement Income Fund (LRIF) Maximum Annual Income Payment Amount Table, guidance PE0196INF (Active), Appendix A",
         publisher: "Financial Services Regulatory Authority of Ontario (FSRA)",
-        url: "https://www.fsrao.ca/consumers/pensions/life-income-funds-lifs-maximum-annual-income-payment-amount-table",
+        url: "https://www.fsrao.ca/industry/pensions/regulatory-framework/guidance-pensions/life-income-fund-lif-and-locked-retirement-income-fund-lrif-maximum-annual-income-payment-amount-table",
         tier: 1,
       },
       verifiedDate: "2026-08-21",
       status: "VERIFIED",
+      notes:
+        "Appendix A is keyed by the age ATTAINED DURING THE YEAR and read unshifted, to five decimals. Age 89 = 51.45631%; only age 90+ = 100%. Annual-granularity caveat: with no date of birth the engine can be one age step conservative in the start year.",
     },
+
   }),
   FED: rule({
     name: "Federal (PBSA)",
