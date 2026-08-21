@@ -168,9 +168,15 @@ describe("indexation of statutory amounts (§12)", () => {
     const frozen = lifetimeTax(runPlan({ ...p, indexationRate: 0 }));
     const indexed = lifetimeTax(runPlan(p));
     expect(indexed).toBeLessThan(frozen);
-    // Frozen brackets reproduce the pre-0D golden exactly: the entire golden
-    // movement on this fixture is indexation and nothing else.
-    expect(Math.round(frozen)).toBe(278614);
+    // Frozen brackets isolate indexation from the rest of the engine. Was
+    // 278614 (the Batch 0A number); re-pinned to 279538 on 2026-08-21 by the
+    // Ontario LIF correction alone (FSRA PE0196INF Appendix A read unshifted).
+    // Same causal chain as the indexed anchor: the cap-bound LIF draws fall by
+    // ~$200/yr from age 64 (-$1,217 of tax cumulatively), then the residual
+    // $11,046 the old age-89 100% row had already emptied is drawn at age 90
+    // and taxed at +$2,141. -1217 + 2141 = +924.
+    expect(Math.round(frozen)).toBe(279538);
+
   });
 
   it("discloses derived tax years as APPROXIMATE", () => {
