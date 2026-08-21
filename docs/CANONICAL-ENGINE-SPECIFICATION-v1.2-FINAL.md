@@ -1342,7 +1342,20 @@ The same page independently re-confirms **`oasThreshold` 95,323**, already confi
 
 ### STILL CONST-UNVERIFIED — the outstanding balance of the §13.3 launch blocker
 
+- **Provincial age amounts, age thresholds and pension income amounts** — ON ($6,342 / $47,210 / $1,796), BC ($5,691 / $42,580 / $1,000), AB ($6,055 / $45,210 / $1,685). Ontario's $1,796 has tier-3 corroboration (KPMG 2026 credit table) only, which may not satisfy §13.1. TD1ON / TD1BC / TD1AB carry all of these and are the right tier-1 source; the CRA PDF host blocked automated retrieval on 2026-08-21.
+- **Provincial dividend tax credits** — ON 10%, BC 12%, AB 8.12% of the grossed-up eligible dividend. Ontario's 10% has tier-3 and open-data corroboration only.
+- **`fedDivCredit` 0.150198 and `divGrossUp` 1.38** — CRA's line 40425 page describes the credit but publishes no rate; it points to **Federal Worksheet 5000-D1**, which is where these must be verified.
+- **FSRA Ontario LIF maximum table digits** (`ON_LIF_MAX`, ages 50–89) — the fifty individual percentages, per the partial finding above.
 - **`cppAvgNew65` 10,464** ($872/month, the average new retirement pension taken at 65). A *statistic*, not a maximum, so it does not appear on the quarterly maximums page; CPP's "How much you could receive" page carries it. The single remaining CPP/OAS item.
+
+### Where the §13.3 launch blocker now stands
+
+**Verified against tier-1 regulators on 2026-08-21:** all federal brackets and rates; the federal BPA maximum, minimum and phase-out range; the federal age amount, its threshold and its 15% phase-out rate; the federal pension amount and its non-indexation; the OAS recovery threshold (twice, independently); the TFSA and RRSP dollar limits; YMPE; all twenty-five RRIF minimum factors and the sub-71 formula; the Ontario, BC and Alberta brackets and rates; the Ontario, BC and Alberta basic personal amounts; the Ontario surtax thresholds and rates; the Ontario Health Premium brackets; and every CPP and OAS benefit amount.
+
+**Still outstanding:** the nine provincial age/pension amounts and thresholds, the four dividend gross-up and credit rates, the FSRA table digits, and `cppAvgNew65`.
+
+The item began as a blanket "everything is unverified" and is now a short, specific list — and **not one wrong digit has been found**. That is itself evidence: the constants were carefully transcribed in the first place, and the residual risk sits in the mechanisms and the rules layer rather than in the numbers.
+
 
 
 ---
