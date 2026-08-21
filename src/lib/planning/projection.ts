@@ -921,6 +921,14 @@ export function projection(
 
   return {
     rows,
+    roomDisclosures: [
+      ...roomDisclosures,
+      ...(couple && people.length === 2
+        ? spousalRrspDisclosure(people[0]!, people[1]!)
+        : []),
+    ],
+    roomValidationErrors,
+
     hadInvestableAssets: everHadPortfolio,
     acctMeta: accts.map((a) => ({ id: a.id, name: a.name, type: a.type })),
     opts,
