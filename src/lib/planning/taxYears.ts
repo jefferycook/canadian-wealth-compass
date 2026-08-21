@@ -40,6 +40,12 @@ export interface ProvinceTax {
   penAmt: number;
   /** Dividend tax credit, as a fraction of the grossed-up eligible dividend. */
   divCredit: number;
+  /**
+   * Tax years in which this province's brackets and indexed non-refundable
+   * personal credit amounts are frozen by statute (indexation paused).
+   * Inclusive range; derived years inside it stay at the published values.
+   */
+  indexationPause?: { from: number; to: number };
 }
 
 export interface TaxYear {
