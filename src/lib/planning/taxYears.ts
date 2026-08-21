@@ -130,10 +130,17 @@ const PROVINCES_2026: Record<string, ProvinceTax> = {
       { over: 7446, rate: 0.36 },
     ],
     healthPremium: true,
+    // VERIFIED 2026-08-21 — CRA Form "TD1ON 2026 Ontario Personal Tax Credits
+    // Return" (td1on-26e.pdf): basic personal amount $12,989 (line 1); age
+    // amount $6,342 with the phase-out running from net income $47,210 to
+    // $89,490 (line 2); pension income amount $1,796 (line 3). No value moved.
     bpa: 12989,
     ageAmt: 6342,
     ageThresh: 47210,
     penAmt: 1796,
+    // VERIFIED 2026-08-21 — Ontario.ca, "Ontario dividend tax credit" (updated
+    // 2026-04-27): 10.0% of the taxable (grossed-up) eligible dividend for
+    // 2020-2026. Ontario carries no indexation pause.
     divCredit: 0.1,
   },
   BC: {
@@ -150,10 +157,16 @@ const PROVINCES_2026: Record<string, ProvinceTax> = {
     surtax: [],
     healthPremium: false,
     // VERIFIED 2026-08-21 — Province of British Columbia, "B.C. basic personal
-    // income tax credits" (last updated 2026-04-20).
+    // income tax credits" (last updated 2026-04-20). Re-checked 2026-08-21:
+    // BPA $13,216, age amount $5,927 (reduced above $44,119), pension amount
+    // $1,000 and the 12% eligible-dividend credit all match the live table.
     bpa: 13216,
     ageAmt: 5927,
     ageThresh: 44119,
+    // The BC table marks the pension amount NOT indexed ($1,000 in 2025 and
+    // 2026). The engine indexes every provincial penAmt in derived years, so
+    // BC's derived value drifts above $1,000 from 2031. Backlog BC-2; no value
+    // changed here, and the drift is small and conservative in direction.
     penAmt: 1000,
     divCredit: 0.12,
     // VERIFIED 2026-08-21 — Province of British Columbia, "Personal income tax
@@ -188,6 +201,11 @@ const PROVINCES_2026: Record<string, ProvinceTax> = {
     // amount indexes (2024 1,685 -> 2025 1,719 -> 2026 1,753), so the generic
     // indexing of `penAmt` in derived years is correct behaviour for AB.
     penAmt: 1753,
+    // VERIFIED 2026-08-21 — Alberta Personal Income Tax Act s.21, as amended by
+    // Bill 35, Tax Statutes (Creating Jobs and Driving Innovation) Amendment
+    // Act (assent 2020-12-09): the eligible-dividend credit is 8.12% of the
+    // grossed-up dividend for 2021 and subsequent taxation years. No later
+    // change found on re-check.
     divCredit: 0.0812,
   },
   CUSTOM: {

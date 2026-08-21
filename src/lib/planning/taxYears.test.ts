@@ -128,3 +128,76 @@ describe("AB 2026 personal credits", () => {
     expect(ab27.penAmt).toBe(Math.round(1753 * 1.02));
   });
 });
+
+/**
+ * Ontario correctness pass, 2026-08-21 (verification only — nothing changed).
+ *
+ * Sources (tier 1): CRA, Form "TD1ON 2026 Ontario Personal Tax Credits Return"
+ * (td1on-26e.pdf) — line 1 basic personal amount $12,989; line 2 age amount
+ * $6,342 with the phase-out running from net income $47,210 to $89,490; line 3
+ * pension income amount, the lesser of $1,796 or estimated annual pension.
+ * Ontario.ca, "Ontario dividend tax credit" (updated 2026-04-27): the eligible
+ * dividend credit is 10.0% of the taxable (grossed-up) dividend for 2020-2026.
+ */
+describe("ON 2026 personal credits", () => {
+  const on = getTaxYear(2026).provinces["ON"]!;
+
+  it("pins the official TD1ON 2026 amounts", () => {
+    expect(on.bpa).toBe(12989);
+    expect(on.ageAmt).toBe(6342);
+    expect(on.ageThresh).toBe(47210);
+    expect(on.penAmt).toBe(1796);
+  });
+
+  it("pins the Ontario eligible-dividend tax credit at 10%", () => {
+    expect(on.divCredit).toBe(0.1);
+  });
+
+  it("leaves the verified 2026 bracket and surtax tables alone", () => {
+    expect(on.brackets.map((b) => b.up)).toEqual([
+      53891, 107785, 150000, 220000, Infinity,
+    ]);
+    expect(on.surtax.map((s) => s.over)).toEqual([5818, 7446]);
+    expect(on.healthPremium).toBe(true);
+    expect(on.indexationPause).toBeUndefined();
+  });
+});
+
+/**
+ * Provincial eligible-dividend credits and the BC pension amount, verified
+ * 2026-08-21 against the current provincial pages:
+ *  - Province of BC, "B.C. basic personal income tax credits" (2026 table):
+ *    pension amount $1,000, marked NOT indexed; eligible-dividend credit 12%.
+ *  - Ontario.ca, "Ontario dividend tax credit": 10.0% for 2020-2026.
+ *  - Alberta Personal Income Tax Act s.21 as amended by Bill 35 (2020):
+ *    eligible-dividend credit 8.12% of the grossed-up dividend for 2021 and
+ *    subsequent taxation years; no later change found.
+ */
+describe("provincial eligible-dividend credits, 2026", () => {
+  const t = getTaxYear(2026);
+
+  it("pins ON 10%, BC 12%, AB 8.12%", () => {
+    expect(t.provinces["ON"]!.divCredit).toBe(0.1);
+    expect(t.provinces["BC"]!.divCredit).toBe(0.12);
+    expect(t.provinces["AB"]!.divCredit).toBe(0.0812);
+  });
+
+  it("keeps the dividend credits out of indexation entirely", () => {
+    const t35 = getTaxYear(2035, 0.02);
+    expect(t35.provinces["ON"]!.divCredit).toBe(0.1);
+    expect(t35.provinces["BC"]!.divCredit).toBe(0.12);
+    expect(t35.provinces["AB"]!.divCredit).toBe(0.0812);
+  });
+
+  // BC's pension amount is published as NOT indexed ($1,000 in both 2025 and
+  // 2026). The engine indexes every provincial penAmt in derived years, so BC's
+  // derived value drifts above $1,000. Recorded as a backlog item (BC-2); the
+  // effect is small and conservative in direction, and no anchor depends on it.
+  it("documents that BC's non-indexed pension amount still drifts in derived years", () => {
+    expect(getTaxYear(2026).provinces["BC"]!.penAmt).toBe(1000);
+    // Frozen through the 2027-2030 indexation pause...
+    expect(getTaxYear(2030, 0.02).provinces["BC"]!.penAmt).toBe(1000);
+    // ...but indexed from 2031, which BC's own table says should not happen.
+    expect(getTaxYear(2031, 0.02).provinces["BC"]!.penAmt).toBeGreaterThan(1000);
+  });
+});

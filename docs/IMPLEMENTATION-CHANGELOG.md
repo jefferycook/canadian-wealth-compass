@@ -521,3 +521,31 @@ official 2026 TD1AB; the 2%-indexation cross-check extended to the pension amoun
 **201,470 / 411,408 / 1,762,590**. CPP-1 [C] remains OPEN, the BC no-catch-up
 2031 rule is preserved, Phase 0 remains unapproved, Phase 1 has not started,
 nothing deployed.
+
+## Constants verification — Ontario credits and provincial dividend credits (2026-08-21)
+
+Verification-only pass while **CPP-1 [C] remains OPEN**. **No numeric value
+changed**; no golden anchor moved.
+
+- **Ontario — VERIFIED, unchanged.** CRA Form TD1ON, *2026 Ontario Personal Tax
+  Credits Return* (`td1on-26e.pdf`): BPA $12,989, age amount $6,342 with the
+  phase-out from $47,210 to $89,490, pension income amount $1,796. Matches the
+  live values; Ontario's amounts now rest on tier-1 evidence rather than the
+  earlier tier-3 corroboration.
+- **Dividend tax credits — VERIFIED, unchanged.** ON 10.0% (Ontario.ca,
+  *Ontario dividend tax credit*, updated 2026-04-27); BC 12% (Province of BC,
+  *B.C. basic personal income tax credits*, 2026 table); AB 8.12% (Alberta
+  *Personal Income Tax Act* s.21 as amended by Bill 35, assent 2020-12-09, for
+  2021 and subsequent taxation years).
+- **BC pension amount — VERIFIED, unchanged** at $1,000, and the BC table marks
+  it **not indexed**.
+- **New backlog item BC-2 [A]** — the engine indexes every provincial `penAmt`,
+  so BC's non-indexed $1,000 drifts upward from 2031 (the 2027-2030 pause masks
+  it until then). Documented by a test, not fixed; Ontario and Alberta pension
+  amounts do index, so the fix is a per-jurisdiction flag.
+- Source comments added to `TAX_2026.provinces.ON`, `.BC` and `.AB`; spec
+  §13.3a gains a verification subsection and the STILL CONST-UNVERIFIED list
+  and backlog CR-2 no longer carry the provincial age/pension/dividend items.
+
+Anchors unchanged: **201,470 / 411,408 / 1,762,590**. CPP s.58(2) stays
+**OPEN [C]**; Phase 0 is not approved and Phase 1 has not started.

@@ -1342,8 +1342,8 @@ The same page independently re-confirms **`oasThreshold` 95,323**, already confi
 
 ### STILL CONST-UNVERIFIED — the outstanding balance of the §13.3 launch blocker
 
-- **Provincial age amounts, age thresholds and pension income amounts** — ON ($6,342 / $47,210 / $1,796), BC (age amount and threshold now **VERIFIED and corrected to $5,927 / $44,119** — pension amount $1,000 still outstanding), AB ($6,055 / $45,210 / $1,685). Ontario's $1,796 has tier-3 corroboration (KPMG 2026 credit table) only, which may not satisfy §13.1. TD1ON / TD1BC / TD1AB carry all of these and are the right tier-1 source; the CRA PDF host blocked automated retrieval on 2026-08-21.
-- **Provincial dividend tax credits** — ON 10%, BC 12%, AB 8.12% of the grossed-up eligible dividend. Ontario's 10% has tier-3 and open-data corroboration only.
+- ~~**Provincial age amounts, age thresholds and pension income amounts**~~ — **struck 2026-08-21.** ON ($6,342 / $47,210 / $1,796) verified against CRA Form TD1ON 2026; BC ($5,927 / $44,119 / $1,000) verified and the age amount and threshold corrected; AB ($6,345 / $47,234 / $1,753) verified and all three corrected. Nothing in this line remains outstanding for the three supported jurisdictions.
+- ~~**Provincial dividend tax credits**~~ — **struck 2026-08-21.** ON 10% (Ontario.ca, updated 2026-04-27), BC 12% (BC basic personal income tax credits, 2026 table), AB 8.12% (Alberta PITA s.21 as amended by Bill 35, 2021 and later years). All three match the live values.
 - **FSRA Ontario LIF maximum table digits** (`ON_LIF_MAX`, ages 50–89) — the fifty individual percentages, per the partial finding above.
 
 **CPP combined retirement + survivor rule — VERIFIED value, UNSUPPORTED/APPROXIMATE rule (§13.2a).** `cppCombinedMax` = $1,531.56/month ($18,378.72/year), ESDC's published "Combined survivor's and retirement pension (at age 65)" maximum — the **constant is VERIFIED, `verifiedDate: 2026-08-21`**. The **application rule** in `cppSurvivorBenefit` is **APPROXIMATE — a legacy shortcut retained only as a conservative placeholder**, and is **not a candidate for VERIFIED**.
@@ -1384,6 +1384,19 @@ Sources (tier 1): CRA, *TD1AB-WS Worksheet for the 2026 Alberta Personal Tax Cre
 ### VERIFIED 2026-08-21 — federal eligible-dividend gross-up and credit
 
 CRA **T5 Guide — Return of Investment Income** (<https://www.canada.ca/en/revenue-agency/services/forms-publications/publications/t4015/t5-guide-return-investment-income.html>) states that for 2012 and later years eligible dividends are grossed up by **38%** and the federal dividend tax credit is **15.0198% of the taxable (grossed-up) eligible dividend**. This confirms `divGrossUp = 1.38` and `fedDivCredit = 0.150198` exactly. **VERIFIED, `verifiedDate: 2026-08-21`.** No behaviour change. (The *provincial* dividend tax credits remain outstanding.)
+
+### VERIFIED 2026-08-21 — Ontario personal credits, and the three provincial dividend tax credits (verification only, no value moved)
+
+Independent re-check on **2026-08-21**; the CRA PDF host that blocked automated retrieval earlier in the pass was reachable this time, so Ontario's amounts now have tier-1 evidence rather than tier-3 corroboration.
+
+1. **Ontario age amount, age threshold, pension income amount and BPA — VERIFIED, unchanged.** CRA Form **TD1ON, *2026 Ontario Personal Tax Credits Return*** (`td1on-26e.pdf`): line 1 basic personal amount **$12,989**; line 2 age amount **$6,342**, reduced where net income exceeds **$47,210** and nil at $89,490; line 3 pension income amount, the lesser of **$1,796** or the estimated annual pension. Every live value in `TAX_2026.provinces.ON` matches; **nothing changed**. Pinned by direct tests (`taxYears.test.ts`).
+2. **Ontario eligible-dividend credit — VERIFIED, unchanged.** Ontario.ca, *Ontario dividend tax credit* (updated **2026-04-27**): **10.0%** of the taxable (grossed-up) eligible dividend for 2020–2026. `divCredit: 0.1` is correct.
+3. **BC pension income amount and eligible-dividend credit — VERIFIED, unchanged.** Province of British Columbia, *B.C. basic personal income tax credits* (2026 table, re-read 2026-08-21): pension amount **$1,000**, and the table marks it **not indexed** ($1,000 in both 2025 and 2026); eligible-dividend credit **12%** for 2026 and 2025. `penAmt: 1000` and `divCredit: 0.12` are correct.
+4. **Alberta eligible-dividend credit — VERIFIED, unchanged.** Alberta *Personal Income Tax Act* s.21 as amended by **Bill 35, Tax Statutes (Creating Jobs and Driving Innovation) Amendment Act** (assent **2020-12-09**): the eligible-dividend credit is **8.12%** of the grossed-up dividend for **2021 and subsequent taxation years**. No later amendment found. `divCredit: 0.0812` is correct.
+
+**New finding [A] — BC's non-indexed pension amount is indexed by the engine.** BC publishes the $1,000 pension amount as *not indexed*, but `indexProvince()` indexes every provincial `penAmt`. The 2027–2030 pause masks it, so the drift only begins in **2031**; from there BC's derived pension amount rises above $1,000 and slightly **understates** BC tax. No golden anchor is affected (the fixtures are Ontario). Recorded as backlog **BC-2**; a test documents the current behaviour rather than asserting it is right. Ontario's and Alberta's pension amounts *do* index in law, so this needs a per-jurisdiction "indexed" flag on `penAmt`, not a change to the generic rule.
+
+With this, **the provincial age/pension/dividend constants for all three supported jurisdictions are verified**; what remains of the §13.3 constants blocker is the FSRA Ontario LIF maximum table digits, plus the ten jurisdictions not yet implemented at all.
 
 ### Where the §13.3 launch blocker now stands
 
