@@ -1268,7 +1268,7 @@ Sources consulted directly while producing v1.0–v1.2 (tier 1/2 unless noted):
 
 ## 13.3a Constants reconciliation, 2026-08-21
 
-Worked through the §13.3 CONST-UNVERIFIED list against CRA primary sources on **2026-08-21**. **Every constant reachable that night matched the regulator exactly — not one digit was wrong.** `verifiedDate` for everything in this subsection is **2026-08-21**.
+Worked through the §13.3 CONST-UNVERIFIED list against CRA primary sources on **2026-08-21**. Almost every constant reachable that night matched the regulator exactly, but the pass has since produced its **first confirmed constant correction** — `cppAvgNew65` was stale (see below) — so the earlier claim that "not one digit was wrong" no longer stands and has been withdrawn. `verifiedDate` for everything in this subsection is **2026-08-21**.
 
 ### VERIFIED — federal
 
@@ -1344,9 +1344,7 @@ The same page independently re-confirms **`oasThreshold` 95,323**, already confi
 
 - **Provincial age amounts, age thresholds and pension income amounts** — ON ($6,342 / $47,210 / $1,796), BC ($5,691 / $42,580 / $1,000), AB ($6,055 / $45,210 / $1,685). Ontario's $1,796 has tier-3 corroboration (KPMG 2026 credit table) only, which may not satisfy §13.1. TD1ON / TD1BC / TD1AB carry all of these and are the right tier-1 source; the CRA PDF host blocked automated retrieval on 2026-08-21.
 - **Provincial dividend tax credits** — ON 10%, BC 12%, AB 8.12% of the grossed-up eligible dividend. Ontario's 10% has tier-3 and open-data corroboration only.
-- **`fedDivCredit` 0.150198 and `divGrossUp` 1.38** — CRA's line 40425 page describes the credit but publishes no rate; it points to **Federal Worksheet 5000-D1**, which is where these must be verified.
 - **FSRA Ontario LIF maximum table digits** (`ON_LIF_MAX`, ages 50–89) — the fifty individual percentages, per the partial finding above.
-- **`cppAvgNew65` 10,464** ($872/month, the average new retirement pension taken at 65). A *statistic*, not a maximum, so it does not appear on the quarterly maximums page; CPP's "How much you could receive" page carries it. The single remaining CPP/OAS item.
 
 **CPP combined retirement + survivor rule — VERIFIED value, UNSUPPORTED/APPROXIMATE rule (§13.2a).** `cppCombinedMax` = $1,531.56/month ($18,378.72/year), ESDC's published "Combined survivor's and retirement pension (at age 65)" maximum — the **constant is VERIFIED, `verifiedDate: 2026-08-21`**. The **application rule** in `cppSurvivorBenefit` is **APPROXIMATE — a legacy shortcut retained only as a conservative placeholder**, and is **not a candidate for VERIFIED**.
 
@@ -1357,13 +1355,25 @@ Primary authority, established by independent overnight review on 2026-08-21: **
 
 **Therefore the fix is not a substitution.** Replacing `survOwnCpp` with `base65`, or scaling `cppCombinedMax` by an age factor, would remain an unsupported shortcut. This needs a **dedicated implementation pass** against s.58(2), after which `cppCombinedMax` becomes a cross-check rather than the mechanism. Recorded as **OPEN [C]** in `docs/AGENT-STATUS.md`; **Phase 0 cannot be approved and Phase 1 cannot begin while it is open**. Textbook §13.2a case: a verified constant inside an unsupported rule, and the two statuses must be surfaced separately.
 
+### CORRECTED 2026-08-21 — `cppAvgNew65` was stale (first confirmed constant defect of the verification pass)
+
+**`cppAvgNew65` 10,464** ($872/month) did **not** match the regulator. Canada.ca's CPP "How much you could receive" page (<https://www.canada.ca/en/services/benefits/publicpensions/cpp/amount.html>, current 2026 page) publishes the **average CPP retirement pension at age 65 for new beneficiaries, July–September 2026, as $877.01/month** — **$10,524.12/year**. `TAX_2026.cppAvgNew65` has been corrected to **10,524.12**, `verifiedDate: 2026-08-21`, and pinned by a direct test (`estimates.test.ts`).
+
+This is a **statistic**, not a statutory maximum, and it is consumed only by the CPP estimator (`estimates.ts → cppShare / estimateCppAt65`) to express "average earner" as a share of the maximum. No fixture uses the estimator, so **no golden anchor moved** — confirmed by the suite. Like the OAS maximums it is a **quarterly** figure and needs re-pulling on that cadence, not annually.
+
+This is the first constant in the §13.3 pass found to be wrong, and it is recorded transparently as such.
+
+### VERIFIED 2026-08-21 — federal eligible-dividend gross-up and credit
+
+CRA **T5 Guide — Return of Investment Income** (<https://www.canada.ca/en/revenue-agency/services/forms-publications/publications/t4015/t5-guide-return-investment-income.html>) states that for 2012 and later years eligible dividends are grossed up by **38%** and the federal dividend tax credit is **15.0198% of the taxable (grossed-up) eligible dividend**. This confirms `divGrossUp = 1.38` and `fedDivCredit = 0.150198` exactly. **VERIFIED, `verifiedDate: 2026-08-21`.** No behaviour change. (The *provincial* dividend tax credits remain outstanding.)
+
 ### Where the §13.3 launch blocker now stands
 
 **Verified against tier-1 regulators on 2026-08-21:** all federal brackets and rates; the federal BPA maximum, minimum and phase-out range; the federal age amount, its threshold and its 15% phase-out rate; the federal pension amount and its non-indexation; the OAS recovery threshold (twice, independently); the TFSA and RRSP dollar limits; YMPE; all twenty-five RRIF minimum factors and the sub-71 formula; the Ontario, BC and Alberta brackets and rates; the Ontario, BC and Alberta basic personal amounts; the Ontario surtax thresholds and rates; the Ontario Health Premium brackets; and every CPP and OAS benefit amount.
 
-**Still outstanding:** the nine provincial age/pension amounts and thresholds, the four dividend gross-up and credit rates, the FSRA table digits, and `cppAvgNew65`.
+**Still outstanding:** the nine provincial age/pension amounts and thresholds, the three **provincial** dividend tax credits, and the FSRA table digits. (`cppAvgNew65` is now corrected and verified; the federal gross-up and credit are verified.)
 
-The item began as a blanket "everything is unverified" and is now a short, specific list — and **not one wrong digit has been found**. That is itself evidence: the constants were carefully transcribed in the first place, and the residual risk sits in the mechanisms and the rules layer rather than in the numbers.
+The item began as a blanket "everything is unverified" and is now a short, specific list. **One wrong value has been found** — the stale `cppAvgNew65` — which is exactly why the pass is being run against primary sources rather than assumed. The remaining risk still sits mainly in the mechanisms and the rules layer (see CPP-1 [C]) rather than in the numbers, but "the constants were transcribed carefully" can no longer be stated as though it were established.
 
 
 
