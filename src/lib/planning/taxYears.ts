@@ -130,10 +130,17 @@ const PROVINCES_2026: Record<string, ProvinceTax> = {
       { over: 7446, rate: 0.36 },
     ],
     healthPremium: true,
+    // VERIFIED 2026-08-21 — CRA Form "TD1ON 2026 Ontario Personal Tax Credits
+    // Return" (td1on-26e.pdf): basic personal amount $12,989 (line 1); age
+    // amount $6,342 with the phase-out running from net income $47,210 to
+    // $89,490 (line 2); pension income amount $1,796 (line 3). No value moved.
     bpa: 12989,
     ageAmt: 6342,
     ageThresh: 47210,
     penAmt: 1796,
+    // VERIFIED 2026-08-21 — Ontario.ca, "Ontario dividend tax credit" (updated
+    // 2026-04-27): 10.0% of the taxable (grossed-up) eligible dividend for
+    // 2020-2026. Ontario carries no indexation pause.
     divCredit: 0.1,
   },
   BC: {
