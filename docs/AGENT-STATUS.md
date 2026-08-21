@@ -58,68 +58,85 @@ before re-issuing anything.
 
 ---
 
-## OPEN — the CPP combined-benefit ceiling ignores when the survivor took their own pension
+## OPEN [C] — the combined retirement + survivor CPP rule is an unsupported shortcut (superseded by primary law)
 
-**Raised:** 2026-08-21, `benefits.ts` audit. **Status:** behaviour deliberately UNCHANGED — the governing rule could not be verified. Needs Jeff's or ChatGPT's decision.
+**Raised:** 2026-08-21, `benefits.ts` audit. **Escalated to [C] the same night** by independent overnight review against primary law. **Status:** behaviour deliberately UNCHANGED in this pass. Requires a dedicated implementation pass. **Phase 0 must not be approved and Phase 1 must not begin while this is open.**
 
-`cppSurvivorBenefit` caps the survivor's pension with:
+### Primary authority
 
-```
-b = Math.min(b, Math.max(0, ty.cppCombinedMax * infFac - survOwnCpp));
-```
+**Canada Pension Plan, R.S.C. 1985, c. C-8, s. 58(2)** (current Justice Laws text) —
+<https://laws-lois.justice.gc.ca/eng/acts/C-8/section-58.html>, read with **s. 46**.
 
-`ty.cppCombinedMax` ($1,531.56/mo, $18,378.72/yr) is ESDC's published **combined
-survivor's and retirement pension at age 65** — the **value is VERIFIED** against the
-July–September 2026 quarterly table. But `survOwnCpp` is the survivor's own pension
-**as actually received**, after `cppFactor` has applied their early or late start. An
-age-65 ceiling is therefore being applied to a pension that may have started at 60 or 70.
+Two findings, both from the Act rather than the consumer pages:
 
-For a deferrer the effect is severe: maximum CPP deferred to 70 is
-`1,507.65 × 1.42 = $2,140.86/mo = $25,690/yr`, so `18,378.72 − 25,690 < 0` → the
-survivor's pension is **eliminated entirely**. Even half the maximum deferred to 70
-leaves only $5,534, which binds below the 60% entitlement in many cases. This matters
-more than it looks because **the tool's own optimizer recommends deferring CPP** — the
-engine can recommend deferral to 70 and then, on widowhood, show a survivor's pension of
-zero, an interaction the plan itself created.
+**(1) The wrong own-pension figure is being used.** For a survivor who also receives a
+retirement pension, the s.58(2) reduction formulas use the survivor's retirement pension
+calculated under **s.46(1) without regard to s.46(3)–(6)** — the early/late retirement
+adjustment provisions — adjusted only under **s.45(2)**. The current code passes
+`survOwnCpp` **as actually received**, i.e. after `cppFactor`. The Act directly rejects
+that. Error runs in **both directions**:
 
-**Why it was not fixed.** Service Canada's survivor's pension page says only that *"the
-most that can be paid to a person who is eligible for the retirement pension and the
-survivor's pension is the maximum retirement pension"*. It does not say whether the
-ceiling is fixed at the age-65 maximum regardless of the survivor's claiming age. The
-plain-language sentence also points at the *retirement* maximum ($1,507.65) while ESDC
-publishes a distinct, higher *combined* maximum ($1,531.56); the two do not obviously
-reconcile, which is itself a sign the mechanism is more intricate than either statement
-conveys. Per §13.1 this cannot ship as VERIFIED on that evidence.
+- **Deferrers are understated.** Maximum CPP deferred to 70 is $25,690/yr against a
+  $18,378.72 ceiling → `Math.max(0, …)` → **survivor pension eliminated entirely**. The
+  tool's own optimizer recommends deferral, so the engine can create this outcome itself.
+- **Early starters are overstated.** Their actual reduced CPP leaves too much headroom
+  under the shortcut ceiling, so the survivor component comes out too large.
 
-**Three candidate readings:**
+**(2) s.58(2) is not a `combinedMax − ownCpp` ceiling at all.** For 65+ post-1997
+retirement-pension cases, **s.58(2)(c)** computes the survivor's pension
+**component-by-component** using A−B reductions, where **B is the lesser of 40% of the
+deceased-derived survivor component and 40% of the survivor's own corresponding
+*unadjusted* retirement-pension portion**. Parallel formulas apply to the enhanced
+(post-2019) portions.
 
-- **(a)** fixed age-65 ceiling, as coded today;
-- **(b)** ceiling adjusted by the survivor's own `cppFactor`;
-- **(c)** ceiling based on the **retirement** maximum rather than the published combined maximum.
+### The three candidate readings recorded earlier are SUPERSEDED
 
-**(a) is the most conservative of the three for the client** — it produces the smallest
-survivor benefit — so the current behaviour errs in the safe direction while the question
-is open.
+The earlier entry offered (a) fixed age-65 ceiling as coded, (b) ceiling scaled by the
+survivor's own `cppFactor`, (c) ceiling based on the retirement rather than the combined
+maximum. **None of them is the law.** The Act provides a component formula, not a single
+scalar ceiling. In particular:
 
-**Component status (§13.2a):** the `cppCombinedMax` **value is VERIFIED**; the **rule for
-applying it is APPROXIMATE**. A verified number sitting inside an unverified rule.
+> **Do NOT "fix" this by swapping `survOwnCpp` for `base65`, nor by multiplying
+> `cppCombinedMax` by an age factor.** Either would still be an unsupported shortcut,
+> and would replace a known-conservative approximation with an unknown one.
 
-**Resolution path:** Service Canada directly, or the CPP legislation/regulations on
-combined benefits — the consumer pages do not carry it.
+### Component status (§13.2a) — verified number inside an unsupported rule
+
+- **`cppCombinedMax` = $1,531.56/mo ($18,378.72/yr)** — the published ESDC value remains
+  **VERIFIED**, `verifiedDate: 2026-08-21`.
+- **The application rule for combined retirement + survivor CPP** —
+  **APPROXIMATE (legacy shortcut, retained only as a conservative placeholder pending a
+  dedicated s.58(2) implementation pass).** It is not a candidate for VERIFIED and must
+  not be presented as exact anywhere client-facing.
+
+The shortcut is retained for now because for the deferral case — the case the optimizer
+actually creates — it errs **low**, which is the safe direction for a client. It is not
+safe for early starters, and that is part of why this is [C] rather than [G].
+
+### Resolution path
+
+Implement s.58(2) component-wise: base and enhanced portions separately, the A−B
+reduction with B as the lesser of the two 40% quantities, and the survivor's own
+retirement pension taken **unadjusted for claiming age** (s.46(1), disregarding
+s.46(3)–(6), adjusted only per s.45(2)). Requires a dedicated pass with its own fixtures;
+`cppCombinedMax` then becomes a cross-check rather than the mechanism.
 
 **Pinned by test:** `benefits.test.ts` → *"combined-benefit ceiling (OPEN question)"*
-documents today's behaviour without asserting it is correct. If the rule resolves as (b)
-or (c), that test fails and points here.
+documents today's shortcut behaviour **without asserting it is correct**. When s.58(2) is
+implemented, that test is the thing that fails and points here.
 
-**Also confirmed correct in the same audit** (now pinned by `benefits.test.ts`):
-`cppFactor` (0.64 at 60, 1.42 at 70, 0.6%/0.7% branch), `oasFactor` (1.36 at 70, floored
-at 65), the survivor benefit computed on the deceased's **calculated** age-65 pension
-rather than what they received, and the 1/120 reduction for a survivor aged 35–44
-(90% at 44, 50% at 40, 0% at 35).
+**Confirmed correct in the same audit** (now pinned by `benefits.test.ts`, 15 tests):
+`cppFactor` (0.64 at 60, 1.42 at 70, the 0.6%/0.7% branch, clamping), `oasFactor` (1.36 at
+70, floored at 65, never reduces), the survivor benefit computed on the deceased's
+**calculated** age-65 pension rather than what they received, the 60% / flat+37.5% splits,
+the 1/120 reduction for ages 35–44 (90% at 44, 50% at 40, 0% at 35), and both survivor
+maximums.
 
 ---
 
 ## Phase 0 — READINESS MUST BE RE-ASSESSED (NOT APPROVED)
+
+**Blocked additionally by the OPEN [C] above** (combined retirement + survivor CPP, s.58(2)). Phase 0 cannot be approved and Phase 1 cannot begin while that entry is open; only independent documentation/verification work that does not depend on survivor-benefit correctness should continue.
 
 Batches 0A–0D are implemented and green. The four verification gaps raised by
 independent review on 2026-08-21 were closed (see the Phase 0 review patch in
