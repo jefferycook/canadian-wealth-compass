@@ -1,7 +1,7 @@
 # Implementation / change log
 
 Methodology baseline: `docs/CANONICAL-ENGINE-SPECIFICATION-v1.2-FINAL.md` (v1.2 FINAL,
-Errata 1–3).
+Errata 1–5).
 
 ---
 
