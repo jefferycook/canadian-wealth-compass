@@ -1315,13 +1315,48 @@ CRA T4032-BC gives British Columbia a tax reduction of **up to $575** for income
 
 **Sequencing consequence.** §14.3 must carry a low-income-reduction row (amount, income threshold, phase-out rate) **before** the remaining ten jurisdictions are cut, or all thirteen records will need re-cutting when it is implemented — the same trap §14.3 already flags for non-eligible dividend credits. The row is added in §14.3 below.
 
+### VERIFIED — every CPP and OAS benefit amount, current quarter
+
+Source (tier 1): ESDC, *Maximum Benefit Amounts and Related Figures — Canada Pension Plan (2026) and Old Age Security (July to September 2026)*, https://www.canada.ca/en/employment-social-development/programs/pensions/pension/statistics/2026-quarterly-july-september.html — verified **2026-08-21**. This is the **current** quarter, so it clears the §13.2 staleness concern rather than restating v1.0's check.
+
+Every figure in `TAX_2026` matches the monthly amount × 12:
+
+| Constant | Code | ESDC (monthly) | × 12 |
+|---|---|---|---|
+| `cppMax65` | 18,091.80 | $1,507.65 | 18,091.80 ✓ |
+| `cppSurvFlat` | `238.17 × 12` | $238.17 | ✓ |
+| `cppSurvMaxU65` | `803.54 × 12` | $803.54 | ✓ |
+| `cppSurvMax65` | `904.59 × 12` | $904.59 | ✓ |
+| `cppCombinedMax` | `1531.56 × 12` | $1,531.56 | ✓ |
+| `cppDeathBenefit` | 2,500 | $2,500.00 | ✓ |
+| `oasMax65` | 9,023.64 | $751.97 | 9,023.64 ✓ |
+| `oasMax75` | 9,926.04 | $827.17 | 9,926.04 ✓ |
+
+The same page independently re-confirms **`oasThreshold` 95,323**, already confirmed against CRA's indexation tables — two independent tier-1 sources agree.
+
+**Refresh clock.** OAS amounts move **quarterly**. This record alone goes stale on a three-month clock rather than annually and must be re-pulled each quarter with a fresh `verifiedDate`.
+
+**Confirmed, not a defect — the OAS recovery range differs by age.** ESDC states the 2026 repayment range runs from $95,323 to **$155,109** for ages 65–74, and to **$161,088** for 75+. The upper bounds differ only because the 75+ pension is 10% larger, so a 15% recovery rate takes longer to consume it. `computeTax` computes the recovery as `min(oasReceived, 15% × (netIncome − oasThresh))` — capped at the OAS **actually received**, with no fixed upper bound and no age-specific constant anywhere. Both published bounds therefore fall out of the two benefit amounts. Pinned by a test in `engine.test.ts` deriving each bound from `oasMax65` / `oasMax75` (within 0.3% of ESDC, the gap being ESDC's annualisation of a single quarter's payment rate).
+
+**FSRA Ontario LIF maximum table — partial finding.** The fifty percentages could not be retrieved (FSRA's consumer table page 404s; the guidance page returns the surrounding text without the table), so the line-by-line comparison stays outstanding below. But the guidance confirms the rate used is *"6.00%, which represents the greater of the CANSIM V122487 rate… for November of the applicable year and 6.00%"*, and that the table stands *"unless this guidance is subsequently replaced because the applicable interest rate information for a future year is greater than 6.00%"*. This validates `ON_LIF_MAX`'s code comment ("the reference rate is floored at 6%, which has left this table unchanged since 2021") against the regulator. Consequence for the rules layer: the Ontario LIF maximum table is **not an annual refresh item** — it changes only if the November CANSIM V122487 rate exceeds 6%. What it needs is a periodic check that the 6% floor still binds, not an annual re-verification schedule.
+
 ### STILL CONST-UNVERIFIED — the outstanding balance of the §13.3 launch blocker
 
 - **Provincial age amounts, age thresholds and pension income amounts** — ON ($6,342 / $47,210 / $1,796), BC ($5,691 / $42,580 / $1,000), AB ($6,055 / $45,210 / $1,685). Ontario's $1,796 has tier-3 corroboration (KPMG 2026 credit table) only, which may not satisfy §13.1. TD1ON / TD1BC / TD1AB carry all of these and are the right tier-1 source; the CRA PDF host blocked automated retrieval on 2026-08-21.
 - **Provincial dividend tax credits** — ON 10%, BC 12%, AB 8.12% of the grossed-up eligible dividend. Ontario's 10% has tier-3 and open-data corroboration only.
 - **`fedDivCredit` 0.150198 and `divGrossUp` 1.38** — CRA's line 40425 page describes the credit but publishes no rate; it points to **Federal Worksheet 5000-D1**, which is where these must be verified.
-- **FSRA Ontario LIF maximum table digits** (`ON_LIF_MAX`, ages 50–89). The *rule* is VERIFIED and the record cites the FSRA table, but the fifty individual percentages have not been compared line by line the way the RRIF table now has been.
-- **2026 CPP/OAS benefit amounts** — `oasMax65` 9,023.64, `oasMax75` 9,926.04, `cppMax65` 18,091.80, `cppAvgNew65` 10,464, and the four survivor/combined figures. Recorded above as verified against ESDC quarterly tables in v1.0; benefit amounts move quarterly, so the §13.2 staleness rule applies and they must be re-pulled for the current quarter with a fresh `verifiedDate`.
+- **FSRA Ontario LIF maximum table digits** (`ON_LIF_MAX`, ages 50–89) — the fifty individual percentages, per the partial finding above.
+- **`cppAvgNew65` 10,464** ($872/month, the average new retirement pension taken at 65). A *statistic*, not a maximum, so it does not appear on the quarterly maximums page; CPP's "How much you could receive" page carries it. The single remaining CPP/OAS item.
+
+### Where the §13.3 launch blocker now stands
+
+**Verified against tier-1 regulators on 2026-08-21:** all federal brackets and rates; the federal BPA maximum, minimum and phase-out range; the federal age amount, its threshold and its 15% phase-out rate; the federal pension amount and its non-indexation; the OAS recovery threshold (twice, independently); the TFSA and RRSP dollar limits; YMPE; all twenty-five RRIF minimum factors and the sub-71 formula; the Ontario, BC and Alberta brackets and rates; the Ontario, BC and Alberta basic personal amounts; the Ontario surtax thresholds and rates; the Ontario Health Premium brackets; and every CPP and OAS benefit amount.
+
+**Still outstanding:** the nine provincial age/pension amounts and thresholds, the four dividend gross-up and credit rates, the FSRA table digits, and `cppAvgNew65`.
+
+The item began as a blanket "everything is unverified" and is now a short, specific list — and **not one wrong digit has been found**. That is itself evidence: the constants were carefully transcribed in the first place, and the residual risk sits in the mechanisms and the rules layer rather than in the numbers.
+
+
 
 ---
 

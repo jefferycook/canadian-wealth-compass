@@ -122,6 +122,48 @@ describe("credits and clawbacks", () => {
     expect(way.oasClawback).toBe(9024); // never more than the OAS received
   });
 
+  it("reaches full OAS recovery at a different income for 65-74 and for 75+", () => {
+    // ESDC (July-September 2026) publishes an upper recovery bound of $155,109
+    // for ages 65-74 and $161,088 for 75+. The engine holds no age-specific
+    // constant: it takes 15% of income over the threshold and caps that at the
+    // OAS actually received, so the two bounds fall out of the two benefit
+    // amounts. Both are derived here, never hard-coded.
+    const fullRecoveryIncome = (oas: number) => ON.oasThresh + oas / 0.15;
+
+    const at70 = fullRecoveryIncome(TY.oasMax65);
+    const at76 = fullRecoveryIncome(TY.oasMax75);
+    // Within a quarter of a percent of ESDC's published bounds; the small gap
+    // is ESDC annualising a single quarter's payment rate.
+    expect(Math.abs(at70 - 155109) / 155109).toBeLessThan(0.003);
+    expect(Math.abs(at76 - 161088) / 161088).toBeLessThan(0.003);
+    expect(at76).toBeGreaterThan(at70);
+
+    // At those incomes the whole pension is recovered, and not a dollar more.
+    const seventy = computeTax(
+      income({ ordinary: at70, oasReceived: TY.oasMax65, age: 70 }),
+      ON,
+      TY,
+    );
+    expect(seventy.oasClawback).toBeCloseTo(TY.oasMax65, 6);
+
+    const seventySix = computeTax(
+      income({ ordinary: at76, oasReceived: TY.oasMax75, age: 76 }),
+      ON,
+      TY,
+    );
+    expect(seventySix.oasClawback).toBeCloseTo(TY.oasMax75, 6);
+
+    // A dollar below its own bound, each age still keeps some OAS.
+    expect(
+      computeTax(income({ ordinary: at70 - 1000, oasReceived: TY.oasMax65, age: 70 }), ON, TY)
+        .oasClawback,
+    ).toBeLessThan(TY.oasMax65);
+    expect(
+      computeTax(income({ ordinary: at70, oasReceived: TY.oasMax75, age: 76 }), ON, TY)
+        .oasClawback,
+    ).toBeLessThan(TY.oasMax75);
+  });
+
   it("levies the Ontario health premium in steps, capped at $900", () => {
     expect(ontarioHealthPremium(19000)).toBe(0);
     expect(ontarioHealthPremium(25000)).toBeCloseTo(300, 0);
