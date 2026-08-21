@@ -125,6 +125,21 @@ export function PlanResults({ output }: { output: PlanOutput }) {
       ) : null}
 
 
+      {output.methodDisclosures.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              How to read these numbers
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            {output.methodDisclosures.map((d) => (
+              <p key={d}>{d}</p>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
