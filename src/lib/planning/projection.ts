@@ -768,9 +768,11 @@ export function projection(
     // dividends are taxable but reinvested, so they are income without cash.
     //
     // Pension-income eligibility (canonical spec v1.2 FINAL + Erratum 1):
-    //   pensionEligible = rppLifetimePension
-    //                   + (age >= 65 ? rrifEligibleCash : 0)
-    //                   + (bridgeEligibleAffirmed ? bridgeInc : 0)
+    //   pensionEligibleAnyAge  = rppLifetimePension
+    //                          + (bridgeEligibleAffirmed ? bridgeInc : 0)
+    //   pensionEligible65Plus  = (age >= 65 ? rrifEligibleCash : 0)
+    // Erratum 5 splits the former single scalar in two so that a T1032
+    // transferee applies their OWN age test to the RRIF-sourced portion.
     // Plain RRSP cash is never eligible; RRIF/LIF cash (including mandatory
     // minimums) is eligible only from 65. This single value feeds both the
     // pension income credit and the household splitting optimizer.
@@ -792,10 +794,9 @@ export function projection(
           p.nonregInterest,
         div: p.nonregDiv,
         gainTax: p.schedNonregGain * 0.5,
-        pensionElig:
-          p.penInc +
-          (bridgeElig ? p.bridgeInc : 0) +
-          (p.age >= 65 ? rrifEligibleCash : 0),
+        // Erratum 5: two typed streams instead of one scalar.
+        pensionEligAnyAge: p.penInc + (bridgeElig ? p.bridgeInc : 0),
+        pensionElig65Plus: p.age >= 65 ? rrifEligibleCash : 0,
         oas: p.oasFull,
         age: p.age,
         cash:
@@ -885,7 +886,9 @@ export function projection(
         ordinary: f.ordinary + add[i]!.ord,
         eligDiv: f.div,
         capGainsTaxable: f.gainTax + add[i]!.gainTax,
-        pensionEligible: f.pensionElig + (P[i]!.age >= 65 ? add[i]!.regRrif : 0),
+        pensionEligibleAnyAge: f.pensionEligAnyAge,
+        pensionEligible65Plus:
+          f.pensionElig65Plus + (P[i]!.age >= 65 ? add[i]!.regRrif : 0),
         oasReceived: f.oas,
         age: f.age,
         // Deducted this year. It reduces the net-income base that the

@@ -14,6 +14,40 @@ import type {
   TaxSettings,
 } from "./types";
 
+/* ------------------------------------------------------------------ */
+/* Erratum 5 — two typed pension-eligibility streams                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Any-age eligible pension income. The legacy scalar `pensionEligible` is
+ * folded in here, because before Erratum 5 every consumer treated it as
+ * credit-eligible without an age test of its own.
+ */
+export function pensionAnyAge(inc: IncomeComponents): number {
+  return (inc.pensionEligibleAnyAge ?? 0) + (inc.pensionEligible ?? 0);
+}
+
+/** Eligible pension income that requires the CLAIMANT to be 65+. */
+export function pension65Plus(inc: IncomeComponents): number {
+  return inc.pensionEligible65Plus ?? 0;
+}
+
+/**
+ * The pension income amount's credit base for THIS taxpayer (Erratum 5). The
+ * age test is the claimant's own, whether they are the pensioner or a
+ * transferee: CRA confirms income qualifying for the transferor does not
+ * necessarily qualify for the transferee, because eligibility can depend on
+ * age (Form T1032, Step 4 / Note 1).
+ */
+export function pensionCreditBase(inc: IncomeComponents): number {
+  return pensionAnyAge(inc) + (inc.age >= 65 ? pension65Plus(inc) : 0);
+}
+
+/** Total eligible pension income the T1032 50% allocation is measured on. */
+export function pensionSplittable(inc: IncomeComponents): number {
+  return pensionAnyAge(inc) + pension65Plus(inc);
+}
+
 /** Progressive tax on an income across a bracket table. */
 export function bracketTax(income: number, brackets: Bracket[]): number {
   let tax = 0;
@@ -53,6 +87,8 @@ export function computeTax(
   ty: TaxYear,
 ): TaxResult {
   const prov: ProvinceTax = getProvince(ty, opts.provinceKey);
+  // Erratum 5: the claimant's own age test decides which streams count.
+  const creditBase = pensionCreditBase(inc);
   const grossedDiv = inc.eligDiv * ty.divGrossUp;
   const deduction = Math.max(0, inc.rrspDeduction ?? 0);
   const gross = inc.ordinary + grossedDiv + inc.capGainsTaxable;
@@ -87,7 +123,7 @@ export function computeTax(
         ty.fedAgeAmt - ty.agePhaseRate * Math.max(0, netIncome - ty.fedAgeThresh),
       ) * fedLow;
   }
-  fedCred += Math.min(ty.fedPenAmt, inc.pensionEligible) * fedLow;
+  fedCred += Math.min(ty.fedPenAmt, creditBase) * fedLow;
   fed = Math.max(0, fed - fedCred);
   fed = Math.max(0, fed - grossedDiv * ty.fedDivCredit);
 
@@ -102,7 +138,7 @@ export function computeTax(
         prov.ageAmt - ty.agePhaseRate * Math.max(0, netIncome - prov.ageThresh),
       ) * provLow;
   }
-  provCred += Math.min(prov.penAmt || 0, inc.pensionEligible) * provLow;
+  provCred += Math.min(prov.penAmt || 0, creditBase) * provLow;
   provTax = Math.max(0, provTax - provCred);
   provTax = Math.max(0, provTax - grossedDiv * prov.divCredit);
 
@@ -183,12 +219,30 @@ export function householdTax(
       // transferor's income cannot go negative.
       const T = Math.min(eligible * f, Math.max(0, incs[from]!.ordinary));
       if (T <= 0) continue;
-      const fi = { ...incs[from]! };
-      const ti = { ...incs[to]! };
-      fi.ordinary -= T;
-      fi.pensionEligible = Math.max(0, (fi.pensionEligible || 0) - T);
-      ti.ordinary += T;
-      ti.pensionEligible = (ti.pensionEligible || 0) + T;
+      const fromInc = incs[from]!;
+      const toInc = incs[to]!;
+      const fAny = pensionAnyAge(fromInc);
+      const fP65 = pension65Plus(fromInc);
+      const pool = fAny + fP65;
+      // Erratum 5: T1032 elects ONE amount out of one pool, so the transfer is
+      // drawn proportionally from the two streams. Cherry-picking the any-age
+      // portion would let a couple inflate a young transferee's credit.
+      const tAny = pool > 0 ? (T * fAny) / pool : 0;
+      const t65 = T - tAny;
+      const fi: IncomeComponents = {
+        ...fromInc,
+        ordinary: fromInc.ordinary - T,
+        pensionEligible: 0,
+        pensionEligibleAnyAge: Math.max(0, fAny - tAny),
+        pensionEligible65Plus: Math.max(0, fP65 - t65),
+      };
+      const ti: IncomeComponents = {
+        ...toInc,
+        ordinary: toInc.ordinary + T,
+        pensionEligible: 0,
+        pensionEligibleAnyAge: pensionAnyAge(toInc) + tAny,
+        pensionEligible65Plus: pension65Plus(toInc) + t65,
+      };
       const rf = computeTax(fi, opts, ty);
       const rt = computeTax(ti, opts, ty);
       const tot = rf.tax + rt.tax;
@@ -203,8 +257,8 @@ export function householdTax(
     }
   };
 
-  tryDir(0, 1, a.pensionEligible || 0);
-  tryDir(1, 0, b.pensionEligible || 0);
+  tryDir(0, 1, pensionSplittable(a));
+  tryDir(1, 0, pensionSplittable(b));
 
   return best;
 }
