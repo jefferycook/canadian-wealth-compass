@@ -116,3 +116,18 @@ These are scenario-boundary corrections, not engine methodology changes.
   limits and reusability. Unlocking becomes actionable only per jurisdiction,
   once that jurisdiction's exact mechanism is encoded against the canonical
   specification and tested.
+
+## Batch 0A follow-up — bridge affirmation is not yet user-facing
+
+`BridgeInput.sourceClass` / `BridgeInput.eligibleAffirmed` exist in the data
+model and drive pension-income eligibility, but the wizard does not collect
+them. Every plan therefore defaults to `eligibleAffirmed = false` (temporary
+bridging benefit, not pension-income-credit eligible), which is the conservative
+CRA-consistent default. A future UX batch must add:
+
+- a source-class question for any bridge-style benefit (RPP bridge, RPP lifetime,
+  RCA, SERP, non-registered supplement, other);
+- an explicit affirmation checkbox, enabled only for `RPP_LIFETIME`;
+- disclosure text explaining that CRA treats bridging benefits as temporary
+  benefits distinct from RPP lifetime retirement benefits, so affirming
+  incorrectly overstates the pension income credit and splitting room.
