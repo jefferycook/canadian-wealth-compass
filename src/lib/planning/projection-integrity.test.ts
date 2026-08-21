@@ -54,7 +54,7 @@ describe("indexation of statutory amounts (§12)", () => {
     expect(y.derivedFrom).toBe(2026);
     expect(y.fedBpaMax).toBe(Math.round(base.fedBpaMax * f));
     expect(y.oasThreshold).toBe(Math.round(base.oasThreshold * f));
-    expect(y.fedPenAmt).toBe(Math.round(base.fedPenAmt * f));
+    expect(y.fedPenAmt).toBe(base.fedPenAmt);
     expect(y.federal[0]!.up).toBe(Math.round(base.federal[0]!.up * f));
     // The top bracket has no ceiling and must stay unbounded, not become a
     // finite indexed number.
