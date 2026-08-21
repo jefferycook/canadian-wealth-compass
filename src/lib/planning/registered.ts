@@ -304,26 +304,31 @@ export const UNLOCK_RULES: Record<JurisdictionKey, UnlockRule> = {
     destinationType: "RRSP",
     oneTime: true,
     notes:
-      "Headline 50% from age 50, carried from the original engine and not re-verified against the Alberta superintendent for v1.2.",
+      "Age 50+: a one-time unlocking of up to 50% of the benefit value, to cash (less withholding), an RRSP or a RRIF on a tax-deferred basis. Procedural constraint NOT modelled: the entitlement must be exercised at the moment the money moves into the LIF/LITB account, not from an already-established LIF. Alberta's small-amount threshold is 20% of YMPE (not the 40%/50% used in some other jurisdictions).",
     unlockEntitlement: {
       source: {
-        title: "Alberta unlocking percentage carried from the original engine",
-        publisher: "Not re-verified for v1.2",
-        url: "internal://unverified",
-        tier: 3,
+        title:
+          "Interpretive Guideline #04 — Unlocking of Pension Benefits",
+        publisher: "Alberta Superintendent of Pensions",
+        url: "https://open.alberta.ca/dataset/623fa691-3296-4bf4-ae01-ebd3cd657f99/resource/74e60c33-cf1c-4d3e-92da-b625a2c1a2b4/download/ig-04-unlocking-of-pension-benefits.pdf",
+        tier: 1,
       },
       verifiedDate: "2026-08-21",
-      status: "APPROXIMATE",
+      status: "VERIFIED",
+      notes:
+        "\"the member or LIRA owner is age 50 or older\", up to \"50 per cent of the value of their benefit\", \"on a one-time basis\", and it \"must occur prior to funds being deposited in the LIF or LITB account\" — the engine does not model that timing constraint.",
     },
     destinationVehicle: {
       source: {
-        title: "Assumed RRSP destination, not re-verified",
-        publisher: "Not re-verified for v1.2",
-        url: "internal://unverified",
-        tier: 3,
+        title:
+          "Interpretive Guideline #04 — Unlocking of Pension Benefits",
+        publisher: "Alberta Superintendent of Pensions",
+        url: "https://open.alberta.ca/dataset/623fa691-3296-4bf4-ae01-ebd3cd657f99/resource/74e60c33-cf1c-4d3e-92da-b625a2c1a2b4/download/ig-04-unlocking-of-pension-benefits.pdf",
+        tier: 1,
       },
       verifiedDate: "2026-08-21",
-      status: "APPROXIMATE",
+      status: "VERIFIED",
+      notes: "Cash (less withholding), an RRSP, or a RRIF on a tax-deferred basis.",
     },
     lifMaximum: FORMULA_LIF_MAX,
   }),
@@ -365,60 +370,81 @@ export const UNLOCK_RULES: Record<JurisdictionKey, UnlockRule> = {
     partialPct: 50,
     partialMinAge: 55,
     destinationType: "RRSP",
+    requiresVehicle: "ScheduleLIF",
+    transferWindowDays: 60,
     oneTime: true,
     notes:
-      "Headline 50% at 55, carried from the original engine and not re-verified for v1.2.",
+      "Age 55+: a one-time withdrawal or transfer of up to 50% of the money transferred into a Schedule 4A LIF, to an RRSP or RRIF or in cash. The application is invalid if received more than 60 days after the money was transferred into the Schedule 4A LIF, and taking less than 50% forfeits the balance of the entitlement. Structurally the same shape as Ontario's Schedule 1.1 LIF and the federal RLIF.",
     unlockEntitlement: {
       source: {
-        title: "Nova Scotia unlocking percentage carried from the original engine",
-        publisher: "Not re-verified for v1.2",
-        url: "internal://unverified",
-        tier: 3,
+        title:
+          "Form 20 — Application to withdraw or transfer up to 50% of the money transferred into a Schedule 4A LIF",
+        publisher: "Nova Scotia Department of Finance",
+        url: "https://novascotia.ca/finance/pensions/docs/pensions-form-20.pdf",
+        tier: 1,
       },
       verifiedDate: "2026-08-21",
-      status: "APPROXIMATE",
+      status: "VERIFIED",
+      notes:
+        "\"this is a one-time withdrawal or transfer and if you withdraw or transfer less than 50% of this money you will not have another opportunity\"; the 60-day window is a hard validity condition the engine does not model.",
     },
     destinationVehicle: {
       source: {
-        title: "Assumed RRSP destination, not re-verified",
-        publisher: "Not re-verified for v1.2",
-        url: "internal://unverified",
-        tier: 3,
+        title:
+          "Form 20 — Application to withdraw or transfer up to 50% of the money transferred into a Schedule 4A LIF",
+        publisher: "Nova Scotia Department of Finance",
+        url: "https://novascotia.ca/finance/pensions/docs/pensions-form-20.pdf",
+        tier: 1,
       },
       verifiedDate: "2026-08-21",
-      status: "APPROXIMATE",
+      status: "VERIFIED",
+      notes: "RRSP or RRIF, or cash; the money must first pass through a Schedule 4A LIF.",
     },
     lifMaximum: FORMULA_LIF_MAX,
   }),
   NB: rule({
     name: "New Brunswick",
-    partialPct: 25,
-    partialMinAge: 55,
+    partialPct: 0,
+    partialMinAge: 999,
     destinationType: "RRSP",
     oneTime: true,
     notes:
-      "Headline 25% at 55, carried from the original engine and not re-verified for v1.2.",
+      "UNSUPPORTED. FCNB gives the one-time partial unlock as the lesser of three times the annual amount or 25% of the LIF balance, taken from a LIF, with a RRIF destination and no stated age condition. Our former record (flat 25% at 55 to an RRSP) overstated the entitlement because the 'three times the annual amount' limb frequently binds first. Nothing is substituted: unlocking, destination and LIF maximum are all withheld until the lesser-of formula and the meaning of 'the annual amount' are confirmed with FCNB.",
     unlockEntitlement: {
       source: {
-        title: "New Brunswick unlocking percentage carried from the original engine",
-        publisher: "Not re-verified for v1.2",
-        url: "internal://unverified",
-        tier: 3,
+        title: "Pension Transfers and Withdrawals",
+        publisher: "New Brunswick Financial and Consumer Services Commission (FCNB)",
+        url: "https://fcnb.ca/en/personal-finances/pensions-and-retirement/pension-transfers-and-withdrawals",
+        tier: 1,
       },
       verifiedDate: "2026-08-21",
-      status: "APPROXIMATE",
+      status: "UNSUPPORTED",
+      notes:
+        "Lesser of three times the annual amount or 25% of the LIF balance, once in a lifetime, no age condition stated. Not modelled; withheld rather than approximated.",
     },
     destinationVehicle: {
       source: {
-        title: "Assumed RRSP destination, not re-verified",
-        publisher: "Not re-verified for v1.2",
-        url: "internal://unverified",
-        tier: 3,
+        title: "Pension Transfers and Withdrawals",
+        publisher: "New Brunswick Financial and Consumer Services Commission (FCNB)",
+        url: "https://fcnb.ca/en/personal-finances/pensions-and-retirement/pension-transfers-and-withdrawals",
+        tier: 1,
       },
       verifiedDate: "2026-08-21",
-      status: "APPROXIMATE",
+      status: "UNSUPPORTED",
+      notes: "Destination is a RRIF, not an RRSP as previously coded. Withheld.",
     },
-    lifMaximum: FORMULA_LIF_MAX,
+    lifMaximum: {
+      source: {
+        title: "Pension Transfers and Withdrawals",
+        publisher: "New Brunswick Financial and Consumer Services Commission (FCNB)",
+        url: "https://fcnb.ca/en/personal-finances/pensions-and-retirement/pension-transfers-and-withdrawals",
+        tier: 1,
+      },
+      verifiedDate: "2026-08-21",
+      status: "UNSUPPORTED",
+      notes:
+        "No New Brunswick maximum table is implemented, and the unlock formula depends on the LIF annual amount. Withheld.",
+    },
   }),
   BC: rule({
     name: "British Columbia",
@@ -427,26 +453,29 @@ export const UNLOCK_RULES: Record<JurisdictionKey, UnlockRule> = {
     destinationType: "RRSP",
     oneTime: true,
     notes:
-      "No general age-based unlocking is modelled; carried from the original engine and not re-verified for v1.2.",
+      "No 50% one-time unlocking exists under BC legislation — a verified absence, not an unchecked assumption. BC permits unlocking only for financial hardship, small balance (under 65: 20% of YMPE, $14,920 for 2026; 65+: 40% of YMPE, $29,840), permanent departure from Canada, and shortened life expectancy. None of those four circumstances is modelled by the engine.",
     unlockEntitlement: {
       source: {
-        title: "British Columbia treatment carried from the original engine",
-        publisher: "Not re-verified for v1.2",
-        url: "internal://unverified",
-        tier: 3,
+        title: "Unlocking pension funds",
+        publisher: "BC Financial Services Authority (BCFSA)",
+        url: "https://www.bcfsa.ca/public-resources/pensions/unlocking-pension-funds",
+        tier: 1,
       },
       verifiedDate: "2026-08-21",
-      status: "APPROXIMATE",
+      status: "VERIFIED",
+      notes:
+        "\"British Columbia's pension legislation does not allow a 50 per cent one-time unlocking provision for pension funds... it is not available under B.C. legislation.\"",
     },
     destinationVehicle: {
       source: {
-        title: "No unlocking destination applies",
-        publisher: "Not re-verified for v1.2",
-        url: "internal://unverified",
-        tier: 3,
+        title: "Unlocking pension funds",
+        publisher: "BC Financial Services Authority (BCFSA)",
+        url: "https://www.bcfsa.ca/public-resources/pensions/unlocking-pension-funds",
+        tier: 1,
       },
       verifiedDate: "2026-08-21",
-      status: "APPROXIMATE",
+      status: "VERIFIED",
+      notes: "No age-based unlocking entitlement exists, so no destination applies.",
     },
     lifMaximum: FORMULA_LIF_MAX,
   }),
@@ -657,7 +686,9 @@ export function lifMaximumFor(
   return {
     applies: true,
     pct: lifMaxFactor(age, isOntarioTable ? "ON" : String(juris), ratePct),
-    status: isOntarioTable ? "VERIFIED" : "APPROXIMATE",
+    // §13.2a: the COMPONENT is the source of truth for status, not the
+    // jurisdiction. Only the choice of which number to compute is ON-specific.
+    status: r.lifMaximum.status,
   };
 }
 

@@ -160,3 +160,21 @@ pension entitlement alone.
 - **Indexation rate as an intake assumption.** `PlanInputs.indexationRate`
   defaults to the plan's inflation assumption and has no UI control; CRA
   indexation and price inflation are not the same series.
+
+
+## New Brunswick locked-in unlocking — UNSUPPORTED, to implement
+
+FCNB gives the one-time partial unlock as the **lesser of three times the
+annual amount or 25% of the LIF balance**, taken from a LIF, destination RRIF,
+with no stated age condition
+(https://fcnb.ca/en/personal-finances/pensions-and-retirement/pension-transfers-and-withdrawals,
+verified 2026-08-21). The prior flat 25%-at-55-to-an-RRSP record overstated the
+entitlement and was withdrawn (Batch 0C follow-up).
+
+To implement, two things must be confirmed with FCNB:
+1. the precise meaning of "the annual amount" (LIF maximum for the year, or the
+   amount actually withdrawn), and
+2. whether the lesser-of test is struck at the moment of application.
+
+Until then all three NB components stay UNSUPPORTED and NB locked-in results are
+withheld, never substituted from another jurisdiction.

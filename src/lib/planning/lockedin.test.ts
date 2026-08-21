@@ -78,7 +78,18 @@ describe("Batch 0C — Manitoba sequential entitlements", () => {
     expect(unlocked55).toBeGreaterThan(0);
     // Half the locked money moved; the remainder is still locked.
     expect(locked55).toBeGreaterThan(0);
-    expect(unlocked55 / (locked55 + unlocked55)).toBeGreaterThan(0.3);
+    // Two-sided band. The exact-50% property is asserted structurally by
+    // `maxUnlockPctAtAge(UNLOCK_RULES.MB, 55) === 50`; this projection-level
+    // check is only a sanity band around it, loose because both sides then
+    // grow and pay minimums before year end. A one-sided floor would stay
+    // green even if the engine unlocked 90%.
+    const share55 = unlocked55 / (locked55 + unlocked55);
+    // Observed 0.369: the PRRIF pays its RRIF minimum in the unlock year while
+    // the locked side keeps compounding, so the year-end share sits below the
+    // statutory 50%. The band is set around that, and the upper bound is the
+    // part that matters — it can never be satisfied by a 90% unlock.
+    expect(share55).toBeGreaterThan(0.3);
+    expect(share55).toBeLessThan(0.45);
 
     // The age-65 entitlement is a SECOND event: the locked remainder goes to zero.
     const at65 = rowAt(65);
@@ -218,5 +229,78 @@ describe("Batch 0C — saved-plan compatibility", () => {
 
   it("loads an account whose jurisdiction is now unsupported without throwing", () => {
     expect(() => projection(lockedInPlan("SK", 0))).not.toThrow();
+  });
+});
+
+describe("Batch 0C follow-up — jurisdiction verification, 2026-08-21", () => {
+  it("Alberta: 50% from age 50 to an RRSP, VERIFIED against the Superintendent", () => {
+    const r = UNLOCK_RULES.AB;
+    expect(r.partialPct).toBe(50);
+    expect(r.partialMinAge).toBe(50);
+    expect(r.destinationType).toBe("RRSP");
+    expect(r.oneTime).toBe(true);
+    expect(r.unlockEntitlement.status).toBe("VERIFIED");
+    expect(r.destinationVehicle.status).toBe("VERIFIED");
+    expect(r.unlockEntitlement.source.tier).toBe(1);
+    // The maximum table is still an approximation — promotion is component-wise.
+    expect(r.lifMaximum.status).toBe("APPROXIMATE");
+    expect(r.notes).toMatch(/20% of YMPE/);
+    expect(r.notes).toMatch(/LIF\/LITB/);
+  });
+
+  it("Nova Scotia: 50% at 55 through a Schedule 4A LIF within 60 days", () => {
+    const r = UNLOCK_RULES.NS;
+    expect(r.partialPct).toBe(50);
+    expect(r.partialMinAge).toBe(55);
+    expect(r.requiresVehicle).toBe("ScheduleLIF");
+    expect(r.transferWindowDays).toBe(60);
+    expect(r.unlockEntitlement.status).toBe("VERIFIED");
+    expect(r.destinationVehicle.status).toBe("VERIFIED");
+    expect(r.lifMaximum.status).toBe("APPROXIMATE");
+  });
+
+  it("British Columbia: a VERIFIED absence of any 50% unlocking entitlement", () => {
+    const r = UNLOCK_RULES.BC;
+    expect(r.partialPct).toBe(0);
+    expect(r.partialMinAge).toBe(999);
+    expect(r.unlockEntitlement.status).toBe("VERIFIED");
+    expect(r.destinationVehicle.status).toBe("VERIFIED");
+    expect(r.unlockEntitlement.source.publisher).toMatch(/BCFSA|BC Financial/);
+    expect(maxUnlockPctAtAge(r, 70)).toBe(0);
+  });
+
+  it("New Brunswick: withdrawn as UNSUPPORTED, nothing substituted", () => {
+    const r = UNLOCK_RULES.NB;
+    for (const k of UNLOCK_COMPONENTS) expect(r[k].status).toBe("UNSUPPORTED");
+    expect(r.partialPct).toBe(0);
+    expect(r.partialMinAge).toBe(999);
+    expect(recordStatus("NB")).toBe("UNSUPPORTED");
+    expect(lifMaximumFor("NB", 65, 6).status).toBe("UNSUPPORTED");
+    expect(r.notes).toMatch(/lesser of three times the annual amount/i);
+    expect(r.notes).toMatch(/RRIF/);
+  });
+
+  it("New Brunswick withholds the unlock and discloses it rather than throwing", () => {
+    const P = projection(lockedInPlan("NB", 50));
+    expect(P.lockedInDisclosures.join(" ")).toMatch(/not yet supported/i);
+  });
+
+  it("lifMaximumFor reports the component status, not a hard-coded jurisdiction", () => {
+    expect(lifMaximumFor("ON", 65, 6).status).toBe(UNLOCK_RULES.ON.lifMaximum.status);
+    expect(lifMaximumFor("AB", 65, 6).status).toBe(UNLOCK_RULES.AB.lifMaximum.status);
+  });
+
+  it("discloses an APPROXIMATE unlocking entitlement, not only the destination", () => {
+    // QC/ON are verified; pick a jurisdiction whose entitlement is still carried.
+    const approx = (Object.keys(UNLOCK_RULES) as (keyof typeof UNLOCK_RULES)[]).find(
+      (k) =>
+        UNLOCK_RULES[k].unlockEntitlement.status === "APPROXIMATE" &&
+        UNLOCK_RULES[k].partialPct > 0,
+    );
+    if (!approx) return; // every entitlement verified — nothing to disclose.
+    const P = projection(lockedInPlan(approx, 50));
+    expect(P.lockedInDisclosures.join(" ")).toMatch(
+      /unlocking percentage .* have not been confirmed with the regulator/i,
+    );
   });
 });
