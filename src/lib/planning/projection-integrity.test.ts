@@ -444,7 +444,7 @@ describe("Batch 0D [C] — contributions are a use of cash, not free money", () 
           ...base.people[0]!,
           curAge: 50,
           retAge: 65,
-          employInc: employ,
+          employ,
           cpp: { amt: 0, age: 65 },
           oas: { amt: 0, age: 65 },
         },
@@ -508,7 +508,10 @@ describe("Batch 0D [C] — contributions are a use of cash, not free money", () 
     const p = oneYearCouple(20_000, 40_000, 0);
     const retiree: PlanInputs = {
       ...p,
-      people: [{ ...p.people[0]!, curAge: 70, retAge: 60, dbPension: { amt: 42_000, startAge: 60, indexRate: 0, bridgeAmt: 0, bridgeEnd: 0 } }],
+      endAge: 71,
+      people: [
+        { ...p.people[0]!, curAge: 70, retAge: 60, pen: { amt: 42_000, age: 60 } },
+      ],
       accounts: p.accounts.map((a) =>
         a.id === "acc_nonreg" ? { ...a, bal: 100_000, acb: 100_000 } : a,
       ),
