@@ -919,15 +919,14 @@ export function projection(
     if (totalPortfolio > 1) everHadPortfolio = true;
   }
 
+  const spousalNote =
+    couple && lastClosedRoom.length === 2 ? spousalRrspDisclosure(lastClosedRoom) : null;
+
   return {
     rows,
-    roomDisclosures: [
-      ...roomDisclosures,
-      ...(couple && people.length === 2
-        ? spousalRrspDisclosure(people[0]!, people[1]!)
-        : []),
-    ],
+    roomDisclosures: [...roomDisclosures, ...(spousalNote ? [spousalNote] : [])],
     roomValidationErrors,
+
 
     hadInvestableAssets: everHadPortfolio,
     acctMeta: accts.map((a) => ({ id: a.id, name: a.name, type: a.type })),
