@@ -299,7 +299,9 @@ function indexProvince(p: ProvinceTax, f: number): ProvinceTax {
     bpa: idx(p.bpa, f),
     ageAmt: idx(p.ageAmt, f),
     ageThresh: idx(p.ageThresh, f),
-    penAmt: idx(p.penAmt, f),
+    // Per-jurisdiction indexability: a province whose pension income amount is
+    // a fixed statutory dollar figure (BC, ITA s.4.32) opts out.
+    penAmt: p.penAmtIndexed === false ? p.penAmt : idx(p.penAmt, f),
   };
 }
 
