@@ -456,7 +456,6 @@ describe("Batch 0D [C] — contributions are a use of cash, not free money", () 
       expenses: [],
       hardAssets: [],
       liabilities: [],
-      goalSaves: [],
     };
   };
 
