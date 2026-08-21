@@ -23,7 +23,9 @@ import { lifMaxFactor, rrifMinFactor, unlockRule } from "./registered";
 import { approxMarginal, householdTax } from "./tax";
 import { getTaxYear, type TaxYear } from "./taxYears";
 import { strategyOrder } from "./strategy";
+import { bridgeIsPensionEligible } from "./types";
 import type {
+
   AccountInput,
   IncomeComponents,
   PersonInput,
