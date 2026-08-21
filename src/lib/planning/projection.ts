@@ -770,7 +770,9 @@ export function projection(
       other:
         otherTax.reduce((s, v) => s + v, 0) + otherNon.reduce((s, v) => s + v, 0),
       regWithdraw:
-        P.reduce((s, p) => s + p.mandatoryTaxable + p.schedRegCash, 0) + drawn.reg,
+        P.reduce((s, p) => s + p.mandatoryTaxable + p.schedRrifCash + p.schedRrspCash, 0) +
+        drawn.reg,
+
       tfsaWithdraw: P.reduce((s, p) => s + p.schedTfsaCash, 0) + drawn.tfsa,
       nonregWithdraw: P.reduce((s, p) => s + p.schedNonregCash, 0) + drawn.nonreg,
       taxable,
