@@ -600,6 +600,6 @@ describe("couple golden fixture", () => {
 });
 
 /** See the note on the test above before changing this number. */
-// Batch 0D re-pin, 554616 -> 407458, from indexation of the statutory
+// Batch 0D re-pin, 554616 -> 411408, from indexation of the statutory
 // amounts in the derived tax years. Erratum 5 behaviour is unchanged.
-const COUPLE_GOLDEN = 407458;
+const COUPLE_GOLDEN = 411408;

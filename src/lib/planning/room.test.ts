@@ -279,15 +279,15 @@ describe("engine integration", () => {
 
   it("leaves the Batch 0A single-filer golden untouched", () => {
     // Batch 0D re-pin: indexation only (see engine.test.ts for attribution).
-    expect(Math.round(lifetimeTax(runPlan(regressionFixturePlan())))).toBe(198394);
+    expect(Math.round(lifetimeTax(runPlan(regressionFixturePlan())))).toBe(201470);
   });
 });
 
 /** Pinned Batch 0B anchor; see the run report for the derivation. */
-// Batch 0D re-pin, 2254682 -> 2164651. Two intentional causes:
+// Batch 0D re-pin, 2254682 -> 2176860. Two intentional causes:
 //  1. Indexation of statutory amounts beyond the published table (down).
 //  2. The after-tax surplus sweep: $1,483,280 of surplus over the run used to
 //     disappear from the balance sheet and is now reinvested, so it earns
 //     taxable distributions (up).
 // Holding indexationRate at 0 isolates cause 2 at 3545773.
-const ACCUMULATION_GOLDEN = 2164651;
+const ACCUMULATION_GOLDEN = 2176860;

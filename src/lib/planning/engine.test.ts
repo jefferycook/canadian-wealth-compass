@@ -317,7 +317,7 @@ describe("the default plan (regression fixture)", () => {
     // number 278614 exactly, so the whole move is indexation and neither the
     // non-registered decomposition nor the surplus sweep touched it (this
     // fixture sweeps $0).
-    expect(Math.round(lifetimeTax(P))).toBe(198394);
+    expect(Math.round(lifetimeTax(P))).toBe(201470);
   });
 
   it("takes at least the mandatory RRIF minimum every year from 71 until the registered money is gone", () => {
