@@ -311,10 +311,15 @@ describe("registered account rules", () => {
     expect(rrifMinFactor(99)).toBe(20);
   });
 
-  it("uses the published FSRA table for Ontario LIF maximums", () => {
-    expect(lifMaxFactor(65, "ON", 6)).toBeCloseTo(7.38, 6);
+  it("uses FSRA PE0196INF Appendix A unshifted for Ontario LIF maximums", () => {
+    // Appendix A is keyed by the age attained during the year; the previous
+    // table was that same table shifted one age (65 -> 7.38) and overstated
+    // every maximum.
+    expect(lifMaxFactor(65, "ON", 6)).toBeCloseTo(7.25513, 6);
+    expect(lifMaxFactor(89, "ON", 6)).toBeCloseTo(51.45631, 6);
     expect(lifMaxFactor(90, "ON", 6)).toBe(100);
   });
+
 
   it("keeps the LIF maximum above the RRIF minimum at every age", () => {
     for (let age = 55; age <= 88; age++) {
