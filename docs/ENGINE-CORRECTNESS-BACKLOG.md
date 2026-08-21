@@ -274,8 +274,6 @@ re-cutting — the same trap already flagged for non-eligible dividend credits.
   corroboration only (KPMG), which may not satisfy §13.1.
 - **Provincial dividend tax credits** — ON 10%, BC 12%, AB 8.12% of the
   grossed-up eligible dividend. Ontario's 10% is tier-3 / open-data only.
-- **`fedDivCredit` 0.150198 and `divGrossUp` 1.38** — CRA line 40425 publishes
-  no rate; verify against **Federal Worksheet 5000-D1**.
 - **FSRA Ontario LIF maximum table digits** (`ON_LIF_MAX`, ages 50–89) — the
   rule is VERIFIED but the fifty percentages have not been compared line by
   line the way the RRIF table now has been. FSRA's consumer table page 404s and
