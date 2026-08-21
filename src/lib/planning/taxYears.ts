@@ -40,6 +40,12 @@ export interface ProvinceTax {
   penAmt: number;
   /** Dividend tax credit, as a fraction of the grossed-up eligible dividend. */
   divCredit: number;
+  /**
+   * Tax years in which this province's brackets and indexed non-refundable
+   * personal credit amounts are frozen by statute (indexation paused).
+   * Inclusive range; derived years inside it stay at the published values.
+   */
+  indexationPause?: { from: number; to: number };
 }
 
 export interface TaxYear {
@@ -143,11 +149,18 @@ const PROVINCES_2026: Record<string, ProvinceTax> = {
     ],
     surtax: [],
     healthPremium: false,
+    // VERIFIED 2026-08-21 — Province of British Columbia, "B.C. basic personal
+    // income tax credits" (last updated 2026-04-20).
     bpa: 13216,
-    ageAmt: 5691,
-    ageThresh: 42580,
+    ageAmt: 5927,
+    ageThresh: 44119,
     penAmt: 1000,
     divCredit: 0.12,
+    // VERIFIED 2026-08-21 — Province of British Columbia, "Personal income tax
+    // rates" (last updated 2026-04-17) / Budget 2026 tax measures: indexation
+    // of BC brackets and non-refundable personal credits is PAUSED for tax
+    // years 2027 through 2030, resuming in 2031.
+    indexationPause: { from: 2027, to: 2030 },
   },
   AB: {
     name: "Alberta",
@@ -274,12 +287,30 @@ function indexProvince(p: ProvinceTax, f: number): ProvinceTax {
  *    $2,000 in ITA s.118(3), unchanged since 2006 and absent from CRA's
  *    indexation-adjustment tables (verified 2026-08-21). Provincial pension
  *    amounts DO index and are handled in `indexProvince`.
+ *
+ * Indexation is jurisdiction-aware: a province carrying an `indexationPause`
+ * stays frozen at its published values for every derived year inside that
+ * range, and resumes indexing from the published base year afterwards (BC:
+ * paused 2027-2030 per Budget 2026, resuming 2031).
  */
+export function provincialIndexationFactor(
+  p: ProvinceTax,
+  baseYear: number,
+  year: number,
+  rate: number,
+): number {
+  if (year <= baseYear) return 1;
+  const pause = p.indexationPause;
+  if (pause && year >= pause.from && year <= pause.to) return 1;
+  return Math.pow(1 + rate, year - baseYear);
+}
+
 export function indexTaxYear(base: TaxYear, year: number, rate: number): TaxYear {
   if (year <= base.year) return base;
   const f = Math.pow(1 + rate, year - base.year);
   const provinces: Record<string, ProvinceTax> = {};
-  for (const [k, p] of Object.entries(base.provinces)) provinces[k] = indexProvince(p, f);
+  for (const [k, p] of Object.entries(base.provinces))
+    provinces[k] = indexProvince(p, provincialIndexationFactor(p, base.year, year, rate));
   return {
     ...base,
     year,

@@ -1342,7 +1342,7 @@ The same page independently re-confirms **`oasThreshold` 95,323**, already confi
 
 ### STILL CONST-UNVERIFIED — the outstanding balance of the §13.3 launch blocker
 
-- **Provincial age amounts, age thresholds and pension income amounts** — ON ($6,342 / $47,210 / $1,796), BC ($5,691 / $42,580 / $1,000), AB ($6,055 / $45,210 / $1,685). Ontario's $1,796 has tier-3 corroboration (KPMG 2026 credit table) only, which may not satisfy §13.1. TD1ON / TD1BC / TD1AB carry all of these and are the right tier-1 source; the CRA PDF host blocked automated retrieval on 2026-08-21.
+- **Provincial age amounts, age thresholds and pension income amounts** — ON ($6,342 / $47,210 / $1,796), BC (age amount and threshold now **VERIFIED and corrected to $5,927 / $44,119** — pension amount $1,000 still outstanding), AB ($6,055 / $45,210 / $1,685). Ontario's $1,796 has tier-3 corroboration (KPMG 2026 credit table) only, which may not satisfy §13.1. TD1ON / TD1BC / TD1AB carry all of these and are the right tier-1 source; the CRA PDF host blocked automated retrieval on 2026-08-21.
 - **Provincial dividend tax credits** — ON 10%, BC 12%, AB 8.12% of the grossed-up eligible dividend. Ontario's 10% has tier-3 and open-data corroboration only.
 - **FSRA Ontario LIF maximum table digits** (`ON_LIF_MAX`, ages 50–89) — the fifty individual percentages, per the partial finding above.
 
@@ -1363,17 +1363,27 @@ This is a **statistic**, not a statutory maximum, and it is consumed only by the
 
 This is the first constant in the §13.3 pass found to be wrong, and it is recorded transparently as such.
 
+### CORRECTED 2026-08-21 — British Columbia age amount, threshold, and paused indexation (second confirmed constant defect)
+
+Sources (tier 1): Province of British Columbia, *B.C. basic personal income tax credits*, last updated **2026-04-20**; Province of British Columbia, *Personal income tax rates*, last updated **2026-04-17** / **Budget 2026** tax measures.
+
+1. **Stale credit amounts — corrected.** BC's 2026 **age amount is $5,927** and its **phase-out threshold $44,119**. `TAX_2026.provinces.BC` carried **5,691 / 42,580**, which are stale. Corrected in `taxYears.ts`, `verifiedDate: 2026-08-21`, and pinned by direct tests (`taxYears.test.ts`).
+2. **Indexation is paused in BC for 2027–2030.** Budget 2026 pauses indexation of BC's personal income tax **brackets** and **non-refundable personal credit amounts** for tax years **2027 through 2030**, resuming in **2031**. `indexProvince()` previously indexed every province in every derived year, so BC brackets and credits were wrongly inflated across those four years. Indexation is now **jurisdiction-aware**: `ProvinceTax.indexationPause` carries the frozen range and `provincialIndexationFactor()` returns 1 inside it, resuming from the **published 2026 base** in 2031 under the ordinary planning indexation convention (§12, Batch 0D). Ontario and Alberta behaviour is unchanged, and a control test pins that.
+3. **Unchanged and re-confirmed.** The BC 2026 bracket table ($50,363 / 100,728 / 115,648 / 140,430 / 190,405 / 265,545 at 5.6 / 7.7 / 10.5 / 12.29 / 14.7 / 16.8 / 20.5%), **BPA $13,216**, **pension amount $1,000** and **eligible-dividend credit 12%** all match the current BC sources and were left alone.
+
+BC's age amount and threshold therefore move out of the STILL CONST-UNVERIFIED list below; BC's pension amount and dividend credit remain in it.
+
 ### VERIFIED 2026-08-21 — federal eligible-dividend gross-up and credit
 
 CRA **T5 Guide — Return of Investment Income** (<https://www.canada.ca/en/revenue-agency/services/forms-publications/publications/t4015/t5-guide-return-investment-income.html>) states that for 2012 and later years eligible dividends are grossed up by **38%** and the federal dividend tax credit is **15.0198% of the taxable (grossed-up) eligible dividend**. This confirms `divGrossUp = 1.38` and `fedDivCredit = 0.150198` exactly. **VERIFIED, `verifiedDate: 2026-08-21`.** No behaviour change. (The *provincial* dividend tax credits remain outstanding.)
 
 ### Where the §13.3 launch blocker now stands
 
-**Verified against tier-1 regulators on 2026-08-21:** all federal brackets and rates; the federal BPA maximum, minimum and phase-out range; the federal age amount, its threshold and its 15% phase-out rate; the federal pension amount and its non-indexation; the OAS recovery threshold (twice, independently); the TFSA and RRSP dollar limits; YMPE; all twenty-five RRIF minimum factors and the sub-71 formula; the Ontario, BC and Alberta brackets and rates; the Ontario, BC and Alberta basic personal amounts; the Ontario surtax thresholds and rates; the Ontario Health Premium brackets; and every CPP and OAS benefit amount.
+**Verified against tier-1 regulators on 2026-08-21:** all federal brackets and rates; the federal BPA maximum, minimum and phase-out range; the federal age amount, its threshold and its 15% phase-out rate; the federal pension amount and its non-indexation; the OAS recovery threshold (twice, independently); the TFSA and RRSP dollar limits; YMPE; all twenty-five RRIF minimum factors and the sub-71 formula; the Ontario, BC and Alberta brackets and rates; the Ontario, BC and Alberta basic personal amounts; the BC age amount and threshold and the BC 2027–2030 indexation pause; the Ontario surtax thresholds and rates; the Ontario Health Premium brackets; and every CPP and OAS benefit amount.
 
 **Still outstanding:** the nine provincial age/pension amounts and thresholds, the three **provincial** dividend tax credits, and the FSRA table digits. (`cppAvgNew65` is now corrected and verified; the federal gross-up and credit are verified.)
 
-The item began as a blanket "everything is unverified" and is now a short, specific list. **One wrong value has been found** — the stale `cppAvgNew65` — which is exactly why the pass is being run against primary sources rather than assumed. The remaining risk still sits mainly in the mechanisms and the rules layer (see CPP-1 [C]) rather than in the numbers, but "the constants were transcribed carefully" can no longer be stated as though it were established.
+The item began as a blanket "everything is unverified" and is now a short, specific list. **Two wrong values have been found** — the stale `cppAvgNew65` and BC's stale age amount/threshold, alongside a wrongly-applied indexation rule for BC 2027–2030 — which is exactly why the pass is being run against primary sources rather than assumed. The remaining risk still sits mainly in the mechanisms and the rules layer (see CPP-1 [C]) rather than in the numbers, but "the constants were transcribed carefully" can no longer be stated as though it were established.
 
 
 
