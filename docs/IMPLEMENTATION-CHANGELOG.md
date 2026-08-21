@@ -552,3 +552,65 @@ changed**; no golden anchor moved.
 
 Anchors unchanged: **201,470 / 411,408 / 1,762,590**. CPP s.58(2) stays
 **OPEN [C]**; Phase 0 is not approved and Phase 1 has not started.
+
+---
+
+## Ontario LIF maximum correction — FSRA PE0196INF Appendix A read unshifted (2026-08-21)
+
+Raised by independent verification against FSRA's **active** guidance PE0196INF,
+*LIF and LRIF Maximum Annual Income Payment Amount Table*, **Appendix A**
+(re-opened and compared entry by entry, 2026-08-21). Independent of CPP-1 `[C]`.
+
+**Defect.** `ON_LIF_MAX` was not stale data — it was Appendix A **shifted down
+one age step and rounded to two decimals**: live[n] equalled FSRA[n+1]
+(live 50 = 6.27 vs FSRA 6.23197; 55 = 6.51 vs 6.45234; 65 = 7.38 vs 7.25513;
+75 = 9.71 vs 9.33511; 85 = 22.40 vs 19.18515). The shift encodes an unstated
+"age as at January 1" convention that the input contract does not support
+(`PersonInput.curAge` is simply "current age in whole years" and the projection
+uses `curAge + off`), and the canonical spec states the Ontario tests directly
+at ages {55, 65, 75, 85} — FSRA's "age attained during year" semantics. The
+consequence was that **every** Ontario LIF maximum was overstated. Separately,
+`lifMaxFactor` returned 100% from age **89**; Appendix A gives **89 = 51.45631%**
+and 100% only at **90**, so the engine emptied an Ontario LIF a year early.
+
+**Fix.**
+- `ON_LIF_MAX` replaced with Appendix A verbatim, **five decimals, ages 41–90**,
+  keyed **directly** by the projection row age. No `age + 1`, no January-1
+  convention introduced.
+- `lifMaxFactor`: the `age >= 89` shortcut removed; `age >= 90` returns 100%,
+  age 89 returns 51.45631%. Below 41 falls back to the age-41 row.
+- `UNLOCK_RULES.ON.lifMaximum` metadata now cites Appendix A with the
+  2026-08-21 verification date; status remains `VERIFIED`.
+- **Annual-granularity caveat documented** (spec §3.3): with no DOB the engine
+  can be one age step conservative in the start year. Not corrected here;
+  DOB-aware sub-annual keying is a separate backlog item.
+
+**Tests.** The tests that blessed the shifted values are gone. `lockedin.test.ts`
+now pins **all 41 published ages 41–90** through the public `lifMaximumFor("ON", …)`
+path, with explicit assertions at 50/55/65/75/85/89/90, the 89→90 boundary,
+strict monotonicity, the below-41 fallback and `VERIFIED` status. The
+`engine.test.ts` smoke pin moved 7.38 → 7.25513 at age 65.
+
+**Anchors — moved, traced, not blindly re-pinned.**
+
+| Anchor | Before | After | Move |
+| --- | --- | --- | --- |
+| Single filer (indexed) | 201,470 | **201,184** | −286 (−0.14%) |
+| Single filer, `indexationRate: 0` | 278,614 | **279,538** | +924 (+0.33%) |
+| Couple | 411,408 | **411,408** | unmoved (no LIF) |
+| Accumulation | 1,762,590 | **1,762,590** | unmoved (no LIF) |
+| Manitoba locked-in golden | unchanged | unchanged | Manitoba/PRRIF, no ON table |
+
+Causal chain, traced row by row on the single-filer fixture (its `acc_lif` is
+cap-bound in **every** year from age 64 to 89): the corrected, lower caps reduce
+the permitted draw by roughly $200–230/yr, deferring income and cutting tax by
+about $35–90/yr — cumulatively **−$1,130** by age 89. The old table's age-89 row
+was 100%, which emptied the LIF at 89; the correct 51.45631% leaves **$11,046**
+that is drawn at age 90 under the genuine 100% row, adding **+$844** of tax in
+that one year. −1,130 + 844 = **−286**, the whole indexed move. On the
+frozen-bracket variant the same two effects are −1,217 and +2,141 = **+924**
+(the age-90 catch-up lands in a higher nominal bracket when brackets do not
+index). Every dollar of both movements is attributable to this correction.
+
+272 tests pass, clean typecheck. CPP s.58(2) remains **OPEN [C]**; Phase 0 is
+not approved, Phase 1 has not started, nothing deployed.
