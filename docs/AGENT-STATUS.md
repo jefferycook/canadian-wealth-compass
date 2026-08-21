@@ -4,7 +4,7 @@ Maintained by whichever agent finds an issue. Purpose: ChatGPT, Claude and Lovab
 can all see current blockers without Jeff relaying them. Update the entry until it is
 resolved, then move it to **Resolved**.
 
-**Last updated:** 2026-08-21 · by Lovable (BC correctness pass)
+**Last updated:** 2026-08-21 · by Lovable (Alberta constants verification pass)
 
 ---
 
@@ -38,6 +38,26 @@ rule applying it can be wrong at the same time, and neither shows up in an
 anchor that never touches that jurisdiction.
 
 ---
+
+## Resolved — Alberta tax data defect (stale age amount and threshold) — FIXED 2026-08-21
+
+Independent verification pass scoped to Alberta, unrelated to CPP-1 [C], which is
+untouched. All BC corrections including the no-catch-up 2031 rule are preserved.
+
+- **Corrected.** `TAX_2026.provinces.AB.ageAmt` 6,055 -> **6,345**, `ageThresh`
+  45,210 -> **47,234**. Source: CRA *TD1AB-WS Worksheet for the 2026 Alberta
+  Personal Tax Credits Return*, checked 2026-08-21. Cross-checks against the 2025
+  figures indexed at Alberta's published 2% (`6,221 x 1.02`, `46,308 x 1.02`).
+- **Inspected, not changed — `penAmt: 1685`.** Alberta's pension income amount
+  *does* index in law (2024 $1,685 -> 2025 AB428 line 58360 $1,719), so the
+  engine's generic indexing of provincial `penAmt` is correct for AB and stays.
+  The *value* is the 2024 amount and the implied 2026 figure is **$1,753**, but
+  the 2026 AB428 is unpublished, so the constant was not moved on a derivation.
+  Left OPEN as backlog **AB-1**; this is the §13.2a pattern again — a verified
+  rule wrapping an unverified number.
+- **Verification.** 260 tests passing (was 256), clean typecheck. Anchors unmoved:
+  **201,470 / 411,408 / 1,762,590**. Nothing deployed; Phase 0 unapproved;
+  Phase 1 not started.
 
 ## OPEN — Procedural conditions are recorded but never surfaced to the client
 
