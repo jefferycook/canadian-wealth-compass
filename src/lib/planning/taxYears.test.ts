@@ -40,13 +40,26 @@ describe("BC indexation pause, 2027-2030", () => {
     });
   }
 
-  it("resumes indexing in 2031 from the 2026 base", () => {
+  // BC Income Tax Act s.4.52(2) with s.4.52(4.25): indexation resumes
+  // prospectively from the frozen 2030 (= 2026) amount, with no catch-up for
+  // the four paused years.
+  it("resumes with exactly ONE year of indexing in 2031, no catch-up", () => {
     const bc = getTaxYear(2031, 0.02).provinces["BC"]!;
     expect(bc.bpa).toBeGreaterThan(base.bpa);
-    expect(bc.ageAmt).toBeGreaterThan(base.ageAmt);
-    expect(bc.ageThresh).toBeGreaterThan(base.ageThresh);
-    expect(bc.brackets[0]!.up).toBeGreaterThan(base.brackets[0]!.up);
-    expect(bc.bpa).toBe(Math.round(base.bpa * Math.pow(1.02, 5)));
+    expect(bc.bpa).toBe(Math.round(base.bpa * 1.02));
+    expect(bc.ageAmt).toBe(Math.round(base.ageAmt * 1.02));
+    expect(bc.ageThresh).toBe(Math.round(base.ageThresh * 1.02));
+    expect(bc.brackets[0]!.up).toBe(Math.round(base.brackets[0]!.up * 1.02));
+    expect(bc.bpa).toBeLessThan(Math.round(base.bpa * Math.pow(1.02, 5)));
+  });
+
+  it("applies two years of indexing in 2032", () => {
+    const bc = getTaxYear(2032, 0.02).provinces["BC"]!;
+    const f = Math.pow(1.02, 2);
+    expect(bc.bpa).toBe(Math.round(base.bpa * f));
+    expect(bc.ageAmt).toBe(Math.round(base.ageAmt * f));
+    expect(bc.ageThresh).toBe(Math.round(base.ageThresh * f));
+    expect(bc.brackets[0]!.up).toBe(Math.round(base.brackets[0]!.up * f));
   });
 
   it("control: Ontario still indexes in 2027", () => {

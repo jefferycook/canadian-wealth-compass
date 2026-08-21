@@ -427,7 +427,13 @@ have been frozen. Indexation is now jurisdiction-aware:
 - New exported `provincialIndexationFactor(p, baseYear, year, rate)` returns `1`
   inside the pause and the ordinary compounded factor otherwise; `indexTaxYear`
   calls it per province instead of applying one federal factor to all of them.
-- 2031+ resumes from the **published 2026 base**, i.e. `(1 + r)^(year − 2026)`.
+- 2031+ resumes **prospectively from the frozen 2030 (= 2026) amount**, with
+  **no catch-up** for the paused years: the exponent counts only unpaused years,
+  so 2031 = `base x (1 + r)`, 2032 = `base x (1 + r)^2`. Primary law: **BC Income
+  Tax Act s.4.52(2)** (indexed amount = immediately preceding year's amount plus
+  that year's CPI adjustment) with **s.4.52(4.25)** (no adjustment 2027–2030),
+  current text checked 2026-08-21. The paused-year count is derived from the
+  pause range, not hard-coded to four.
 - Ontario and Alberta are unaffected; control tests pin that.
 
 **Unchanged.** The BC bracket table, BPA $13,216, pension amount $1,000 and the
@@ -436,8 +442,9 @@ have been frozen. Indexation is now jurisdiction-aware:
 **Tests added** (`src/lib/planning/taxYears.test.ts`, 9 tests): BC 2026 age
 amount/threshold pinned; BC brackets, BPA, age amount, threshold and pension
 amount asserted equal to 2026 values in each of 2027, 2028, 2029, 2030; 2031
-asserted strictly higher and equal to the 2026 base compounded five years;
+asserted equal to the base compounded **one** year (and strictly below a
+five-year catch-up), 2032 equal to two years;
 controls asserting ON still indexes in 2027 and AB in 2028.
 
-**Suite: 255 tests passing**, clean typecheck. Golden anchors are Ontario-based
+**Suite: 256 tests passing**, clean typecheck. Golden anchors are Ontario-based
 and all three are **unmoved**: 201,470 / 411,408 / 1,762,590. Nothing deployed.
