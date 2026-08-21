@@ -186,7 +186,9 @@ describe("employer pension and bridge classification", () => {
   });
 
   it("age 60, lifetime pension plus an ordinary bridge: only the lifetime pension is eligible", () => {
-    const pen = 30000;
+    // Pension below the $2,000 credit maximum, so an eligible bridge would
+    // visibly increase the credit if it were wrongly counted.
+    const pen = 1200;
     const bridge = 40000;
     const P = projection(
       oneYearPlan({
