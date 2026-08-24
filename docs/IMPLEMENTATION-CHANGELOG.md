@@ -614,3 +614,66 @@ index). Every dollar of both movements is attributable to this correction.
 
 272 tests pass, clean typecheck. CPP s.58(2) remains **OPEN [C]**; Phase 0 is
 not approved, Phase 1 has not started, nothing deployed.
+
+## Engine Batch E1 — deterministic start year, validity gating, CPP s.58 argument
+
+Base commit: `13664e659dc5ebcd7f50386369a85cb5234914e3`. Not deployed, not published.
+
+### PR-1 — deterministic projection start year
+`projection()` now accepts `override.startYear`. When supplied, the projection's
+calendar year is taken from it and the run is reproducible under any clock. When
+omitted, behaviour is exactly as before (`new Date().getFullYear()`), so every
+existing caller and every saved plan is unaffected.
+
+Known, correct, out-of-scope clock read: `yearsUntilAge()` in
+`src/lib/planning/estimates.ts` calls `new Date()`. That is intake-side only —
+it answers "how many years until this person is 65 today". `projection.ts` does
+not import `estimates.ts`, so it cannot influence the projection start year. It
+was deliberately left unchanged and should not be mistaken for a missed case.
+
+### VALID-1 — machine-readable validity and advice gating
+- `RuleStatus` now has a single definition, in `types.ts`. `registered.ts`
+  re-exports the type so existing import paths keep working.
+- New in `types.ts`: `ComponentStatusEntry`, `ResultValidity`, `ValidityReason`,
+  and the pure helpers `worstValidity`, `validityFromComponents`,
+  `isAdviceGrade`, `adviceBlockers`.
+- `ProjectionRow` carries `validity` and `validityReasons`; validity propagates
+  forward once raised. `ProjectionResult` carries `componentStatuses` plus a
+  display-only aggregate (`validity`, `validityReasons`).
+- Three gates, all reading `componentStatuses` and never the display aggregate:
+  1. `runPlan` — automatic ordering is suppressed; the result reports
+     `autoSelectionStatus: "WITHHELD"`, `autoSelected: false`,
+     `autoSelectionBlockers`, and uses `AUTO_FALLBACK_STRATEGY`, a documented
+     computational fallback that carries no recommendation claim.
+  2. `compareStrategies` — rows stay in fixed order, `estateDelta` is zeroed and
+     `comparisonWithheld` is set.
+  3. `buildRecommendations` — projection-derived recommendations are withheld;
+     input-only recommendations (TFSA room, high-rate debt) survive, plus an
+     explicit withheld notice.
+
+Underlying figures are never suppressed. Only comparative and advisory claims are.
+
+### CPP-1 Defect A — the s.58 own-pension argument
+The survivor's own retirement pension passed to `cppSurvivorBenefit` is now the
+entitlement inflated by `infFac` and **not** adjusted by `cppFactor()`, and it is
+zero before the survivor's own commencement age. The deceased's commencement age
+never reaches the calculation. `rawCpp` — the pension actually received — is
+untouched. Every row where the survivor branch fires is marked APPROXIMATE with
+`CPP_SURVIVOR_REDUCTION_APPROXIMATE`; the s.58 reduction structure itself remains
+OPEN as CPP-1 and is neither implemented nor asserted.
+
+### Survivor golden fixture
+`survivorGoldenFixturePlan()` — Ontario couple, A dies at 78, survivor rows
+off 8…25, no registered account, fixed withdrawal ordering. Anchor pinned at
+**274,815** lifetime tax.
+
+### Anchors — all five unchanged
+| Anchor | Value | Moved |
+|---|---|---|
+| Single filer (indexed) | 201,184 | no |
+| Single filer (`indexationRate: 0`) | 279,538 | no |
+| Couple | 411,408 | no |
+| Accumulation | 1,762,590 | no |
+| Manitoba locked-in | 111,905 | no |
+
+Tests: 272 before, 313 after, all passing. Typecheck clean.

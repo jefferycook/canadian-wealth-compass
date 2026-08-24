@@ -402,3 +402,17 @@ start of the year**, i.e. December 31 of the preceding year) rather than the
 "attained during year" basis Appendix A uses. If the two tables genuinely take
 different age bases, the engine currently keys both off the same row age and one
 of them is off by a year. Verify before Phase 1; no code change until verified.
+
+## E1 follow-ups
+
+- **CPP-1 [C] — OPEN.** Only Defect A (the own-pension argument passed to s.58)
+  was corrected in E1. The reduction structure of the combined-benefit ceiling is
+  still unverified against CPP s.58(2). Survivor rows are APPROXIMATE and advice
+  is gated until this is resolved.
+- **VALID-1 coverage.** Only the CPP survivor components report a
+  `ComponentStatusEntry` today. Locked-in jurisdiction records, the approximate
+  after-tax estate rule and the CONST-UNVERIFIED constants should be migrated onto
+  the same machine-readable channel so the gates can act on them too.
+- **PR-1 caller migration.** `projection()` still defaults to the system clock
+  when `startYear` is omitted. Saved plans should eventually persist an explicit
+  start year so a reopened plan reproduces its original figures exactly.
