@@ -45,10 +45,13 @@ import {
   type PersonRoomYear,
 } from "./room";
 
+import { worstValidity, validityFromComponents } from "./types";
+
 import type {
 
   AccountInput,
   AccountType,
+  ComponentStatusEntry,
   IncomeComponents,
 
   PersonInput,
@@ -56,10 +59,43 @@ import type {
   ProjectionOverride,
   ProjectionResult,
   ProjectionRow,
+  ResultValidity,
   TaxSettings,
+  ValidityReason,
   WorkingAccount,
   WorkingAsset,
 } from "./types";
+
+/**
+ * VALID-1 / CPP-1: the CPP survivor rule components. `engaged` is set true for
+ * a run only when the survivor branch actually executes and produces a value.
+ *
+ * `cpp.survivorReduction` is APPROXIMATE because the combined-maximum ceiling
+ * stands in for the statutory component-level erosion. `cpp.survivorBaseCap`
+ * (the 25%-of-MPEA cap on the base portion) is UNSUPPORTED and NOT
+ * substitutive: no other rule is put in its place, the limb is simply absent
+ * and the absence is declared.
+ */
+const CPP_SURVIVOR_COMPONENTS: ReadonlyArray<Omit<ComponentStatusEntry, "engaged">> = [
+  { component: "cpp.survivorOwnPensionUnadjusted", status: "VERIFIED", substitutive: false },
+  { component: "cpp.survivorIndexationBasis", status: "VERIFIED", substitutive: false },
+  { component: "cpp.survivorPayabilityPredicate", status: "VERIFIED", substitutive: false },
+  { component: "cpp.survivorBranchRates", status: "VERIFIED", substitutive: false },
+  { component: "cpp.survivorReduction", status: "APPROXIMATE", substitutive: false },
+  { component: "cpp.survivorBaseCap", status: "UNSUPPORTED", substitutive: false },
+];
+
+const CPP_SURVIVOR_REASON: ValidityReason = {
+  code: "CPP_SURVIVOR_REDUCTION_APPROXIMATE",
+  detail:
+    "The CPP survivor's pension uses a simplified combined-maximum reduction " +
+    "rather than the statutory component-level calculation, and the statutory " +
+    "base-portion cap is not applied. Because the split of the CPP entitlement " +
+    "into its base and enhanced portions is not available to this plan, the " +
+    "statutory amount may be higher or lower than the figure shown, potentially " +
+    "materially. This figure is shown for planning context and is not used to " +
+    "generate recommendations.",
+};
 
 /** Resolve an account's blended expected return from its equity allocation. */
 function accountReturn(a: AccountInput, eqRet: number, fiRet: number): number {
