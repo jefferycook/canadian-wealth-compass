@@ -9,7 +9,9 @@
 
 import { projection } from "./projection";
 import { FIXED_STRATEGIES } from "./strategy";
+import { adviceBlockers } from "./types";
 import type {
+  ComponentStatusEntry,
   PlanInputs,
   PlanResult,
   ProjectionOverride,
