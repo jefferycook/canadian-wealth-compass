@@ -421,6 +421,9 @@ export function projection(
       if (a.type !== "LIF") a.type = "LIF"; // the still-locked remainder
     }
 
+    /** CPP-1: set when the survivor branch produces a value in this row. */
+    let survivorFiredThisRow = false;
+
     /* --- 3. Raw per-person guaranteed income, as if alive --- */
     const raw = people.map((p, i) => {
       const age = ages[i]!;
@@ -429,6 +432,13 @@ export function projection(
         age >= p.cpp.age
           ? p.cpp.amt * cppFactor(p.cpp.age) * Math.pow(1 + infl, age - p.cpp.age)
           : 0;
+      // CPP Act s.58(2)(c)(i)(B)(II): the survivor's corresponding retirement-pension
+      // portion enters WITHOUT regard to s.46(3)-(6) — that is, without the early/late
+      // commencement adjustment — and is then indexed under s.45(2). `rawCpp` carries
+      // cppFactor() and a commencement-relative index basis, so it must not be used
+      // here. Do not "simplify" this back to rawCpp.
+      const survOwnCppForS58 =
+        age >= p.cpp.age && p.cpp.amt > 0 ? p.cpp.amt * infFac : 0;
       let rawOas = 0;
       if (age >= p.oas.age) {
         let base = p.oas.amt * oasFactor(p.oas.age); // deferral bonus
@@ -444,7 +454,15 @@ export function projection(
         p.bridge && p.bridge.amt > 0 && age >= (p.retAge || 999) && age < (p.bridge.end || 65)
           ? p.bridge.amt * infFac
           : 0;
-      return { rawCpp, rawOas, rawPen, base65, employInc, bridgeInc };
+      return {
+        rawCpp,
+        survOwnCppForS58,
+        rawOas,
+        rawPen,
+        base65,
+        employInc,
+        bridgeInc,
+      };
     });
 
     interface Accum {
@@ -501,13 +519,17 @@ export function projection(
         const j = (i + 1) % 2;
         if (!alive[j]) {
           if (cppSurvEligible) {
-            cppInc += cppSurvivorBenefit(
+            const surv = cppSurvivorBenefit(
               raw[j]!.base65,
               ages[i]!,
-              raw[i]!.rawCpp,
+              raw[i]!.survOwnCppForS58,
               infFac,
               tyY,
             );
+            if (surv > 0) {
+              cppInc += surv;
+              survivorFiredThisRow = true;
+            }
           }
           penInc += inputs.survivorPct * raw[j]!.rawPen;
         }
