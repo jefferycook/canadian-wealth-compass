@@ -102,7 +102,7 @@ export interface StrategyRow {
 
 export function compareStrategies(inputs: PlanInputs, chosen: WithdrawalStrategy): StrategyRow[] {
   const results: PlanResult[] = [];
-  const rows = FIXED_STRATEGIES.map((s) => {
+  const rows: StrategyRow[] = FIXED_STRATEGIES.map((s) => {
     const P = runPlan({ ...inputs, strategy: s });
     results.push(P);
     return {
