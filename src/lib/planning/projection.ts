@@ -236,7 +236,9 @@ export function projection(
 
   const curAgeA = people[0]!.curAge;
   const endAge = inputs.endAge;
-  const startYear = new Date().getFullYear();
+  // PR-1: explicit start year when supplied; otherwise the calendar year, as
+  // before. Only the override path is reproducible under a mocked clock.
+  const startYear = override.startYear ?? new Date().getFullYear();
 
   /* --- Batch 0B: per-person TFSA / RRSP room ledgers --- */
   const ledgers = people.map(
@@ -267,6 +269,11 @@ export function projection(
   const roomValidationErrors = ledgers.flatMap((l) => l.validationErrors);
 
   const rows: ProjectionRow[] = [];
+  /** VALID-1: validity carried forward from the previous year's closing state. */
+  let carriedValidity: ResultValidity = "OK";
+  const carriedReasons: ValidityReason[] = [];
+  /** CPP-1: true once the survivor branch has produced a value in any year. */
+  let cppSurvivorEngaged = false;
   // Whether the household has ever held investable assets. A plan that starts
   // with nothing invested cannot "run out" of investments — that is an intake
   // state, not a failure.
