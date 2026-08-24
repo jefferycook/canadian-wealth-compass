@@ -5,7 +5,11 @@
  * Ported verbatim from the verified original engine. Pure functions.
  */
 
-import type { JurisdictionKey } from "./types";
+import type { JurisdictionKey, RuleStatus } from "./types";
+
+// VALID-1 (§2.1): the single definition of RuleStatus lives in types.ts.
+// Re-exported here for compatibility with existing import paths.
+export type { RuleStatus };
 
 /**
  * Statutory RRIF minimum withdrawal factors (percent), fixed in the
@@ -156,8 +160,6 @@ export function lifMaxFactor(
 /* Batch 0C — locked-in rule records with COMPONENT-LEVEL status       */
 /* (canonical spec v1.2 FINAL, Erratum 4B / §13.2a)                    */
 /* ------------------------------------------------------------------ */
-
-export type RuleStatus = "VERIFIED" | "APPROXIMATE" | "UNSUPPORTED";
 
 export interface RuleSource {
   title: string;
