@@ -1188,8 +1188,20 @@ export function projection(
     lastClosedRoom = closedRoom;
     for (const ry of closedRoom) for (const d of ry.disclosures) roomDisclosures.add(d);
 
+    /* --- VALID-1: this row's own validity, then forward propagation --- */
+    if (survivorFiredThisRow) cppSurvivorEngaged = true;
+    const rowComponents = CPP_SURVIVOR_COMPONENTS.map((c) => ({
+      ...c,
+      engaged: survivorFiredThisRow,
+    }));
+    const ownValidity = validityFromComponents(rowComponents);
+    if (survivorFiredThisRow) carriedReasons.push(CPP_SURVIVOR_REASON);
+    carriedValidity = worstValidity(ownValidity, carriedValidity);
+    const rowReasons = dedupeReasons(carriedReasons);
 
     rows.push({
+      validity: carriedValidity,
+      validityReasons: rowReasons,
       roomLedger: closedRoom,
       rrspDeduction: rrspDeductions.reduce((s, v) => s + v, 0),
       surplusSwept,
@@ -1255,8 +1267,17 @@ export function projection(
   const spousalNote =
     couple && lastClosedRoom.length === 2 ? spousalRrspDisclosure(lastClosedRoom) : null;
 
+  const componentStatuses = CPP_SURVIVOR_COMPONENTS.map((c) => ({
+    ...c,
+    engaged: cppSurvivorEngaged,
+  }));
+
   return {
     rows,
+    componentStatuses,
+    // Display-only aggregation: the worst row, reasons deduplicated by code.
+    validity: rows.reduce<ResultValidity>((w, r) => worstValidity(w, r.validity), "OK"),
+    validityReasons: dedupeReasons(rows.flatMap((r) => r.validityReasons)),
     roomDisclosures: [...roomDisclosures, ...(spousalNote ? [spousalNote] : [])],
     lockedInDisclosures: [...lockedInDisclosures],
     taxYearDisclosures: [...taxYearDisclosures],
