@@ -660,7 +660,8 @@ zero before the survivor's own commencement age. The deceased's commencement age
 never reaches the calculation. `rawCpp` — the pension actually received — is
 untouched. Every row where the survivor branch fires is marked APPROXIMATE with
 `CPP_SURVIVOR_REDUCTION_APPROXIMATE`; the s.58 reduction structure itself remains
-OPEN as CPP-1 and is neither implemented nor asserted.
+OPEN as **CPP-5** (the label CPP-1 is retired for this residual) and is neither
+implemented nor asserted.
 
 ### Survivor golden fixture
 `survivorGoldenFixturePlan()` — Ontario couple, A dies at 78, survivor rows
@@ -677,3 +678,42 @@ off 8…25, no registered account, fixed withdrawal ordering. Anchor pinned at
 | Manitoba locked-in | 111,905 | no |
 
 Tests: 272 before, 313 after, all passing. Typecheck clean.
+
+## E1 correction batch (2026-08-24)
+
+Four items, nothing else. No engine arithmetic changed.
+
+1. **Survivor component engagement includes a zero result.** The survivor branch
+   previously engaged VALID-1 only when the benefit was a positive dollar amount.
+   The approximate combined-maximum ceiling `max(0, cppCombinedMax × infFac −
+   survOwnCpp)` can clamp the benefit to exactly zero — a result produced by the
+   approximation. Engagement is now keyed off the calculation participating
+   (`base65 > 0`), and the flag is renamed `survivorRuleEngagedThisRow`. The
+   trigger deliberately over-includes (e.g. a survivor under 35, zero by statute);
+   over-flagging only ever suppresses advice more often. `cppInc += surv` is still
+   guarded by `surv > 0`, which is arithmetically identical to an unguarded add.
+2. **C8** in `e1.test.ts` pins the zero-clamp case, deriving the own-pension input
+   from the real `cppCombinedMax` constant and asserting the benefit is exactly
+   zero before asserting row validity, component engagement and all three gates.
+   Confirmed failing against the pre-fix behaviour.
+3. **Recommendation gate hole closed.** `buildRecommendations` now withholds when
+   `blockers.length > 0` **or** any strategy row carries `comparisonWithheld`,
+   since the `strategy` recommendation derives from `strategies`, not from `P`.
+   Test **A12**. Suppression body, allowlist and wording unchanged.
+4. **Documentation.** The residual reduction-structure and base-cap work is
+   **CPP-5** everywhere; the 0C/0D ratification wording now states that
+   ratification adopts implemented behaviour as the baseline, certifies nothing as
+   complete and closes nothing (R-2, CPP-5 and R-1/L-1 named open); the
+   `autoSelectionStatus` comment in `types.ts` now describes both the
+   `"APPROXIMATE"` and `"WITHHELD"` cases.
+
+Tests: 313 before, 315 after, all passing. Typecheck clean.
+
+| Anchor | Value | Moved |
+|---|---|---|
+| Single filer (indexed) | 201,184 | no |
+| Single filer (`indexationRate: 0`) | 279,538 | no |
+| Couple | 411,408 | no |
+| Accumulation | 1,762,590 | no |
+| Manitoba locked-in | 111,905 | no |
+| Survivor golden | 274,815 | no |

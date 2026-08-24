@@ -456,15 +456,18 @@ reads the component's status instead of hard-coding it from the jurisdiction.
 
 - PR-1 deterministic `startYear` — DONE (opt-in override; omitted behaviour unchanged).
 - VALID-1 component statuses, row validity, three advice gates — DONE.
-- CPP-1 **Defect A only** (the s.58 own-pension argument) — DONE.
+- CPP-1 **Defect A only** (the s.58 own-pension argument) — DONE. The residual
+  reduction-structure and base-cap work is tracked as **CPP-5**.
 - Survivor golden fixture pinned at 274,815.
 - All five existing anchors unchanged: 201,184 / 279,538 / 411,408 / 1,762,590 / 111,905.
 - 313 tests passing; typecheck clean. Not deployed, not published.
 
-### STILL OPEN [C] — CPP-1 (the s.58 reduction structure)
+### STILL OPEN [C] — CPP-5 (the s.58 reduction structure and base cap)
 Only Defect A was corrected. The governing structure of the combined-benefit
-reduction remains unverified, so every survivor row is APPROXIMATE and advice
-derived from those plans is withheld. Phase 0 remains UNAPPROVED.
+reduction, and the 25%-of-MPEA base-portion cap, remain unverified, so every
+survivor row is APPROXIMATE and advice derived from those plans is withheld.
+This residual is **CPP-5**; it was labelled CPP-1 in and before the E1 commit and
+must not be reopened under that name. Phase 0 remains UNAPPROVED.
 
 ### STILL OPEN [C] — R-2, R-3
 Beginning-of-year FMV base and the establishment-year RRIF exemption are
@@ -473,3 +476,18 @@ untouched by E1.
 ### Baseline ratification
 Batch 0C and Batch 0D results are ratified as the current baseline under E1:
 no 0C or 0D anchor moved in this batch, and no 0C/0D methodology was reopened.
+Ratification adopts the implemented behaviour as the baseline against which
+future movement is measured. It does **not** certify the affected rules as
+complete or correct in law, and it closes **nothing** on the backlog. Remaining
+open and explicitly not ratified as correct: the RRIF/LIF beginning-of-year FMV
+defect (R-2), **CPP-5** (the s.58 reduction structure and base-portion cap), and
+R-1/L-1 (the DOB-derived age bases).
+
+## E1 correction batch — COMPLETE (2026 pass)
+- Survivor components now engage whenever the s.58 calculation participates,
+  **including a result of exactly zero** clamped by the approximate combined
+  maximum (`survivorRuleEngagedThisRow`). Flagging only; no dollar amount changed.
+- `buildRecommendations` also withholds when any strategy row carries
+  `comparisonWithheld`, closing the strategy-dependent gate hole.
+- Tests: 313 before, 315 after, all passing; typecheck clean.
+- All six anchors unchanged: 201,184 / 279,538 / 411,408 / 1,762,590 / 111,905 / 274,815.
