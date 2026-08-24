@@ -571,6 +571,10 @@ export interface ProjectionRow {
   distributionsTaxable: number;
   /** True when this year's tax table was derived by indexation, not published. */
   taxYearDerived: boolean;
+  /** VALID-1: this row's validity, after forward propagation. */
+  validity: ResultValidity;
+  /** VALID-1: accumulated reasons, deduplicated by code. */
+  validityReasons: ValidityReason[];
 }
 
 export interface AccountMeta {
@@ -610,6 +614,19 @@ export interface ProjectionResult {
   taxYearDisclosures: string[];
   /** Batch 0D. Non-registered distribution/ACB notices (e.g. ROC through zero). */
   nonregDisclosures: string[];
+  /**
+   * Rule components registered with VALID-1. E1 registers only the
+   * CPP-survivor components specified below. Existing status/disclosure systems
+   * are not migrated in this batch.
+   */
+  componentStatuses: ComponentStatusEntry[];
+  /**
+   * Aggregation of row validity, for display only. Worst row, reasons
+   * deduplicated by code. MUST NOT appear in any conditional anywhere in the
+   * engine. Gating is always per component at the point of use.
+   */
+  validity: ResultValidity;
+  validityReasons: ValidityReason[];
 }
 
 
@@ -625,8 +642,10 @@ export interface PlanResult extends ProjectionResult {
    * Present only when `autoSelected` is true, and surfaced wherever the chosen
    * strategy is displayed.
    */
-  autoSelectionStatus?: "APPROXIMATE";
+  autoSelectionStatus?: "APPROXIMATE" | "WITHHELD";
   autoSelectionNote?: string;
+  /** Component identifiers that suppressed automatic selection. */
+  autoSelectionBlockers?: string[];
 }
 
 /**
@@ -657,6 +676,12 @@ export interface GoalSave {
 
 export interface ProjectionOverride {
   strategy?: WithdrawalStrategy;
+  /**
+   * Explicit projection start year. Optional. When omitted the projection uses
+   * the current calendar year, exactly as before. Runtime-only: this is not
+   * persisted with a plan, and saved plans require no migration.
+   */
+  startYear?: number;
   /** Replace the spending target outright. */
   spendSet?: number;
   /** Add to the spending target. */
