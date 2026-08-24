@@ -97,6 +97,19 @@ const CPP_SURVIVOR_REASON: ValidityReason = {
     "generate recommendations.",
 };
 
+/** Deduplicate validity reasons by `code`, preserving first-seen order. */
+function dedupeReasons(reasons: ValidityReason[]): ValidityReason[] {
+  const seen = new Set<string>();
+  const out: ValidityReason[] = [];
+  for (const r of reasons) {
+    if (seen.has(r.code)) continue;
+    seen.add(r.code);
+    out.push(r);
+  }
+  return out;
+}
+
+
 /** Resolve an account's blended expected return from its equity allocation. */
 function accountReturn(a: AccountInput, eqRet: number, fiRet: number): number {
   if (a.retOverride != null && Number.isFinite(a.retOverride)) return a.retOverride;
