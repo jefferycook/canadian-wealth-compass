@@ -8,6 +8,92 @@
 
 import type { PersonRoomYear } from "./room";
 
+/* ------------------------------------------------------------------ */
+/* VALID-1 — rule status, component status and result validity         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The verification status of a rule or rule component. This is the single
+ * definition in the codebase; `registered.ts` imports it from here.
+ */
+export type RuleStatus = "VERIFIED" | "APPROXIMATE" | "UNSUPPORTED";
+
+/**
+ * The status of one rule component that participated in producing a figure.
+ *
+ * This is deliberately NOT `recordStatus()` from `registered.ts`, which is the
+ * locked-in unlocking reducer and is keyed by pension jurisdiction. This
+ * structure is per-figure and jurisdiction-independent.
+ */
+export interface ComponentStatusEntry {
+  /** Stable identifier, e.g. "cpp.survivorReduction". Tests assert this. */
+  component: string;
+  status: RuleStatus;
+  /**
+   * True when the component participated in producing a figure in this run.
+   * A component that never engaged neither affects validity nor blocks advice.
+   */
+  engaged: boolean;
+  /**
+   * True when an UNSUPPORTED component was handled by SUBSTITUTING another
+   * jurisdiction's rule or a stand-in value. False when it is simply an omitted
+   * limb whose absence is declared.
+   *
+   * §13.2's requirement to refuse and withhold is about substitution. A declared
+   * omission is disclosed, not substituted, so it does not force WITHHELD.
+   */
+  substitutive: boolean;
+}
+
+export type ResultValidity = "OK" | "APPROXIMATE" | "WITHHELD";
+
+export interface ValidityReason {
+  /** Stable machine-readable identifier. Tests assert this, never the prose. */
+  code: string;
+  /** Client-facing sentence. */
+  detail: string;
+}
+
+const VALIDITY_RANK: Record<ResultValidity, number> = {
+  OK: 0,
+  APPROXIMATE: 1,
+  WITHHELD: 2,
+};
+
+/** The more severe of two validity levels: OK < APPROXIMATE < WITHHELD. */
+export function worstValidity(a: ResultValidity, b: ResultValidity): ResultValidity {
+  return VALIDITY_RANK[a] >= VALIDITY_RANK[b] ? a : b;
+}
+
+/**
+ * The §2.3 mapping from engaged component statuses to a row's own validity.
+ *   1. engaged UNSUPPORTED and substitutive -> WITHHELD
+ *   2. otherwise any engaged non-VERIFIED   -> APPROXIMATE
+ *   3. otherwise                            -> OK
+ */
+export function validityFromComponents(
+  entries: ComponentStatusEntry[],
+): ResultValidity {
+  const engaged = entries.filter((e) => e.engaged);
+  if (engaged.some((e) => e.status === "UNSUPPORTED" && e.substitutive)) return "WITHHELD";
+  if (engaged.some((e) => e.status !== "VERIFIED")) return "APPROXIMATE";
+  return "OK";
+}
+
+/** A figure may drive a recommendation only when every engaged component is VERIFIED. */
+export function isAdviceGrade(status: RuleStatus): boolean {
+  return status === "VERIFIED";
+}
+
+/** The engaged, non-VERIFIED components that block generated advice. */
+export function adviceBlockers(
+  entries: ComponentStatusEntry[],
+): ComponentStatusEntry[] {
+  return entries.filter((e) => e.engaged && !isAdviceGrade(e.status));
+}
+
+
+
 
 export type ProvinceKey =
   | "AB"
