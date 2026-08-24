@@ -527,7 +527,7 @@ describe("CPP-1 Defect A — the s.58 own-pension argument", () => {
     });
   });
 
-  it("C7: no test in this suite asserts the reduction structure or a MaxBase", () => {
+  it("C7: no test in this suite asserts the survivor reduction structure", () => {
     const self = readFileSync("src/lib/planning/e1.test.ts", "utf8");
     // Built at runtime so this assertion does not match itself.
     expect(self.includes(["Max", "Base"].join(""))).toBe(false);
