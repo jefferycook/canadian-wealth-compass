@@ -383,7 +383,8 @@ export function buildRecommendations(
   }
 
   const blockers = adviceBlockers(P.componentStatuses);
-  if (blockers.length > 0) {
+  const comparisonWithheld = strategies.some((r) => r.comparisonWithheld === true);
+  if (blockers.length > 0 || comparisonWithheld) {
     return [
       ...out.filter((r) => INPUT_ONLY_RECOMMENDATIONS.has(r.id)),
       {

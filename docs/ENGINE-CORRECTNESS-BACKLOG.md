@@ -335,7 +335,11 @@ age-specific constant exists in the code. Pinned by a derived test in
 
 
 
-## CPP-1 [C] — combined retirement + survivor CPP must be implemented from CPP s.58(2) (2026-08-21)
+## CPP-5 [C] — combined retirement + survivor CPP must be implemented from CPP s.58(2) (2026-08-21)
+
+*Canonical identifier: **CPP-5**. The residual reduction-structure and base-cap work
+was labelled CPP-1 before and during the E1 commit; CPP-1 is retired as a label for
+it and must not be reopened under that name.*
 
 **Discovered:** overnight independent review of `benefits.ts` against primary law. **Not implemented in this pass — behaviour deliberately unchanged.** Full statement and citations: `docs/AGENT-STATUS.md`, OPEN [C] entry.
 
@@ -405,10 +409,10 @@ of them is off by a year. Verify before Phase 1; no code change until verified.
 
 ## E1 follow-ups
 
-- **CPP-1 [C] — OPEN.** Only Defect A (the own-pension argument passed to s.58)
+- **CPP-5 [C] — OPEN.** Only Defect A (the own-pension argument passed to s.58)
   was corrected in E1. The reduction structure of the combined-benefit ceiling is
-  still unverified against CPP s.58(2). Survivor rows are APPROXIMATE and advice
-  is gated until this is resolved.
+  still unverified against CPP s.58(2), as is the 25%-of-MPEA base-portion cap.
+  Survivor rows are APPROXIMATE and advice is gated until this is resolved.
 - **VALID-1 coverage.** Only the CPP survivor components report a
   `ComponentStatusEntry` today. Locked-in jurisdiction records, the approximate
   after-tax estate rule and the CONST-UNVERIFIED constants should be migrated onto
