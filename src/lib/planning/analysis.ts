@@ -16,7 +16,14 @@ import {
 } from "./engine";
 import { FIXED_STRATEGIES } from "./strategy";
 import { strategyLabel } from "./summary";
-import type { PlanInputs, PlanResult, ProjectionResult, WithdrawalStrategy } from "./types";
+import { adviceBlockers } from "./types";
+import type {
+  ComponentStatusEntry,
+  PlanInputs,
+  PlanResult,
+  ProjectionResult,
+  WithdrawalStrategy,
+} from "./types";
 
 /* ------------------------------------------------------------------ */
 /* Net worth                                                           */
@@ -89,11 +96,15 @@ export interface StrategyRow {
   chosen: boolean;
   /** Estate difference against the strategy the plan is using. */
   estateDelta: number;
+  /** True when the comparison is not advice-grade: rows are unranked and deltas suppressed. */
+  comparisonWithheld?: boolean;
 }
 
 export function compareStrategies(inputs: PlanInputs, chosen: WithdrawalStrategy): StrategyRow[] {
-  const rows = FIXED_STRATEGIES.map((s) => {
+  const results: PlanResult[] = [];
+  const rows: StrategyRow[] = FIXED_STRATEGIES.map((s) => {
     const P = runPlan({ ...inputs, strategy: s });
+    results.push(P);
     return {
       key: s,
       label: strategyLabel(s),
@@ -107,6 +118,22 @@ export function compareStrategies(inputs: PlanInputs, chosen: WithdrawalStrategy
       estateDelta: 0,
     };
   });
+  // VALID-1 gate: sorting and estateDelta are both comparative claims, so they
+  // are suppressed when any candidate carries a non-advice-grade component.
+  const byComponent = new Map<string, ComponentStatusEntry>();
+  for (const P of results) {
+    for (const b of adviceBlockers(P.componentStatuses)) {
+      if (!byComponent.has(b.component)) byComponent.set(b.component, b);
+    }
+  }
+  if (byComponent.size > 0) {
+    for (const r of rows) {
+      r.estateDelta = 0;
+      r.comparisonWithheld = true;
+    }
+    return rows;
+  }
+
   const base = rows.find((r) => r.chosen)?.afterTaxEstate ?? 0;
   for (const r of rows) r.estateDelta = r.afterTaxEstate - base;
   return rows.sort((a, b) => a.shortfallYears - b.shortfallYears || b.afterTaxEstate - a.afterTaxEstate);
@@ -219,6 +246,9 @@ export interface Recommendation {
  * projection actually shows. Nothing here is generic advice: every item is
  * generated only when the numbers trigger it.
  */
+/** Recommendations derived solely from client inputs, never from a projection. */
+const INPUT_ONLY_RECOMMENDATIONS = new Set(["tfsa", "debt"]);
+
 export function buildRecommendations(
   inputs: PlanInputs,
   P: PlanResult,
@@ -352,6 +382,23 @@ export function buildRecommendations(
     }
   }
 
+  const blockers = adviceBlockers(P.componentStatuses);
+  if (blockers.length > 0) {
+    return [
+      ...out.filter((r) => INPUT_ONLY_RECOMMENDATIONS.has(r.id)),
+      {
+        id: "recommendations-withheld",
+        title: "Recommendations based on the projection are not shown",
+        detail:
+          "This plan contains figures that are not advice-grade, so " +
+          "recommendations derived from the projection — including withdrawal " +
+          "order, shortfall, OAS, marginal-rate and pension-splitting guidance — " +
+          "are withheld. The projected figures themselves are still shown, with " +
+          "their disclosures.",
+        severity: "info",
+      },
+    ];
+  }
   return out;
 }
 

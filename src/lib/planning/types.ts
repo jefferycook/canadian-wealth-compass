@@ -8,6 +8,92 @@
 
 import type { PersonRoomYear } from "./room";
 
+/* ------------------------------------------------------------------ */
+/* VALID-1 — rule status, component status and result validity         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The verification status of a rule or rule component. This is the single
+ * definition in the codebase; `registered.ts` imports it from here.
+ */
+export type RuleStatus = "VERIFIED" | "APPROXIMATE" | "UNSUPPORTED";
+
+/**
+ * The status of one rule component that participated in producing a figure.
+ *
+ * This is deliberately NOT `recordStatus()` from `registered.ts`, which is the
+ * locked-in unlocking reducer and is keyed by pension jurisdiction. This
+ * structure is per-figure and jurisdiction-independent.
+ */
+export interface ComponentStatusEntry {
+  /** Stable identifier, e.g. "cpp.survivorReduction". Tests assert this. */
+  component: string;
+  status: RuleStatus;
+  /**
+   * True when the component participated in producing a figure in this run.
+   * A component that never engaged neither affects validity nor blocks advice.
+   */
+  engaged: boolean;
+  /**
+   * True when an UNSUPPORTED component was handled by SUBSTITUTING another
+   * jurisdiction's rule or a stand-in value. False when it is simply an omitted
+   * limb whose absence is declared.
+   *
+   * §13.2's requirement to refuse and withhold is about substitution. A declared
+   * omission is disclosed, not substituted, so it does not force WITHHELD.
+   */
+  substitutive: boolean;
+}
+
+export type ResultValidity = "OK" | "APPROXIMATE" | "WITHHELD";
+
+export interface ValidityReason {
+  /** Stable machine-readable identifier. Tests assert this, never the prose. */
+  code: string;
+  /** Client-facing sentence. */
+  detail: string;
+}
+
+const VALIDITY_RANK: Record<ResultValidity, number> = {
+  OK: 0,
+  APPROXIMATE: 1,
+  WITHHELD: 2,
+};
+
+/** The more severe of two validity levels: OK < APPROXIMATE < WITHHELD. */
+export function worstValidity(a: ResultValidity, b: ResultValidity): ResultValidity {
+  return VALIDITY_RANK[a] >= VALIDITY_RANK[b] ? a : b;
+}
+
+/**
+ * The §2.3 mapping from engaged component statuses to a row's own validity.
+ *   1. engaged UNSUPPORTED and substitutive -> WITHHELD
+ *   2. otherwise any engaged non-VERIFIED   -> APPROXIMATE
+ *   3. otherwise                            -> OK
+ */
+export function validityFromComponents(
+  entries: ComponentStatusEntry[],
+): ResultValidity {
+  const engaged = entries.filter((e) => e.engaged);
+  if (engaged.some((e) => e.status === "UNSUPPORTED" && e.substitutive)) return "WITHHELD";
+  if (engaged.some((e) => e.status !== "VERIFIED")) return "APPROXIMATE";
+  return "OK";
+}
+
+/** A figure may drive a recommendation only when every engaged component is VERIFIED. */
+export function isAdviceGrade(status: RuleStatus): boolean {
+  return status === "VERIFIED";
+}
+
+/** The engaged, non-VERIFIED components that block generated advice. */
+export function adviceBlockers(
+  entries: ComponentStatusEntry[],
+): ComponentStatusEntry[] {
+  return entries.filter((e) => e.engaged && !isAdviceGrade(e.status));
+}
+
+
+
 
 export type ProvinceKey =
   | "AB"
@@ -485,6 +571,10 @@ export interface ProjectionRow {
   distributionsTaxable: number;
   /** True when this year's tax table was derived by indexation, not published. */
   taxYearDerived: boolean;
+  /** VALID-1: this row's validity, after forward propagation. */
+  validity: ResultValidity;
+  /** VALID-1: accumulated reasons, deduplicated by code. */
+  validityReasons: ValidityReason[];
 }
 
 export interface AccountMeta {
@@ -524,6 +614,19 @@ export interface ProjectionResult {
   taxYearDisclosures: string[];
   /** Batch 0D. Non-registered distribution/ACB notices (e.g. ROC through zero). */
   nonregDisclosures: string[];
+  /**
+   * Rule components registered with VALID-1. E1 registers only the
+   * CPP-survivor components specified below. Existing status/disclosure systems
+   * are not migrated in this batch.
+   */
+  componentStatuses: ComponentStatusEntry[];
+  /**
+   * Aggregation of row validity, for display only. Worst row, reasons
+   * deduplicated by code. MUST NOT appear in any conditional anywhere in the
+   * engine. Gating is always per component at the point of use.
+   */
+  validity: ResultValidity;
+  validityReasons: ValidityReason[];
 }
 
 
@@ -539,8 +642,10 @@ export interface PlanResult extends ProjectionResult {
    * Present only when `autoSelected` is true, and surfaced wherever the chosen
    * strategy is displayed.
    */
-  autoSelectionStatus?: "APPROXIMATE";
+  autoSelectionStatus?: "APPROXIMATE" | "WITHHELD";
   autoSelectionNote?: string;
+  /** Component identifiers that suppressed automatic selection. */
+  autoSelectionBlockers?: string[];
 }
 
 /**
@@ -571,6 +676,12 @@ export interface GoalSave {
 
 export interface ProjectionOverride {
   strategy?: WithdrawalStrategy;
+  /**
+   * Explicit projection start year. Optional. When omitted the projection uses
+   * the current calendar year, exactly as before. Runtime-only: this is not
+   * persisted with a plan, and saved plans require no migration.
+   */
+  startYear?: number;
   /** Replace the spending target outright. */
   spendSet?: number;
   /** Add to the spending target. */

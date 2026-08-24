@@ -45,10 +45,13 @@ import {
   type PersonRoomYear,
 } from "./room";
 
+import { worstValidity, validityFromComponents } from "./types";
+
 import type {
 
   AccountInput,
   AccountType,
+  ComponentStatusEntry,
   IncomeComponents,
 
   PersonInput,
@@ -56,10 +59,56 @@ import type {
   ProjectionOverride,
   ProjectionResult,
   ProjectionRow,
+  ResultValidity,
   TaxSettings,
+  ValidityReason,
   WorkingAccount,
   WorkingAsset,
 } from "./types";
+
+/**
+ * VALID-1 / CPP-1: the CPP survivor rule components. `engaged` is set true for
+ * a run only when the survivor branch actually executes and produces a value.
+ *
+ * `cpp.survivorReduction` is APPROXIMATE because the combined-maximum ceiling
+ * stands in for the statutory component-level erosion. `cpp.survivorBaseCap`
+ * (the 25%-of-MPEA cap on the base portion) is UNSUPPORTED and NOT
+ * substitutive: no other rule is put in its place, the limb is simply absent
+ * and the absence is declared.
+ */
+const CPP_SURVIVOR_COMPONENTS: ReadonlyArray<Omit<ComponentStatusEntry, "engaged">> = [
+  { component: "cpp.survivorOwnPensionUnadjusted", status: "VERIFIED", substitutive: false },
+  { component: "cpp.survivorIndexationBasis", status: "VERIFIED", substitutive: false },
+  { component: "cpp.survivorPayabilityPredicate", status: "VERIFIED", substitutive: false },
+  { component: "cpp.survivorBranchRates", status: "VERIFIED", substitutive: false },
+  { component: "cpp.survivorReduction", status: "APPROXIMATE", substitutive: false },
+  { component: "cpp.survivorBaseCap", status: "UNSUPPORTED", substitutive: false },
+];
+
+const CPP_SURVIVOR_REASON: ValidityReason = {
+  code: "CPP_SURVIVOR_REDUCTION_APPROXIMATE",
+  detail:
+    "The CPP survivor's pension uses a simplified combined-maximum reduction " +
+    "rather than the statutory component-level calculation, and the statutory " +
+    "base-portion cap is not applied. Because the split of the CPP entitlement " +
+    "into its base and enhanced portions is not available to this plan, the " +
+    "statutory amount may be higher or lower than the figure shown, potentially " +
+    "materially. This figure is shown for planning context and is not used to " +
+    "generate recommendations.",
+};
+
+/** Deduplicate validity reasons by `code`, preserving first-seen order. */
+function dedupeReasons(reasons: ValidityReason[]): ValidityReason[] {
+  const seen = new Set<string>();
+  const out: ValidityReason[] = [];
+  for (const r of reasons) {
+    if (seen.has(r.code)) continue;
+    seen.add(r.code);
+    out.push(r);
+  }
+  return out;
+}
+
 
 /** Resolve an account's blended expected return from its equity allocation. */
 function accountReturn(a: AccountInput, eqRet: number, fiRet: number): number {
@@ -200,7 +249,9 @@ export function projection(
 
   const curAgeA = people[0]!.curAge;
   const endAge = inputs.endAge;
-  const startYear = new Date().getFullYear();
+  // PR-1: explicit start year when supplied; otherwise the calendar year, as
+  // before. Only the override path is reproducible under a mocked clock.
+  const startYear = override.startYear ?? new Date().getFullYear();
 
   /* --- Batch 0B: per-person TFSA / RRSP room ledgers --- */
   const ledgers = people.map(
@@ -231,6 +282,11 @@ export function projection(
   const roomValidationErrors = ledgers.flatMap((l) => l.validationErrors);
 
   const rows: ProjectionRow[] = [];
+  /** VALID-1: validity carried forward from the previous year's closing state. */
+  let carriedValidity: ResultValidity = "OK";
+  const carriedReasons: ValidityReason[] = [];
+  /** CPP-1: true once the survivor branch has produced a value in any year. */
+  let cppSurvivorEngaged = false;
   // Whether the household has ever held investable assets. A plan that starts
   // with nothing invested cannot "run out" of investments — that is an intake
   // state, not a failure.
@@ -378,6 +434,9 @@ export function projection(
       if (a.type !== "LIF") a.type = "LIF"; // the still-locked remainder
     }
 
+    /** CPP-1: set when the survivor branch produces a value in this row. */
+    let survivorFiredThisRow = false;
+
     /* --- 3. Raw per-person guaranteed income, as if alive --- */
     const raw = people.map((p, i) => {
       const age = ages[i]!;
@@ -386,6 +445,13 @@ export function projection(
         age >= p.cpp.age
           ? p.cpp.amt * cppFactor(p.cpp.age) * Math.pow(1 + infl, age - p.cpp.age)
           : 0;
+      // CPP Act s.58(2)(c)(i)(B)(II): the survivor's corresponding retirement-pension
+      // portion enters WITHOUT regard to s.46(3)-(6) — that is, without the early/late
+      // commencement adjustment — and is then indexed under s.45(2). `rawCpp` carries
+      // cppFactor() and a commencement-relative index basis, so it must not be used
+      // here. Do not "simplify" this back to rawCpp.
+      const survOwnCppForS58 =
+        age >= p.cpp.age && p.cpp.amt > 0 ? p.cpp.amt * infFac : 0;
       let rawOas = 0;
       if (age >= p.oas.age) {
         let base = p.oas.amt * oasFactor(p.oas.age); // deferral bonus
@@ -401,7 +467,15 @@ export function projection(
         p.bridge && p.bridge.amt > 0 && age >= (p.retAge || 999) && age < (p.bridge.end || 65)
           ? p.bridge.amt * infFac
           : 0;
-      return { rawCpp, rawOas, rawPen, base65, employInc, bridgeInc };
+      return {
+        rawCpp,
+        survOwnCppForS58,
+        rawOas,
+        rawPen,
+        base65,
+        employInc,
+        bridgeInc,
+      };
     });
 
     interface Accum {
@@ -458,13 +532,17 @@ export function projection(
         const j = (i + 1) % 2;
         if (!alive[j]) {
           if (cppSurvEligible) {
-            cppInc += cppSurvivorBenefit(
+            const surv = cppSurvivorBenefit(
               raw[j]!.base65,
               ages[i]!,
-              raw[i]!.rawCpp,
+              raw[i]!.survOwnCppForS58,
               infFac,
               tyY,
             );
+            if (surv > 0) {
+              cppInc += surv;
+              survivorFiredThisRow = true;
+            }
           }
           penInc += inputs.survivorPct * raw[j]!.rawPen;
         }
@@ -1123,8 +1201,20 @@ export function projection(
     lastClosedRoom = closedRoom;
     for (const ry of closedRoom) for (const d of ry.disclosures) roomDisclosures.add(d);
 
+    /* --- VALID-1: this row's own validity, then forward propagation --- */
+    if (survivorFiredThisRow) cppSurvivorEngaged = true;
+    const rowComponents = CPP_SURVIVOR_COMPONENTS.map((c) => ({
+      ...c,
+      engaged: survivorFiredThisRow,
+    }));
+    const ownValidity = validityFromComponents(rowComponents);
+    if (survivorFiredThisRow) carriedReasons.push(CPP_SURVIVOR_REASON);
+    carriedValidity = worstValidity(ownValidity, carriedValidity);
+    const rowReasons = dedupeReasons(carriedReasons);
 
     rows.push({
+      validity: carriedValidity,
+      validityReasons: rowReasons,
       roomLedger: closedRoom,
       rrspDeduction: rrspDeductions.reduce((s, v) => s + v, 0),
       surplusSwept,
@@ -1190,8 +1280,17 @@ export function projection(
   const spousalNote =
     couple && lastClosedRoom.length === 2 ? spousalRrspDisclosure(lastClosedRoom) : null;
 
+  const componentStatuses = CPP_SURVIVOR_COMPONENTS.map((c) => ({
+    ...c,
+    engaged: cppSurvivorEngaged,
+  }));
+
   return {
     rows,
+    componentStatuses,
+    // Display-only aggregation: the worst row, reasons deduplicated by code.
+    validity: rows.reduce<ResultValidity>((w, r) => worstValidity(w, r.validity), "OK"),
+    validityReasons: dedupeReasons(rows.flatMap((r) => r.validityReasons)),
     roomDisclosures: [...roomDisclosures, ...(spousalNote ? [spousalNote] : [])],
     lockedInDisclosures: [...lockedInDisclosures],
     taxYearDisclosures: [...taxYearDisclosures],

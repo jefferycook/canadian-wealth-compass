@@ -9,7 +9,9 @@
 
 import { projection } from "./projection";
 import { FIXED_STRATEGIES } from "./strategy";
+import { adviceBlockers } from "./types";
 import type {
+  ComponentStatusEntry,
   PlanInputs,
   PlanResult,
   ProjectionOverride,
@@ -88,6 +90,14 @@ export function lifetimeTax(P: ProjectionResult): number {
 export const AUTO_SELECTION_NOTE =
   "Automatic ordering is chosen on fewest shortfall years, then on an approximate after-tax estate (registered taxed at a flat 38%, non-registered at 8%). It is a comparison rule, not a proof of optimality.";
 
+/**
+ * Deterministic ordering used when automatic selection is suppressed. This is a
+ * COMPUTATIONAL FALLBACK, not a recommendation: it carries no claim of being
+ * better than any other ordering. It exists so a projection can still be
+ * produced when the engine is not permitted to choose.
+ */
+export const AUTO_FALLBACK_STRATEGY: WithdrawalStrategy = "nonreg_reg_tfsa";
+
 export function runPlan(
   inputs: PlanInputs,
   override: ProjectionOverride = {},
@@ -101,14 +111,44 @@ export function runPlan(
 
   let best: { s: WithdrawalStrategy; P: ProjectionResult; short: number; est: number } | null =
     null;
+  const candidates = new Map<WithdrawalStrategy, ProjectionResult>();
   for (const s of FIXED_STRATEGIES) {
     const P = projection(inputs, { ...override, strategy: s });
+    candidates.set(s, P);
     const short = shortfallYears(P);
     const est = afterTaxEstate(P);
     if (!best || short < best.short || (short === best.short && est > best.est)) {
       best = { s, P, short, est };
     }
   }
+
+  // VALID-1 gate: every candidate contributed to the ranking, so a blocker on
+  // any one of them taints the comparison. Reads componentStatuses, never the
+  // display-only aggregate.
+  const byComponent = new Map<string, ComponentStatusEntry>();
+  for (const P of candidates.values()) {
+    for (const b of adviceBlockers(P.componentStatuses)) {
+      if (!byComponent.has(b.component)) byComponent.set(b.component, b);
+    }
+  }
+  const blockers = [...byComponent.values()];
+
+  if (blockers.length > 0) {
+    const fallback = candidates.get(AUTO_FALLBACK_STRATEGY) ?? best!.P;
+    return {
+      ...fallback,
+      chosenStrategy: AUTO_FALLBACK_STRATEGY,
+      autoSelected: false,
+      autoSelectionStatus: "WITHHELD",
+      autoSelectionNote:
+        "Automatic ordering was not selected. This plan contains figures that are " +
+        "not advice-grade, so the engine did not select a withdrawal order from the " +
+        "comparison. A fixed default ordering was used to produce the projection and " +
+        "is not a recommendation.",
+      autoSelectionBlockers: blockers.map((b) => b.component),
+    };
+  }
+
   return {
     ...best!.P,
     chosenStrategy: best!.s,

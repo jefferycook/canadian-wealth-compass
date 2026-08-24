@@ -451,3 +451,25 @@ Two gating defects were fixed in the same pass: an APPROXIMATE
 `unlockEntitlement` now raises a client-facing disclosure, and `lifMaximumFor`
 reads the component's status instead of hard-coding it from the jurisdiction.
 `lifMaximum` remains APPROXIMATE everywhere except Ontario.
+
+## Engine Batch E1 — COMPLETE (2026 pass, awaiting independent review)
+
+- PR-1 deterministic `startYear` — DONE (opt-in override; omitted behaviour unchanged).
+- VALID-1 component statuses, row validity, three advice gates — DONE.
+- CPP-1 **Defect A only** (the s.58 own-pension argument) — DONE.
+- Survivor golden fixture pinned at 274,815.
+- All five existing anchors unchanged: 201,184 / 279,538 / 411,408 / 1,762,590 / 111,905.
+- 313 tests passing; typecheck clean. Not deployed, not published.
+
+### STILL OPEN [C] — CPP-1 (the s.58 reduction structure)
+Only Defect A was corrected. The governing structure of the combined-benefit
+reduction remains unverified, so every survivor row is APPROXIMATE and advice
+derived from those plans is withheld. Phase 0 remains UNAPPROVED.
+
+### STILL OPEN [C] — R-2, R-3
+Beginning-of-year FMV base and the establishment-year RRIF exemption are
+untouched by E1.
+
+### Baseline ratification
+Batch 0C and Batch 0D results are ratified as the current baseline under E1:
+no 0C or 0D anchor moved in this batch, and no 0C/0D methodology was reopened.
