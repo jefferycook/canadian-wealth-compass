@@ -555,3 +555,96 @@ export function lockedInGoldenFixturePlan(): PlanInputs {
     liabilities: [],
   };
 }
+
+/**
+ * SURVIVOR GOLDEN FIXTURE — Batch E1 regression anchor (CPP-1 Defect A).
+ *
+ * A two-person Ontario plan where Person A dies at 78 (off = 8), so the CPP
+ * survivor's pension fires in rows off = 8 … 25 while Person B ages 76 → 93.
+ *
+ * Deliberate construction:
+ *   - A's CPP commences at 70, proving the DECEASED'S commencement age never
+ *     reaches the survivor calculation.
+ *   - CPP entitlements are unequal and both non-zero, so an argument-order
+ *     error cannot hide.
+ *   - `strategy` is a FIXED ordering, not "auto", so this anchor is independent
+ *     of the E1 advice-suppression paths: it pins arithmetic, while the gate
+ *     tests pin behaviour.
+ *   - The account set contains NO registered account of any kind, keeping the
+ *     fixture off the RRIF/LIF path so a future RRIF batch cannot move it.
+ */
+export function survivorGoldenFixturePlan(): PlanInputs {
+  return {
+    taxYear: 2026,
+    planType: "married",
+    endAge: 95,
+    inflation: 0.021,
+    indexationRate: null,
+    spendNeed: 72000,
+    currentSpend: null,
+    eqRet: 0.065,
+    fiRet: 0.035,
+    survivorPct: 0.6,
+    strategy: "nonreg_reg_tfsa",
+    tax: {
+      provinceKey: "ON",
+      fedBPA: 16452,
+      provBPA: 12989,
+      oasThresh: 95323,
+      lifRate: 6.0,
+    },
+    people: [
+      {
+        id: "A",
+        firstName: "Survivor",
+        lastName: "GoldenA",
+        curAge: 70,
+        retAge: 999,
+        employ: 0,
+        deathAge: 78,
+        cpp: { amt: 16000, age: 70 },
+        oas: { amt: 8900, age: 65 },
+        pen: { amt: 30000, age: 65 },
+        bridge: { amt: 0, end: 65 },
+      },
+      {
+        id: "B",
+        firstName: "Survivor",
+        lastName: "GoldenB",
+        curAge: 68,
+        retAge: 999,
+        employ: 0,
+        deathAge: 0,
+        cpp: { amt: 11000, age: 65 },
+        oas: { amt: 8900, age: 65 },
+        pen: { amt: 0, age: 65 },
+        bridge: { amt: 0, end: 65 },
+      },
+    ],
+    accounts: [
+      {
+        id: "surv-nonreg",
+        name: "B non-registered",
+        type: "NONREG",
+        owner: "B",
+        bal: 400000,
+        acb: 400000,
+        eq: 40,
+        mix: { int: 0.3, div: 0.3, cg: 0.4 },
+        juris: "ON",
+        conv: 0,
+        unlock: 0,
+        contrib: 0,
+        contribEnd: 0,
+        wd: 0,
+        wdStart: 0,
+        wdEnd: 0,
+      },
+    ],
+    expenses: [],
+    otherIncome: [],
+    lumpSums: [],
+    hardAssets: [],
+    liabilities: [],
+  };
+}
