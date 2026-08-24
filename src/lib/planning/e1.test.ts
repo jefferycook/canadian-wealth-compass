@@ -422,6 +422,19 @@ describe("VALID-1 — advice gates", () => {
     expect(ids).not.toContain("recommendations-withheld");
     expect(ids.some((id) => ["funded", "shortfall"].includes(id))).toBe(true);
   });
+
+  it("A12: a withheld strategy comparison suppresses projection recommendations", () => {
+    const plan = coupleGoldenFixturePlan();
+    const P = runPlan(plan, { startYear: 2026 });
+    const strategies = compareStrategies(plan, P.chosenStrategy).map((r, i) =>
+      i === 0 ? { ...r, comparisonWithheld: true } : r,
+    );
+    const ids = buildRecommendations(plan, P, strategies, goalProgress(plan, P)).map((r) => r.id);
+    expect(ids).toContain("recommendations-withheld");
+    for (const banned of ["strategy", "shortfall", "funded", "portfolio-exhausted", "oas", "bracket", "split"]) {
+      expect(ids).not.toContain(banned);
+    }
+  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -525,6 +538,52 @@ describe("CPP-1 Defect A — the s.58 own-pension argument", () => {
       );
       expect(has).toBe(i >= 8);
     });
+  });
+
+  it("C8: a survivor benefit clamped to exactly zero still engages the components", () => {
+    const ty = getTaxYear(2026, 0);
+    // Own CPP large enough that max(0, cppCombinedMax - own) is nil.
+    const plan = survivorProbePlan({
+      survAge: 75,
+      survCppAge: 65,
+      survCppAmt: ty.cppCombinedMax + 5000,
+    });
+    // Pin the case: the s.58 result is exactly zero, with base65 > 0.
+    expect(
+      cppSurvivorBenefit(plan.people[0]!.cpp.amt, 75, ty.cppCombinedMax + 5000, 1, ty),
+    ).toBe(0);
+    expect(plan.people[0]!.cpp.amt).toBeGreaterThan(0);
+
+    const P = projection(plan, { startYear: 2026 });
+    const row = P.rows[0]!;
+    expect(row.validity).toBe("APPROXIMATE");
+    expect(row.validityReasons.some((r) => r.code === "CPP_SURVIVOR_REDUCTION_APPROXIMATE")).toBe(
+      true,
+    );
+    for (const c of ["cpp.survivorReduction", "cpp.survivorBaseCap"]) {
+      const entry = P.componentStatuses.find((e) => e.component === c);
+      expect(entry).toBeDefined();
+      expect(entry!.engaged).toBe(true);
+    }
+
+    const R = runPlan({ ...plan, strategy: "auto" }, { startYear: 2026 });
+    expect(R.autoSelected).toBe(false);
+    expect(R.autoSelectionStatus).toBe("WITHHELD");
+
+    const strategies = compareStrategies(plan, R.chosenStrategy);
+    expect(strategies.every((r) => r.comparisonWithheld === true)).toBe(true);
+
+    const base = runPlan(plan, { startYear: 2026 });
+    const ids = buildRecommendations(
+      plan,
+      base,
+      strategies,
+      goalProgress(plan, base),
+    ).map((r) => r.id);
+    for (const banned of ["strategy", "shortfall", "funded", "portfolio-exhausted", "oas", "bracket", "split"]) {
+      expect(ids).not.toContain(banned);
+    }
+    expect(ids).toContain("recommendations-withheld");
   });
 
   it("C7: no test in this suite asserts the survivor reduction structure", () => {
