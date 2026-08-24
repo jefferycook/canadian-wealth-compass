@@ -639,8 +639,10 @@ export interface PlanResult extends ProjectionResult {
   /**
    * Batch 0D (§7.8). The auto tie-break ranks orderings on an APPROXIMATE
    * after-tax estate (flat 38% / 8% haircuts), not a terminal-year return.
-   * Present only when `autoSelected` is true, and surfaced wherever the chosen
-   * strategy is displayed.
+   * `"APPROXIMATE"` is present on an auto-selected result whose tie-break rests
+   * on that approximation. `"WITHHELD"` is present when automatic selection was
+   * suppressed — `autoSelected` is then false and `autoSelectionBlockers` names
+   * the components responsible. Surfaced wherever the chosen strategy is shown.
    */
   autoSelectionStatus?: "APPROXIMATE" | "WITHHELD";
   autoSelectionNote?: string;

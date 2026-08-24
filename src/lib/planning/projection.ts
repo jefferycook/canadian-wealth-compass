@@ -68,7 +68,9 @@ import type {
 
 /**
  * VALID-1 / CPP-1: the CPP survivor rule components. `engaged` is set true for
- * a run only when the survivor branch actually executes and produces a value.
+ * a run whenever the s.58 survivor calculation participates in the row —
+ * including when it produces a result of exactly zero, since the approximate
+ * combined-maximum ceiling can itself clamp the benefit to nil.
  *
  * `cpp.survivorReduction` is APPROXIMATE because the combined-maximum ceiling
  * stands in for the statutory component-level erosion. `cpp.survivorBaseCap`
@@ -434,8 +436,11 @@ export function projection(
       if (a.type !== "LIF") a.type = "LIF"; // the still-locked remainder
     }
 
-    /** CPP-1: set when the survivor branch produces a value in this row. */
-    let survivorFiredThisRow = false;
+    /**
+     * CPP-1: set when the s.58 survivor calculation participates in this row,
+     * including when the result is exactly zero. A zero is a result.
+     */
+    let survivorRuleEngagedThisRow = false;
 
     /* --- 3. Raw per-person guaranteed income, as if alive --- */
     const raw = people.map((p, i) => {
@@ -539,10 +544,13 @@ export function projection(
               infFac,
               tyY,
             );
-            if (surv > 0) {
-              cppInc += surv;
-              survivorFiredThisRow = true;
-            }
+            // The s.58 calculation participated whenever the deceased has a
+            // retirement pension entitlement — `cppSurvivorBenefit` returns
+            // early only when `base65 <= 0`. A zero RESULT is still a result
+            // produced by the approximate reduction, so it must engage
+            // VALID-1. Do not gate engagement on `surv > 0`.
+            if (raw[j]!.base65 > 0) survivorRuleEngagedThisRow = true;
+            if (surv > 0) cppInc += surv;
           }
           penInc += inputs.survivorPct * raw[j]!.rawPen;
         }
@@ -1202,13 +1210,13 @@ export function projection(
     for (const ry of closedRoom) for (const d of ry.disclosures) roomDisclosures.add(d);
 
     /* --- VALID-1: this row's own validity, then forward propagation --- */
-    if (survivorFiredThisRow) cppSurvivorEngaged = true;
+    if (survivorRuleEngagedThisRow) cppSurvivorEngaged = true;
     const rowComponents = CPP_SURVIVOR_COMPONENTS.map((c) => ({
       ...c,
-      engaged: survivorFiredThisRow,
+      engaged: survivorRuleEngagedThisRow,
     }));
     const ownValidity = validityFromComponents(rowComponents);
-    if (survivorFiredThisRow) carriedReasons.push(CPP_SURVIVOR_REASON);
+    if (survivorRuleEngagedThisRow) carriedReasons.push(CPP_SURVIVOR_REASON);
     carriedValidity = worstValidity(ownValidity, carriedValidity);
     const rowReasons = dedupeReasons(carriedReasons);
 
