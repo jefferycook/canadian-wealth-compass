@@ -312,6 +312,11 @@ export function projection(
   const carriedReasons: ValidityReason[] = [];
   /** CPP-1: true once the survivor branch has produced a value in any year. */
   let cppSurvivorEngaged = false;
+  /** R-3: true once an ambiguous-start account has been met in any year. */
+  let rrifAmbiguousEngaged = false;
+  /** R2.4: true once an infeasible transfer has left a fund short of its minimum. */
+  let transferRetentionEngaged = false;
+
   // Whether the household has ever held investable assets. A plan that starts
   // with nothing invested cannot "run out" of investments — that is an intake
   // state, not a failure.
