@@ -270,4 +270,93 @@ describe("R-3 — the minimum amount is nil in the year the fund was entered int
   });
 });
 
+/* ------------------------------------------------------------------ */
+/* R-2 — beginning-of-year fair market value is the base               */
+/* ------------------------------------------------------------------ */
+
+describe("R-2 — the minimum and the LIF maximum are struck on beginning-of-year FMV", () => {
+  it("R2-1: in-year growth does not raise the RRIF minimum", () => {
+    const r = projection(
+      probePlan({
+        curAge: 72,
+        endAge: 74,
+        ret: 0.1,
+        accounts: [acct({ id: "rrif", type: "RRIF", bal: 300000, acb: 300000 })],
+      }),
+    );
+    // 300,000 opening; the grown balance (330,000) is NOT the base.
+    expect(rowAt(r, 72).regWithdraw).toBeCloseTo(300000 * minF(72), 4);
+    expect(rowAt(r, 72).regWithdraw).toBeLessThan(330000 * minF(72) - 1);
+  });
+
+  it("R2-2: the second year's base is that year's opening value, not the first year's", () => {
+    const r = projection(
+      probePlan({
+        curAge: 72,
+        endAge: 75,
+        ret: 0.1,
+        accounts: [acct({ id: "rrif", type: "RRIF", bal: 300000, acb: 300000 })],
+      }),
+    );
+    const y0 = rowAt(r, 72);
+    const open1 = (300000 - y0.regWithdraw) * 1.1;
+    expect(rowAt(r, 73).regWithdraw).toBeCloseTo(open1 * minF(73), 2);
+  });
+
+  it("R2-3: the LIF maximum's balance limb also reads the opening balance", () => {
+    const plan = probePlan({
+      curAge: 72,
+      endAge: 74,
+      ret: 0.1,
+      spendNeed: 400000,
+      accounts: [acct({ id: "lif", type: "LIF", bal: 300000, acb: 300000, juris: "ON" })],
+    });
+    const r = projection(plan);
+    const lm = lifMaximumFor("ON", 72, plan.tax.lifRate);
+    expect(lm.applies).toBe(true);
+    // Minimum plus the残 permitted top-up both come off the same 300,000 base.
+    expect(rowAt(r, 72).regWithdraw).toBeCloseTo(300000 * (lm.pct / 100), 3);
+  });
+
+  it("R2-4: a transfer that leaves a fund short of its minimum is UNSUPPORTED and withheld", () => {
+    const r = projection(
+      probePlan({
+        curAge: 66,
+        endAge: 68,
+        retAge: 66,
+        accounts: [
+          acct({ id: "lif", type: "LIF", bal: 400000, juris: "MB", conv: 55, unlock: 100 }),
+        ],
+      }),
+    );
+    // Manitoba's age-65 right moves the whole balance out before step 6a, so
+    // the fund cannot pay the minimum it owed on its opening FMV.
+    const c = r.componentStatuses.find((x) => x.component === "rrif.transferRetention")!;
+    expect(c.status).toBe("UNSUPPORTED");
+    expect(c.substitutive).toBe(true);
+    expect(c.engaged).toBe(true);
+    expect(rowAt(r, 66).validity).toBe("WITHHELD");
+    expect(rowAt(r, 66).validityReasons.map((x) => x.code)).toContain(
+      "RRIF_TRANSFER_RETENTION_NOT_ENFORCED",
+    );
+    // Withheld status propagates forward.
+    expect(rowAt(r, 67).validity).toBe("WITHHELD");
+  });
+
+  it("R2-5: an ordinary plan does not engage the transfer-retention component", () => {
+    const r = projection(
+      probePlan({
+        curAge: 72,
+        endAge: 75,
+        ret: 0.05,
+        accounts: [acct({ id: "rrif", type: "RRIF", bal: 300000, acb: 300000 })],
+      }),
+    );
+    expect(
+      r.componentStatuses.find((x) => x.component === "rrif.transferRetention")!.engaged,
+    ).toBe(false);
+  });
+});
+
+
 export { SRC };
