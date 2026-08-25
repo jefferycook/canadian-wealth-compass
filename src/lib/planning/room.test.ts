@@ -280,9 +280,13 @@ describe("engine integration", () => {
   it("leaves the Batch 0A single-filer golden untouched", () => {
     // Batch 0D re-pin: indexation. Ontario LIF re-pin 2026-08-21: 201470 ->
     // 201184 (see engine.test.ts for the year-by-year attribution).
-    expect(Math.round(lifetimeTax(runPlan(regressionFixturePlan())))).toBe(201184);
+    // E2 ratification 2026-08-25 (approved): 201184 -> 202530, +0.67%. Stage 2
+    // (R-2, beginning-of-year FMV base) only; Stage 1 (R-3) left this fixture
+    // unmoved.
+    expect(Math.round(lifetimeTax(runPlan(regressionFixturePlan())))).toBe(202530);
 
   });
+
 });
 
 /** Pinned Batch 0B anchor; see the run report for the derivation. */
