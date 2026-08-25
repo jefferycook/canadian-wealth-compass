@@ -216,6 +216,29 @@ export function projection(
   });
   override.acctMod?.(accts);
 
+  /**
+   * R-3 / ITA s.146.3(1): the minimum amount for "the year in which the fund
+   * was entered into" is a nil amount. Establishment is a question of
+   * provenance, not of year offset.
+   *
+   * An account in this set was present when the projection began, so it was
+   * entered into in some earlier calendar year: it never receives the
+   * establishment-year exemption at off 0. Only a genuine transition into RRIF
+   * status DURING the projection can establish it. An account NOT in this set
+   * was created during the run (an unlock destination) and establishes in its
+   * creation year, including off 0.
+   */
+  const initialAccountIds = new Set(inputs.accounts.map((a) => a.id));
+  /** R-3: account id -> the `off` in which it was entered into, if during this run. */
+  const establishedAtOff: Record<string, number> = {};
+  /**
+   * R-3: accounts that were already in RRIF status at off 0. They pre-date the
+   * projection, so the transition test must never fire for them later.
+   */
+  const preExistingRrif = new Set<string>();
+
+
+
   /** Owner index into the people/P arrays. */
   const oi = (a: WorkingAccount) => pIndex[a.owner] ?? 0;
 
