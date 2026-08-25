@@ -1371,16 +1371,20 @@ export function projection(
     /* --- VALID-1: this row's own validity, then forward propagation --- */
     if (survivorRuleEngagedThisRow) cppSurvivorEngaged = true;
     if (rrifAmbiguousThisRow) rrifAmbiguousEngaged = true;
+    if (transferRetentionThisRow) transferRetentionEngaged = true;
     const rowComponents: ComponentStatusEntry[] = [
       ...CPP_SURVIVOR_COMPONENTS.map((c) => ({
         ...c,
         engaged: survivorRuleEngagedThisRow,
       })),
       { ...RRIF_ESTABLISHMENT_COMPONENT, engaged: rrifAmbiguousThisRow },
+      { ...RRIF_TRANSFER_RETENTION_COMPONENT, engaged: transferRetentionThisRow },
     ];
     const ownValidity = validityFromComponents(rowComponents);
     if (survivorRuleEngagedThisRow) carriedReasons.push(CPP_SURVIVOR_REASON);
     if (rrifAmbiguousThisRow) carriedReasons.push(RRIF_ESTABLISHMENT_REASON);
+    if (transferRetentionThisRow) carriedReasons.push(RRIF_TRANSFER_RETENTION_REASON);
+
     carriedValidity = worstValidity(ownValidity, carriedValidity);
     const rowReasons = dedupeReasons(carriedReasons);
 
