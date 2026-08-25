@@ -860,6 +860,8 @@ export function projection(
 
     /** R-3: an ambiguous-start account was met in this row. */
     let rrifAmbiguousThisRow = false;
+    /** R2.4: a transfer left a fund short of its own minimum amount this year. */
+    let transferRetentionThisRow = false;
 
     for (const a of accts) {
       const age = ages[oi(a)]!;
