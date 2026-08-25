@@ -717,3 +717,24 @@ Tests: 313 before, 315 after, all passing. Typecheck clean.
 | Accumulation | 1,762,590 | no |
 | Manitoba locked-in | 111,905 | no |
 | Survivor golden | 274,815 | no |
+
+
+## Engine Batch E2 — R-3 (establishment-year nil minimum) + R-2 (beginning-of-year FMV)
+
+Scope: `src/lib/planning/projection.ts` only, plus the new
+`src/lib/planning/e2.test.ts`. No tax, indexation, benefits or room change.
+
+- **R-3** (ITA s.146.3(1)): a fund entered into during the projection year has a
+  nil minimum amount for that year. Provenance-based, one exemption per fund;
+  the LIF maximum still applies in that year. Ambiguous intake starts are NOT
+  exempted and are flagged APPROXIMATE
+  (`rrif.establishmentYearAmbiguousStart` / `RRIF_ESTABLISHMENT_DATE_UNKNOWN`).
+- **R-2**: the RRIF minimum and the LIF maximum's balance limb are struck on the
+  beginning-of-year balance, snapshotted before rollover and unlocks.
+- **R2.4** (s.146.3(2)(e.1)): a transfer leaving a fund short of its own minimum
+  is UNSUPPORTED and substitutive — the row and everything after it is WITHHELD
+  (`rrif.transferRetention` / `RRIF_TRANSFER_RETENTION_NOT_ENFORCED`).
+
+Anchors re-pinned (see `docs/AGENT-STATUS.md` for the staged table):
+202,530 / 281,105 / 406,524 / 1,756,006 / 113,283 (terminal 131,458) / 274,815.
+331 tests pass; typecheck clean.

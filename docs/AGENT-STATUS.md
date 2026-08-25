@@ -4,10 +4,13 @@ Maintained by whichever agent finds an issue. Purpose: ChatGPT, Claude and Lovab
 can all see current blockers without Jeff relaying them. Update the entry until it is
 resolved, then move it to **Resolved**.
 
-**Last updated:** 2026-08-21 · by Lovable (Ontario LIF maximum table corrected — two anchors moved and traced)
+**Last updated:** Engine Batch E2 · by Lovable (R-3 establishment-year nil minimum + R-2 beginning-of-year FMV base)
 
-**Current anchors: 201,184 / 411,408 / 1,762,590**, plus the frozen-bracket
-single-filer variant at **279,538**. The two single-filer figures moved on
+**Current anchors: 202,530 / 406,524 / 1,756,006**, plus the frozen-bracket
+single-filer variant at **281,105**, the Manitoba locked-in golden at
+**113,283** (terminal portfolio **131,458**) and the survivor golden at
+**274,815** (unmoved). Re-pinned by E2; the previous set was
+201,184 / 411,408 / 1,762,590 / 279,538 / 111,905. The two single-filer figures moved on
 2026-08-21 for the reason recorded immediately below; the couple and
 accumulation anchors are unmoved because neither fixture holds a LIF.
 
@@ -469,9 +472,7 @@ survivor row is APPROXIMATE and advice derived from those plans is withheld.
 This residual is **CPP-5**; it was labelled CPP-1 in and before the E1 commit and
 must not be reopened under that name. Phase 0 remains UNAPPROVED.
 
-### STILL OPEN [C] — R-2, R-3
-Beginning-of-year FMV base and the establishment-year RRIF exemption are
-untouched by E1.
+### ~~STILL OPEN [C] — R-2, R-3~~ — RESOLVED by Engine Batch E2 (see below)
 
 ### Baseline ratification
 Batch 0C and Batch 0D results are ratified as the current baseline under E1:
@@ -491,3 +492,56 @@ R-1/L-1 (the DOB-derived age bases).
   `comparisonWithheld`, closing the strategy-dependent gate hole.
 - Tests: 313 before, 315 after, all passing; typecheck clean.
 - All six anchors unchanged: 201,184 / 279,538 / 411,408 / 1,762,590 / 111,905 / 274,815.
+
+
+## Engine Batch E2 — R-3 and R-2 — COMPLETE
+
+**R-3 — the minimum amount is nil for the year the fund was entered into**
+(ITA s.146.3(1)). Establishment is decided by provenance, not by year offset:
+an account present at intake and already in RRIF status pre-dates the plan and
+is never exempt; an account that transitions into RRIF status during the run,
+or is created during the run (an unlock destination, including a Manitoba
+PRRIF), is exempt in that year only, once. The LIF maximum is a pension-law
+restriction and still applies in an establishment year.
+
+*Ambiguous start* — an account entered at intake as RRSP/LIRA/DCPP whose
+conversion condition is already met in year one carries no conversion date. The
+conservative reading is taken (a minimum IS charged) and the row is flagged
+`rrif.establishmentYearAmbiguousStart` = APPROXIMATE, non-substitutive, with
+reason `RRIF_ESTABLISHMENT_DATE_UNKNOWN`.
+
+**R-2 — the base is fair market value at the beginning of the year**, for the
+RRIF minimum and for the balance-based limb of the LIF maximum. The opening
+value is snapshotted before the spousal rollover and before any unlock, so
+in-year growth, contributions and transfers no longer inflate the minimum.
+
+**R2.4 — s.146.3(2)(e.1) transfer retention.** Where an unlock transfer leaves a
+fund unable to pay the minimum it owed on its opening FMV, the payment is
+clamped and the row is WITHHELD: component `rrif.transferRetention`,
+UNSUPPORTED and **substitutive**, reason
+`RRIF_TRANSFER_RETENTION_NOT_ENFORCED`. It engaged on no golden fixture; it is
+reachable (proved by test R2-4, a Manitoba age-65 full unlock out of a LIF).
+
+**Anchors — moved and re-pinned.**
+
+| Anchor | Before E2 | After Stage 1 (R-3) | After Stage 2 (R-2) | Net |
+| --- | --- | --- | --- | --- |
+| Single filer (indexed) | 201,184 | 201,184 | 202,530 | +0.67% |
+| Single filer (frozen brackets) | 279,538 | 279,538 | 281,105 | +0.56% |
+| Couple | 411,408 | 411,984 | 406,524 | −1.19% |
+| Accumulation | 1,762,590 | 1,777,271 | 1,756,006 | −0.37% |
+| Manitoba locked-in (tax) | 111,905 | 113,240 | 113,283 | +1.23% |
+| Manitoba locked-in (terminal portfolio) | 144,512 | — | 131,458 | −9.03% |
+| Survivor golden | 274,815 | 274,815 | 274,815 | 0 |
+
+Direction is as expected: R-3 defers a first-year minimum (more money invested,
+more tax later); R-2 removes in-year growth from the base, lowering mandatory
+income in growing years and raising the terminal draw. All movement is under
+1.3% except the locked-in terminal portfolio, which is small in absolute terms
+and is the residue of the two effects compounding on a single fund.
+
+**Tests:** 315 before, 331 after (16 new in `src/lib/planning/e2.test.ts`), all
+passing; typecheck clean. Not deployed, not published.
+
+**Unchanged and still open:** CPP-5, R-1/L-1 (DOB-derived age bases), and the
+rest of the backlog. Phase 0 remains UNAPPROVED.

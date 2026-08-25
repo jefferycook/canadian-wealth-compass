@@ -604,4 +604,5 @@ describe("couple golden fixture", () => {
 // amounts in the derived tax years. Erratum 5 behaviour is unchanged.
 // 0D defect fix, 407458 -> 411408: the federal pension income amount is fixed
 // at $2,000 in law and no longer indexes.
-const COUPLE_GOLDEN = 411408;
+// E2 re-pin (R-2/R-3), 411408 -> 406524 (-1.19%).
+const COUPLE_GOLDEN = 406524;

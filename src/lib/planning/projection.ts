@@ -99,6 +99,57 @@ const CPP_SURVIVOR_REASON: ValidityReason = {
     "generate recommendations.",
 };
 
+/**
+ * R-3: an account entered at intake as an RRSP/LIRA/DCPP whose conversion
+ * condition is ALREADY met in the first projection year is ambiguous — the
+ * input model carries no conversion date, so the engine cannot tell whether the
+ * fund was entered into this calendar year or an earlier one. The RULE is
+ * verified; what is approximate is the model basis. The conservative reading is
+ * taken: the fund is assumed pre-existing and a minimum is charged.
+ */
+const RRIF_ESTABLISHMENT_COMPONENT: Omit<ComponentStatusEntry, "engaged"> = {
+  component: "rrif.establishmentYearAmbiguousStart",
+  status: "APPROXIMATE",
+  substitutive: false,
+};
+
+const RRIF_ESTABLISHMENT_REASON: ValidityReason = {
+  code: "RRIF_ESTABLISHMENT_DATE_UNKNOWN",
+  detail:
+    "A registered account already met its conversion condition in the first " +
+    "year of this plan, and the plan does not record the date the fund was " +
+    "entered into. The projection assumes the fund was entered into before the " +
+    "projection began and charges a minimum withdrawal for that first year. " +
+    "That is the conservative assumption: a fund actually entered into during " +
+    "the first year would have no minimum amount for that year, so the " +
+    "mandatory withdrawal and the tax on it may be overstated in year one.",
+};
+
+/**
+ * R2.4 / ITA s.146.3(2)(e.1): a transferring RRIF must retain enough to pay its
+ * own minimum amount for the year of the transfer. The engine unlocks before it
+ * computes minimums, so a transfer can leave the fund short; the payment is then
+ * clamped to what is left. The identifier names the statutory component; the
+ * reason code names the failure. `substitutive: true` — a stand-in (the clamped
+ * payment) is put in the place of the statutory amount — so the row is WITHHELD.
+ */
+const RRIF_TRANSFER_RETENTION_COMPONENT: Omit<ComponentStatusEntry, "engaged"> = {
+  component: "rrif.transferRetention",
+  status: "UNSUPPORTED",
+  substitutive: true,
+};
+
+const RRIF_TRANSFER_RETENTION_REASON: ValidityReason = {
+  code: "RRIF_TRANSFER_RETENTION_NOT_ENFORCED",
+  detail:
+    "The plan models a transfer out of a fund that left it short of the " +
+    "minimum amount it was required to pay for that year. Federal law requires " +
+    "the transferring fund to retain enough to make that payment, so a carrier " +
+    "would have restricted the transfer instead. The projection from that year " +
+    "forward describes a transaction that is not permitted, and its figures are " +
+    "not fit to advise on.",
+};
+
 /** Deduplicate validity reasons by `code`, preserving first-seen order. */
 function dedupeReasons(reasons: ValidityReason[]): ValidityReason[] {
   const seen = new Set<string>();
@@ -216,6 +267,38 @@ export function projection(
   });
   override.acctMod?.(accts);
 
+  /**
+   * R-3 / ITA s.146.3(1): the minimum amount for "the year in which the fund
+   * was entered into" is a nil amount. Establishment is a question of
+   * provenance, not of year offset.
+   *
+   * An account in this set was present when the projection began, so it was
+   * entered into in some earlier calendar year: it never receives the
+   * establishment-year exemption at off 0. Only a genuine transition into RRIF
+   * status DURING the projection can establish it. An account NOT in this set
+   * was created during the run (an unlock destination) and establishes in its
+   * creation year, including off 0.
+   */
+  const initialAccountIds = new Set(inputs.accounts.map((a) => a.id));
+  /**
+   * R-3: the account TYPE as entered at intake. Step 2 mutates a converting
+   * LIRA to `LIF` before step 6a runs, so the working type cannot be used to
+   * decide whether an account's start is ambiguous.
+   */
+  const initialAccountType: Record<string, AccountType> = Object.fromEntries(
+    inputs.accounts.map((a) => [a.id, a.type]),
+  );
+
+  /** R-3: account id -> the `off` in which it was entered into, if during this run. */
+  const establishedAtOff: Record<string, number> = {};
+  /**
+   * R-3: accounts that were already in RRIF status at off 0. They pre-date the
+   * projection, so the transition test must never fire for them later.
+   */
+  const preExistingRrif = new Set<string>();
+
+
+
   /** Owner index into the people/P arrays. */
   const oi = (a: WorkingAccount) => pIndex[a.owner] ?? 0;
 
@@ -289,6 +372,11 @@ export function projection(
   const carriedReasons: ValidityReason[] = [];
   /** CPP-1: true once the survivor branch has produced a value in any year. */
   let cppSurvivorEngaged = false;
+  /** R-3: true once an ambiguous-start account has been met in any year. */
+  let rrifAmbiguousEngaged = false;
+  /** R2.4: true once an infeasible transfer has left a fund short of its minimum. */
+  let transferRetentionEngaged = false;
+
   // Whether the household has ever held investable assets. A plan that starts
   // with nothing invested cannot "run out" of investments — that is an intake
   // state, not a failure.
@@ -321,6 +409,24 @@ export function projection(
     }
     const ages = people.map((p) => p.curAge + off);
     const alive = people.map((p) => !(p.deathAge > 0 && p.curAge + off >= p.deathAge));
+
+    /**
+     * R-2 / ITA s.146.3(1) "minimum amount": the minimum is the prescribed
+     * factor times the fair market value of the property held by the fund **at
+     * the beginning of the year**, not the value after that year's growth,
+     * contributions or transfers. FSRA's LIF maximum takes the same
+     * beginning-of-year balance for its balance-based limb.
+     *
+     * Snapshotted here, before the spousal rollover and before any unlock, so
+     * it is genuinely the opening value. An account created later in the year
+     * has no entry, which is correct: it has no beginning-of-year FMV and, by
+     * R-3, no minimum amount for that year either.
+     */
+    const beginBal: Record<string, number> = {};
+    for (const a of accts) beginBal[a.id] = a.bal;
+    /** R2.4: funds that moved money out during this year (unlock transfers). */
+    const transferredOutThisYear = new Set<string>();
+
 
     /* --- 1. Spousal rollover at the year of passing (tax-free) --- */
     let deathBenefit = 0;
@@ -387,6 +493,10 @@ export function projection(
         continue;
       }
       a.bal -= moved;
+      // R2.4: record the transfer out, so step 6a can tell a fund that was
+      // left short of its minimum amount by a transfer from one that simply
+      // never had the money.
+      transferredOutThisYear.add(a.id);
       a.unlockedFraction = target;
       // §13.2 — an APPROXIMATE component must be flagged wherever the number
       // it produces is displayed. The entitlement drives HOW MUCH moves, so it
@@ -737,8 +847,11 @@ export function projection(
     // A LIRA/LIF unlock moves that share to RRIF treatment, so no maximum
     // applies to the unlocked portion.
     const lifCapRemaining: Record<string, number> = {};
-    // A PRRIF is in RRIF status from the moment it is created: minimums start
-    // immediately, and no maximum applies to it.
+    // A PRRIF is in RRIF status from the moment it is created, so no maximum
+    // applies to it. Its MINIMUM, however, does not start immediately: a fund
+    // created this year was entered into this year, and ITA s.146.3(1) makes
+    // the minimum amount nil for that year (R-3 below). Do not restore the
+    // earlier assumption that minimums start immediately.
     const isRRIFnow = (a: WorkingAccount, age: number) =>
       a.type === "RRIF" ||
       a.type === "LIF" ||
@@ -749,15 +862,56 @@ export function projection(
       a.type === "LIF" ||
       ((a.type === "LIRA" || a.type === "DCPP") && age >= convAgeOf(a));
 
+    /** R-3: an ambiguous-start account was met in this row. */
+    let rrifAmbiguousThisRow = false;
+    /** R2.4: a transfer left a fund short of its own minimum amount this year. */
+    let transferRetentionThisRow = false;
+
     for (const a of accts) {
       const age = ages[oi(a)]!;
       if (isRRIFnow(a, age)) {
+        /* --- R-3: was this fund entered into during this projection year? --- */
+        if (establishedAtOff[a.id] == null && !preExistingRrif.has(a.id)) {
+          if (!initialAccountIds.has(a.id)) {
+            // Created during the run (an unlock destination): it establishes in
+            // its creation year, including off 0. Recorded once, so a later
+            // transfer into the same account cannot earn a second exemption.
+            establishedAtOff[a.id] = off;
+          } else if (off === 0) {
+            // Present when the projection began and already in RRIF status:
+            // entered into before the plan started. Never establishable later.
+            preExistingRrif.add(a.id);
+            const it = initialAccountType[a.id];
+            if (it === "RRSP" || it === "LIRA" || it === "DCPP") {
+              // Ambiguous start: the conversion condition is already met in the
+              // first year and the input carries no conversion date. Not
+              // exempted — exempting wrongly overstates client wealth.
+              rrifAmbiguousThisRow = true;
+            }
+          } else {
+            // A genuine transition into RRIF status during the projection.
+            establishedAtOff[a.id] = off;
+          }
+        }
+        const establishedThisYear = establishedAtOff[a.id] === off;
+
         const minF = rrifMinFactor(age) / 100;
-        let minW = a.bal * minF;
+        /**
+         * R-2: the base is the fair market value at the BEGINNING of the year.
+         * An account with no opening entry was created during this year, so it
+         * has no beginning-of-year FMV; it is also establishment-year exempt,
+         * and the fallback exists only so the expression is total.
+         */
+        const base = beginBal[a.id] ?? a.bal;
+        let minW = establishedThisYear ? 0 : base * minF;
         if (isLockedIn(a, age)) {
           // Point-of-use gating (§13.2a): Quebec applies NO maximum from 55
           // (verified) but still applies one below 55; Ontario reads the FSRA
           // table; everywhere else the annuity approximation is flagged.
+          //
+          // The maximum is a pension-law withdrawal restriction, not a RRIF
+          // minimum: nothing in s.146.3(1) touches it, so it is computed in an
+          // establishment year exactly as in any other year.
           const lm = lifMaximumFor(a.juris, age, opts.lifRate);
           if (lm.status === "UNSUPPORTED") {
             lockedInDisclosures.add(
@@ -772,13 +926,24 @@ export function projection(
               );
             }
             const maxF = lm.pct / 100;
-            lifCapRemaining[a.id] = Math.max(0, a.bal * maxF - minW);
+            // R-2, second limb: the LIF maximum's balance-based limb reads the
+            // same beginning-of-year balance as the minimum.
+            lifCapRemaining[a.id] = Math.max(0, base * maxF - minW);
           }
+        }
+        if (minW > a.bal + 1e-6 && transferredOutThisYear.has(a.id)) {
+          // R2.4 / ITA s.146.3(2)(e.1): the fund transferred out and cannot now
+          // pay the minimum amount it owed for the year. A carrier would have
+          // restricted the transfer; the engine cannot, so the payment is
+          // clamped and the row is withheld rather than silently substituted.
+          transferRetentionThisRow = true;
         }
         minW = Math.min(minW, a.bal);
         a.bal -= minW;
         P[oi(a)]!.mandatoryTaxable += minW;
       }
+
+
     }
 
     /* --- 6b. Scheduled withdrawals, by owner age --- */
@@ -1211,14 +1376,24 @@ export function projection(
 
     /* --- VALID-1: this row's own validity, then forward propagation --- */
     if (survivorRuleEngagedThisRow) cppSurvivorEngaged = true;
-    const rowComponents = CPP_SURVIVOR_COMPONENTS.map((c) => ({
-      ...c,
-      engaged: survivorRuleEngagedThisRow,
-    }));
+    if (rrifAmbiguousThisRow) rrifAmbiguousEngaged = true;
+    if (transferRetentionThisRow) transferRetentionEngaged = true;
+    const rowComponents: ComponentStatusEntry[] = [
+      ...CPP_SURVIVOR_COMPONENTS.map((c) => ({
+        ...c,
+        engaged: survivorRuleEngagedThisRow,
+      })),
+      { ...RRIF_ESTABLISHMENT_COMPONENT, engaged: rrifAmbiguousThisRow },
+      { ...RRIF_TRANSFER_RETENTION_COMPONENT, engaged: transferRetentionThisRow },
+    ];
     const ownValidity = validityFromComponents(rowComponents);
     if (survivorRuleEngagedThisRow) carriedReasons.push(CPP_SURVIVOR_REASON);
+    if (rrifAmbiguousThisRow) carriedReasons.push(RRIF_ESTABLISHMENT_REASON);
+    if (transferRetentionThisRow) carriedReasons.push(RRIF_TRANSFER_RETENTION_REASON);
+
     carriedValidity = worstValidity(ownValidity, carriedValidity);
     const rowReasons = dedupeReasons(carriedReasons);
+
 
     rows.push({
       validity: carriedValidity,
@@ -1288,10 +1463,12 @@ export function projection(
   const spousalNote =
     couple && lastClosedRoom.length === 2 ? spousalRrspDisclosure(lastClosedRoom) : null;
 
-  const componentStatuses = CPP_SURVIVOR_COMPONENTS.map((c) => ({
-    ...c,
-    engaged: cppSurvivorEngaged,
-  }));
+  const componentStatuses: ComponentStatusEntry[] = [
+    ...CPP_SURVIVOR_COMPONENTS.map((c) => ({ ...c, engaged: cppSurvivorEngaged })),
+    { ...RRIF_ESTABLISHMENT_COMPONENT, engaged: rrifAmbiguousEngaged },
+    { ...RRIF_TRANSFER_RETENTION_COMPONENT, engaged: transferRetentionEngaged },
+  ];
+
 
   return {
     rows,

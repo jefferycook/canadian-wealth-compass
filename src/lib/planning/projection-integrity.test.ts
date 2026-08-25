@@ -175,7 +175,7 @@ describe("indexation of statutory amounts (§12)", () => {
     // ~$200/yr from age 64 (-$1,217 of tax cumulatively), then the residual
     // $11,046 the old age-89 100% row had already emptied is drawn at age 90
     // and taxed at +$2,141. -1217 + 2141 = +924.
-    expect(Math.round(frozen)).toBe(279538);
+    expect(Math.round(frozen)).toBe(281105);
 
   });
 
