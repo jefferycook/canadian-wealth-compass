@@ -512,7 +512,7 @@ export function projection(
       // R2.4: record the transfer out, so step 6a can tell a fund that was
       // left short of its minimum amount by a transfer from one that simply
       // never had the money.
-      transferredOutThisYear.add(a.id);
+      if (wasLifBeforeTransfer) transferredOutThisYear.add(a.id);
       a.unlockedFraction = target;
       // §13.2 — an APPROXIMATE component must be flagged wherever the number
       // it produces is displayed. The entitlement drives HOW MUCH moves, so it
