@@ -890,7 +890,14 @@ export function projection(
         const establishedThisYear = establishedAtOff[a.id] === off;
 
         const minF = rrifMinFactor(age) / 100;
-        let minW = establishedThisYear ? 0 : a.bal * minF;
+        /**
+         * R-2: the base is the fair market value at the BEGINNING of the year.
+         * An account with no opening entry was created during this year, so it
+         * has no beginning-of-year FMV; it is also establishment-year exempt,
+         * and the fallback exists only so the expression is total.
+         */
+        const base = beginBal[a.id] ?? a.bal;
+        let minW = establishedThisYear ? 0 : base * minF;
         if (isLockedIn(a, age)) {
           // Point-of-use gating (§13.2a): Quebec applies NO maximum from 55
           // (verified) but still applies one below 55; Ontario reads the FSRA
@@ -913,13 +920,23 @@ export function projection(
               );
             }
             const maxF = lm.pct / 100;
-            lifCapRemaining[a.id] = Math.max(0, a.bal * maxF - minW);
+            // R-2, second limb: the LIF maximum's balance-based limb reads the
+            // same beginning-of-year balance as the minimum.
+            lifCapRemaining[a.id] = Math.max(0, base * maxF - minW);
           }
+        }
+        if (minW > a.bal + 1e-6 && transferredOutThisYear.has(a.id)) {
+          // R2.4 / ITA s.146.3(2)(e.1): the fund transferred out and cannot now
+          // pay the minimum amount it owed for the year. A carrier would have
+          // restricted the transfer; the engine cannot, so the payment is
+          // clamped and the row is withheld rather than silently substituted.
+          transferRetentionThisRow = true;
         }
         minW = Math.min(minW, a.bal);
         a.bal -= minW;
         P[oi(a)]!.mandatoryTaxable += minW;
       }
+
 
     }
 
