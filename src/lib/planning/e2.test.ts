@@ -525,14 +525,17 @@ describe("R-2 — the minimum and the LIF maximum are struck on beginning-of-yea
     // moves and whatever its conversion age says about its RRIF-like status.
     const r = projection(
       probePlan({
-        curAge: 60,
-        endAge: 63,
-        retAge: 60,
+        curAge: 66,
+        endAge: 68,
+        retAge: 66,
         accounts: [
           acct({ id: "lira", type: "LIRA", bal: 400000, juris: "MB", conv: 55, unlock: 100 }),
         ],
       }),
     );
+    // Identical in shape to R2-4 except the arrangement type at intake: this
+    // one is a LIRA, so Manitoba's age-65 right moves the whole balance out of
+    // an RRSP-type arrangement and s.146.3(2)(e.1) has nothing to say about it.
     expect(
       r.componentStatuses.find((x) => x.component === "rrif.transferRetention")!.engaged,
     ).toBe(false);
