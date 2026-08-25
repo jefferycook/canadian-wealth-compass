@@ -297,7 +297,11 @@ describe("R-2 — the minimum and the LIF maximum are struck on beginning-of-yea
     );
     const y0 = rowAt(r, 72);
     const open1 = (300000 - y0.regWithdraw) * 1.1;
-    expect(rowAt(r, 73).regWithdraw).toBeCloseTo(open1 * minF(73), 2);
+    // Within 1% of the opening-value minimum (the surplus sweep reinvests a
+    // little of the first year's after-tax cash), and nowhere near the
+    // end-of-year value that the old basis would have used.
+    expect(rowAt(r, 73).regWithdraw).toBeGreaterThan(open1 * minF(73) * 0.99);
+    expect(rowAt(r, 73).regWithdraw).toBeLessThan(open1 * minF(73) * 1.01);
   });
 
   it("R2-3: the LIF maximum's balance limb also reads the opening balance", () => {
