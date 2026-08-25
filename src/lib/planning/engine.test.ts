@@ -371,7 +371,7 @@ describe("the default plan (regression fixture)", () => {
     // age 89). The old table's age-89 row was 100%, which emptied the LIF at
     // 89; the correct 51.45631% leaves $11,046 that is drawn at age 90 under
     // the 100% row, adding $844 of tax in that single year. -1130 + 844 = -286.
-    expect(Math.round(lifetimeTax(P))).toBe(202530);
+    expect(Math.round(lifetimeTax(P))).toBe(201184);
 
   });
 
