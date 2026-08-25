@@ -99,7 +99,58 @@ const CPP_SURVIVOR_REASON: ValidityReason = {
     "generate recommendations.",
 };
 
-/** Deduplicate validity reasons by `code`, preserving first-seen order. */
+/**
+ * R-3: an account entered at intake as an RRSP/LIRA/DCPP whose conversion
+ * condition is ALREADY met in the first projection year is ambiguous — the
+ * input model carries no conversion date, so the engine cannot tell whether the
+ * fund was entered into this calendar year or an earlier one. The RULE is
+ * verified; what is approximate is the model basis. The conservative reading is
+ * taken: the fund is assumed pre-existing and a minimum is charged.
+ */
+const RRIF_ESTABLISHMENT_COMPONENT: Omit<ComponentStatusEntry, "engaged"> = {
+  component: "rrif.establishmentYearAmbiguousStart",
+  status: "APPROXIMATE",
+  substitutive: false,
+};
+
+const RRIF_ESTABLISHMENT_REASON: ValidityReason = {
+  code: "RRIF_ESTABLISHMENT_DATE_UNKNOWN",
+  detail:
+    "A registered account already met its conversion condition in the first " +
+    "year of this plan, and the plan does not record the date the fund was " +
+    "entered into. The projection assumes the fund was entered into before the " +
+    "projection began and charges a minimum withdrawal for that first year. " +
+    "That is the conservative assumption: a fund actually entered into during " +
+    "the first year would have no minimum amount for that year, so the " +
+    "mandatory withdrawal and the tax on it may be overstated in year one.",
+};
+
+/**
+ * R2.4 / ITA s.146.3(2)(e.1): a transferring RRIF must retain enough to pay its
+ * own minimum amount for the year of the transfer. The engine unlocks before it
+ * computes minimums, so a transfer can leave the fund short; the payment is then
+ * clamped to what is left. The identifier names the statutory component; the
+ * reason code names the failure. `substitutive: true` — a stand-in (the clamped
+ * payment) is put in the place of the statutory amount — so the row is WITHHELD.
+ */
+const RRIF_TRANSFER_RETENTION_COMPONENT: Omit<ComponentStatusEntry, "engaged"> = {
+  component: "rrif.transferRetention",
+  status: "UNSUPPORTED",
+  substitutive: true,
+};
+
+const RRIF_TRANSFER_RETENTION_REASON: ValidityReason = {
+  code: "RRIF_TRANSFER_RETENTION_NOT_ENFORCED",
+  detail:
+    "The plan models a transfer out of a fund that left it short of the " +
+    "minimum amount it was required to pay for that year. Federal law requires " +
+    "the transferring fund to retain enough to make that payment, so a carrier " +
+    "would have restricted the transfer instead. The projection from that year " +
+    "forward describes a transaction that is not permitted, and its figures are " +
+    "not fit to advise on.",
+};
+
+
 function dedupeReasons(reasons: ValidityReason[]): ValidityReason[] {
   const seen = new Set<string>();
   const out: ValidityReason[] = [];
