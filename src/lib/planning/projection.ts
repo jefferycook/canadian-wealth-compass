@@ -816,8 +816,11 @@ export function projection(
     // A LIRA/LIF unlock moves that share to RRIF treatment, so no maximum
     // applies to the unlocked portion.
     const lifCapRemaining: Record<string, number> = {};
-    // A PRRIF is in RRIF status from the moment it is created: minimums start
-    // immediately, and no maximum applies to it.
+    // A PRRIF is in RRIF status from the moment it is created, so no maximum
+    // applies to it. Its MINIMUM, however, does not start immediately: a fund
+    // created this year was entered into this year, and ITA s.146.3(1) makes
+    // the minimum amount nil for that year (R-3 below). Do not restore the
+    // earlier assumption that minimums start immediately.
     const isRRIFnow = (a: WorkingAccount, age: number) =>
       a.type === "RRIF" ||
       a.type === "LIF" ||
@@ -828,15 +831,46 @@ export function projection(
       a.type === "LIF" ||
       ((a.type === "LIRA" || a.type === "DCPP") && age >= convAgeOf(a));
 
+    /** R-3: an ambiguous-start account was met in this row. */
+    let rrifAmbiguousThisRow = false;
+
     for (const a of accts) {
       const age = ages[oi(a)]!;
       if (isRRIFnow(a, age)) {
+        /* --- R-3: was this fund entered into during this projection year? --- */
+        if (establishedAtOff[a.id] == null && !preExistingRrif.has(a.id)) {
+          if (!initialAccountIds.has(a.id)) {
+            // Created during the run (an unlock destination): it establishes in
+            // its creation year, including off 0. Recorded once, so a later
+            // transfer into the same account cannot earn a second exemption.
+            establishedAtOff[a.id] = off;
+          } else if (off === 0) {
+            // Present when the projection began and already in RRIF status:
+            // entered into before the plan started. Never establishable later.
+            preExistingRrif.add(a.id);
+            if (a.type === "RRSP" || a.type === "LIRA" || a.type === "DCPP") {
+              // Ambiguous start: the conversion condition is already met in the
+              // first year and the input carries no conversion date. Not
+              // exempted — exempting wrongly overstates client wealth.
+              rrifAmbiguousThisRow = true;
+            }
+          } else {
+            // A genuine transition into RRIF status during the projection.
+            establishedAtOff[a.id] = off;
+          }
+        }
+        const establishedThisYear = establishedAtOff[a.id] === off;
+
         const minF = rrifMinFactor(age) / 100;
-        let minW = a.bal * minF;
+        let minW = establishedThisYear ? 0 : a.bal * minF;
         if (isLockedIn(a, age)) {
           // Point-of-use gating (§13.2a): Quebec applies NO maximum from 55
           // (verified) but still applies one below 55; Ontario reads the FSRA
           // table; everywhere else the annuity approximation is flagged.
+          //
+          // The maximum is a pension-law withdrawal restriction, not a RRIF
+          // minimum: nothing in s.146.3(1) touches it, so it is computed in an
+          // establishment year exactly as in any other year.
           const lm = lifMaximumFor(a.juris, age, opts.lifRate);
           if (lm.status === "UNSUPPORTED") {
             lockedInDisclosures.add(
@@ -858,6 +892,7 @@ export function projection(
         a.bal -= minW;
         P[oi(a)]!.mandatoryTaxable += minW;
       }
+
     }
 
     /* --- 6b. Scheduled withdrawals, by owner age --- */
