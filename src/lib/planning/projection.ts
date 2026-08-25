@@ -1408,10 +1408,12 @@ export function projection(
   const spousalNote =
     couple && lastClosedRoom.length === 2 ? spousalRrspDisclosure(lastClosedRoom) : null;
 
-  const componentStatuses = CPP_SURVIVOR_COMPONENTS.map((c) => ({
-    ...c,
-    engaged: cppSurvivorEngaged,
-  }));
+  const componentStatuses: ComponentStatusEntry[] = [
+    ...CPP_SURVIVOR_COMPONENTS.map((c) => ({ ...c, engaged: cppSurvivorEngaged })),
+    { ...RRIF_ESTABLISHMENT_COMPONENT, engaged: rrifAmbiguousEngaged },
+    { ...RRIF_TRANSFER_RETENTION_COMPONENT, engaged: transferRetentionEngaged },
+  ];
+
 
   return {
     rows,
