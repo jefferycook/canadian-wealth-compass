@@ -450,8 +450,16 @@ export function projection(
     // incremental fraction is moved, so Manitoba's 50%-at-55 and its
     // balance-at-65 are both available to the same client.
     for (const a of [...accts]) {
-      if (!(a.type === "LIRA" || a.type === "DCPP" || a.type === "LIF")) continue;
+      if (!(UNLOCK_SOURCE_TYPES as readonly string[]).includes(a.type)) continue;
+      // s.146.3(2)(e.1) binds a transferring RRIF. Of the step-2 sources —
+      // LIRA, DCPP, LIF — only a LIF is one. Read the type BEFORE the mutation
+      // below converts a LIRA to LIF, or every converting LIRA looks like a
+      // transferring RRIF. Do NOT use isRRIFnow(): it reports RRIF status for a
+      // LIRA or DCPP past its conversion age, and those are RRSP-type
+      // arrangements, not RRIFs.
+      const wasLifBeforeTransfer = a.type === "LIF";
       const jr = tryUnlockRule(a.juris);
+
       // No silent Ontario default. An unknown jurisdiction, or one whose
       // unlocking entitlement is UNSUPPORTED, has its unlock WITHHELD — the
       // rest of the client's projection and tax are unaffected (§13.2a).
