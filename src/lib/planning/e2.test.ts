@@ -357,5 +357,174 @@ describe("R-2 — the minimum and the LIF maximum are struck on beginning-of-yea
       r.componentStatuses.find((x) => x.component === "rrif.transferRetention")!.engaged,
     ).toBe(false);
   });
+
+  it("R2-6: a zero-growth, zero-contribution year reproduces pre-R-2 behaviour exactly", () => {
+    // The guard against the snapshot being 'simplified' into a reordering of
+    // steps 4/5/6a: with nothing happening between the top of the year and the
+    // minimum, the opening balance IS the step-6a balance, so the answer must
+    // be identical to what the pre-R-2 engine produced.
+    const r = projection(
+      probePlan({
+        curAge: 72,
+        endAge: 74,
+        ret: 0,
+        accounts: [acct({ id: "rrif", type: "RRIF", bal: 300000, acb: 300000 })],
+      }),
+    );
+    expect(rowAt(r, 72).regWithdraw).toBeCloseTo(300000 * minF(72), 6);
+    const after = 300000 - rowAt(r, 72).regWithdraw;
+    expect(rowAt(r, 73).regWithdraw).toBeCloseTo(after * minF(73), 4);
+  });
+
+  it("R2-7: a contribution made in-year does not raise that year's minimum", () => {
+    const r = projection(
+      probePlan({
+        curAge: 72,
+        endAge: 73,
+        ret: 0,
+        accounts: [
+          acct({
+            id: "rrif",
+            type: "RRIF",
+            bal: 300000,
+            acb: 300000,
+            contrib: 50000,
+            contribEnd: 90,
+          }),
+        ],
+      }),
+    );
+    expect(rowAt(r, 72).regWithdraw).toBeCloseTo(300000 * minF(72), 4);
+    expect(rowAt(r, 72).regWithdraw).toBeLessThan(350000 * minF(72) - 1);
+  });
+
+  it("R2-8: growth and a contribution together still leave the opening balance as the base", () => {
+    const r = projection(
+      probePlan({
+        curAge: 72,
+        endAge: 73,
+        ret: 0.1,
+        accounts: [
+          acct({
+            id: "rrif",
+            type: "RRIF",
+            bal: 300000,
+            acb: 300000,
+            contrib: 50000,
+            contribEnd: 90,
+          }),
+        ],
+      }),
+    );
+    expect(rowAt(r, 72).regWithdraw).toBeCloseTo(300000 * minF(72), 4);
+    expect(rowAt(r, 72).regWithdraw).toBeLessThan(380000 * minF(72) - 1);
+  });
+
+  it("R2-9: a fund receiving a spousal rollover computes its minimum on the PRE-rollover opening balance", () => {
+    // Pins the snapshot ahead of step 1. B dies at 75; B's RRIF rolls into A's.
+    const base = regressionFixturePlan();
+    const plan: PlanInputs = {
+      ...base,
+      planType: "married",
+      inflation: 0,
+      indexationRate: 0,
+      eqRet: 0,
+      fiRet: 0,
+      spendNeed: 0,
+      currentSpend: 0,
+      strategy: "nonreg_reg_tfsa",
+      endAge: 77,
+      people: [
+        {
+          ...base.people[0]!,
+          id: "A",
+          curAge: 75,
+          retAge: 75,
+          employ: 0,
+          deathAge: 0,
+          cpp: { amt: 0, age: 65 },
+          oas: { amt: 0, age: 65 },
+          pen: { amt: 0, age: 65 },
+          bridge: { amt: 0, end: 65 },
+        },
+        {
+          ...base.people[0]!,
+          id: "B",
+          firstName: "B",
+          curAge: 75,
+          retAge: 75,
+          employ: 0,
+          deathAge: 75,
+          cpp: { amt: 0, age: 65 },
+          oas: { amt: 0, age: 65 },
+          pen: { amt: 0, age: 65 },
+          bridge: { amt: 0, end: 65 },
+        },
+      ],
+      accounts: [
+        acct({ id: "rrifA", type: "RRIF", bal: 300000, acb: 300000, owner: "A" }),
+        acct({ id: "rrifB", type: "RRIF", bal: 200000, acb: 200000, owner: "B" }),
+      ],
+      expenses: [],
+      otherIncome: [],
+      lumpSums: [],
+      hardAssets: [],
+      liabilities: [],
+    };
+    const r = projection(plan);
+    const y = rowAt(r, 75);
+    // A's own opening 300,000 is the base; the 200,000 that arrived by
+    // rollover during the year is not.
+    expect(y.regWithdraw).toBeCloseTo(300000 * minF(75), 3);
+    expect(y.regWithdraw).toBeLessThan(500000 * minF(75) - 1);
+  });
+
+  it("R2-10: a fund in its establishment year that transfers out does not engage transfer retention", () => {
+    const r = projection(
+      probePlan({
+        curAge: 54,
+        endAge: 60,
+        retAge: 55,
+        accounts: [
+          acct({ id: "lira", type: "LIRA", bal: 400000, juris: "MB", conv: 55, unlock: 100 }),
+        ],
+      }),
+    );
+    // At 55 the fund is established (minimum nil) and moves everything it can
+    // to the PRRIF. A nil minimum cannot be left unpaid.
+    expect(rowAt(r, 55).regWithdraw).toBe(0);
+    expect(
+      r.componentStatuses.find((x) => x.component === "rrif.transferRetention")!.engaged,
+    ).toBe(false);
+    expect(rowAt(r, 55).validity).not.toBe("WITHHELD");
+  });
+
+  it("R2-11: step 2's accepted unlock source types are exactly LIRA, DCPP and LIF", () => {
+    // Structural guard. Widening this list must fail here rather than silently
+    // bypassing the `wasLifBeforeTransfer` provenance check: only a LIF is a
+    // RRIF arrangement bound by s.146.3(2)(e.1).
+    expect([...UNLOCK_SOURCE_TYPES]).toEqual(["LIRA", "DCPP", "LIF"]);
+  });
+
+  it("R2-12: a LIRA past its conversion age that transfers out is NOT a transferring RRIF", () => {
+    // s.146.3(2)(e.1) binds RRIFs. A LIRA is an RRSP-type arrangement, so
+    // moving its whole balance out is not an infeasible transfer, however much
+    // moves and whatever its conversion age says about its RRIF-like status.
+    const r = projection(
+      probePlan({
+        curAge: 60,
+        endAge: 63,
+        retAge: 60,
+        accounts: [
+          acct({ id: "lira", type: "LIRA", bal: 400000, juris: "MB", conv: 55, unlock: 100 }),
+        ],
+      }),
+    );
+    expect(
+      r.componentStatuses.find((x) => x.component === "rrif.transferRetention")!.engaged,
+    ).toBe(false);
+    expect(r.rows.every((x) => x.validity !== "WITHHELD")).toBe(true);
+  });
 });
+
 
