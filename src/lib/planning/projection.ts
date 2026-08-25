@@ -47,6 +47,14 @@ import {
 
 import { worstValidity, validityFromComponents } from "./types";
 
+/**
+ * The account types step 2 accepts as an unlock source. Exported so a test can
+ * pin the list: widening it later must fail loudly rather than silently
+ * bypassing the `wasLifBeforeTransfer` provenance check below.
+ */
+export const UNLOCK_SOURCE_TYPES = ["LIRA", "DCPP", "LIF"] as const;
+
+
 import type {
 
   AccountInput,
