@@ -1325,14 +1325,20 @@ export function projection(
 
     /* --- VALID-1: this row's own validity, then forward propagation --- */
     if (survivorRuleEngagedThisRow) cppSurvivorEngaged = true;
-    const rowComponents = CPP_SURVIVOR_COMPONENTS.map((c) => ({
-      ...c,
-      engaged: survivorRuleEngagedThisRow,
-    }));
+    if (rrifAmbiguousThisRow) rrifAmbiguousEngaged = true;
+    const rowComponents: ComponentStatusEntry[] = [
+      ...CPP_SURVIVOR_COMPONENTS.map((c) => ({
+        ...c,
+        engaged: survivorRuleEngagedThisRow,
+      })),
+      { ...RRIF_ESTABLISHMENT_COMPONENT, engaged: rrifAmbiguousThisRow },
+    ];
     const ownValidity = validityFromComponents(rowComponents);
     if (survivorRuleEngagedThisRow) carriedReasons.push(CPP_SURVIVOR_REASON);
+    if (rrifAmbiguousThisRow) carriedReasons.push(RRIF_ESTABLISHMENT_REASON);
     carriedValidity = worstValidity(ownValidity, carriedValidity);
     const rowReasons = dedupeReasons(carriedReasons);
+
 
     rows.push({
       validity: carriedValidity,
