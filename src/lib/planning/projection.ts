@@ -280,6 +280,15 @@ export function projection(
    * creation year, including off 0.
    */
   const initialAccountIds = new Set(inputs.accounts.map((a) => a.id));
+  /**
+   * R-3: the account TYPE as entered at intake. Step 2 mutates a converting
+   * LIRA to `LIF` before step 6a runs, so the working type cannot be used to
+   * decide whether an account's start is ambiguous.
+   */
+  const initialAccountType: Record<string, AccountType> = Object.fromEntries(
+    inputs.accounts.map((a) => [a.id, a.type]),
+  );
+
   /** R-3: account id -> the `off` in which it was entered into, if during this run. */
   const establishedAtOff: Record<string, number> = {};
   /**
