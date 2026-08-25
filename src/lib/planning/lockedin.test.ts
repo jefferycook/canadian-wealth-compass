@@ -406,8 +406,18 @@ describe("Batch 0C follow-up — jurisdiction verification, 2026-08-21", () => {
  * single, couple and accumulation anchors. Pinned 2026-08-21.
  */
 describe("Batch 0C — locked-in golden fixture (Phase 0 exit #2)", () => {
-  const LOCKEDIN_GOLDEN_TAX = 111905;
-  const LOCKEDIN_GOLDEN_TERMINAL = 144512;
+  // E2 ratification 2026-08-25 (approved by Jeff).
+  //  - Tax 111905 -> 113283 (+1.23%): Stage 1 (R-3) 113240, Stage 2 (R-2) +43.
+  //  - Terminal 144512 -> 131458 (-9.03%): almost entirely Stage 1 (R-3),
+  //    which reached 131490; R-2 contributed only -32.
+  // NOTE: from age 65 this fixture's rows are `validity: "WITHHELD"`
+  // (`rrif.transferRetention`, s.146.3(2)(e.1)) — the age-65 full unlock leaves
+  // the LIF unable to pay its opening-FMV minimum. These anchors are therefore
+  // a REGRESSION CHECK, not advice-grade figures: WITHHELD governs what may be
+  // presented to a client, not what is computed.
+  const LOCKEDIN_GOLDEN_TAX = 113283;
+  const LOCKEDIN_GOLDEN_TERMINAL = 131458;
+
 
   it("reproduces the locked-in lifetime-tax and terminal-portfolio anchors", () => {
     const r = projection(lockedInGoldenFixturePlan());
