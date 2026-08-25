@@ -377,8 +377,10 @@ describe("R-2 — the minimum and the LIF maximum are struck on beginning-of-yea
   });
 
   it("R2-7: a contribution made in-year does not raise that year's minimum", () => {
-    const r = projection(
-      probePlan({
+    // The contribution is funded from the TFSA (contributions are a use of
+    // household cash), so the only registered withdrawal is the minimum.
+    const r = projection({
+      ...probePlan({
         curAge: 72,
         endAge: 73,
         ret: 0,
@@ -391,16 +393,18 @@ describe("R-2 — the minimum and the LIF maximum are struck on beginning-of-yea
             contrib: 50000,
             contribEnd: 90,
           }),
+          acct({ id: "tfsa", type: "TFSA", bal: 200000, acb: 200000 }),
         ],
       }),
-    );
+      strategy: "tfsa_nonreg_reg",
+    });
     expect(rowAt(r, 72).regWithdraw).toBeCloseTo(300000 * minF(72), 4);
     expect(rowAt(r, 72).regWithdraw).toBeLessThan(350000 * minF(72) - 1);
   });
 
   it("R2-8: growth and a contribution together still leave the opening balance as the base", () => {
-    const r = projection(
-      probePlan({
+    const r = projection({
+      ...probePlan({
         curAge: 72,
         endAge: 73,
         ret: 0.1,
@@ -413,9 +417,11 @@ describe("R-2 — the minimum and the LIF maximum are struck on beginning-of-yea
             contrib: 50000,
             contribEnd: 90,
           }),
+          acct({ id: "tfsa", type: "TFSA", bal: 200000, acb: 200000 }),
         ],
       }),
-    );
+      strategy: "tfsa_nonreg_reg",
+    });
     expect(rowAt(r, 72).regWithdraw).toBeCloseTo(300000 * minF(72), 4);
     expect(rowAt(r, 72).regWithdraw).toBeLessThan(380000 * minF(72) - 1);
   });
@@ -472,11 +478,18 @@ describe("R-2 — the minimum and the LIF maximum are struck on beginning-of-yea
       liabilities: [],
     };
     const r = projection(plan);
-    const y = rowAt(r, 75);
-    // A's own opening 300,000 is the base; the 200,000 that arrived by
-    // rollover during the year is not.
-    expect(y.regWithdraw).toBeCloseTo(300000 * minF(75), 3);
-    expect(y.regWithdraw).toBeLessThan(500000 * minF(75) - 1);
+    const control = projection({
+      ...plan,
+      accounts: [acct({ id: "rrifA", type: "RRIF", bal: 300000, acb: 300000, owner: "A" })],
+    });
+    // A's receiving fund pays a minimum struck on its OWN opening 300,000; the
+    // 200,000 that arrives by rollover during the year does not enter its base,
+    // so its closing balance is identical to the no-rollover control.
+    expect(rowAt(r, 75).balances["rrifA"]!).toBeCloseTo(300000 * (1 - minF(75)), 3);
+    expect(rowAt(r, 75).balances["rrifA"]!).toBeCloseTo(
+      rowAt(control, 75).balances["rrifA"]!,
+      6,
+    );
   });
 
   it("R2-10: a fund in its establishment year that transfers out does not engage transfer retention", () => {
