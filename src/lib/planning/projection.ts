@@ -47,6 +47,14 @@ import {
 
 import { worstValidity, validityFromComponents } from "./types";
 
+/**
+ * The account types step 2 accepts as an unlock source. Exported so a test can
+ * pin the list: widening it later must fail loudly rather than silently
+ * bypassing the `wasLifBeforeTransfer` provenance check below.
+ */
+export const UNLOCK_SOURCE_TYPES = ["LIRA", "DCPP", "LIF"] as const;
+
+
 import type {
 
   AccountInput,
@@ -450,8 +458,16 @@ export function projection(
     // incremental fraction is moved, so Manitoba's 50%-at-55 and its
     // balance-at-65 are both available to the same client.
     for (const a of [...accts]) {
-      if (!(a.type === "LIRA" || a.type === "DCPP" || a.type === "LIF")) continue;
+      if (!(UNLOCK_SOURCE_TYPES as readonly string[]).includes(a.type)) continue;
+      // s.146.3(2)(e.1) binds a transferring RRIF. Of the step-2 sources —
+      // LIRA, DCPP, LIF — only a LIF is one. Read the type BEFORE the mutation
+      // below converts a LIRA to LIF, or every converting LIRA looks like a
+      // transferring RRIF. Do NOT use isRRIFnow(): it reports RRIF status for a
+      // LIRA or DCPP past its conversion age, and those are RRSP-type
+      // arrangements, not RRIFs.
+      const wasLifBeforeTransfer = a.type === "LIF";
       const jr = tryUnlockRule(a.juris);
+
       // No silent Ontario default. An unknown jurisdiction, or one whose
       // unlocking entitlement is UNSUPPORTED, has its unlock WITHHELD — the
       // rest of the client's projection and tax are unaffected (§13.2a).
@@ -496,7 +512,7 @@ export function projection(
       // R2.4: record the transfer out, so step 6a can tell a fund that was
       // left short of its minimum amount by a transfer from one that simply
       // never had the money.
-      transferredOutThisYear.add(a.id);
+      if (wasLifBeforeTransfer) transferredOutThisYear.add(a.id);
       a.unlockedFraction = target;
       // §13.2 — an APPROXIMATE component must be flagged wherever the number
       // it produces is displayed. The entitlement drives HOW MUCH moves, so it
