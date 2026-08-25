@@ -150,7 +150,7 @@ const RRIF_TRANSFER_RETENTION_REASON: ValidityReason = {
     "not fit to advise on.",
 };
 
-
+/** Deduplicate validity reasons by `code`, preserving first-seen order. */
 function dedupeReasons(reasons: ValidityReason[]): ValidityReason[] {
   const seen = new Set<string>();
   const out: ValidityReason[] = [];
