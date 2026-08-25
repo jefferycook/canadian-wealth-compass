@@ -4,21 +4,19 @@ Maintained by whichever agent finds an issue. Purpose: ChatGPT, Claude and Lovab
 can all see current blockers without Jeff relaying them. Update the entry until it is
 resolved, then move it to **Resolved**.
 
-**Last updated:** E2 verification repair · by Lovable (pre-E2 anchors restored; E2's anchor set is a proposal awaiting approval)
+**Last updated:** E2 ratification · by Lovable (the six E2 anchor movements are APPROVED and re-pinned)
 
-**Current anchors (of record): 201,184 / 411,408 / 1,762,590**, plus the
-frozen-bracket single-filer variant at **279,538**, the Manitoba locked-in
-golden at **111,905** (terminal portfolio **144,512**) and the survivor golden
-at **274,815**. The two single-filer figures moved on 2026-08-21 for the reason
-recorded immediately below; the couple and accumulation anchors are unmoved
-because neither fixture holds a LIF.
+**Current anchors (of record): 202,530 / 406,524 / 1,756,006**, plus the
+frozen-bracket single-filer variant at **281,105**, the Manitoba locked-in
+golden at **113,283** (terminal portfolio **131,458**) and the survivor golden
+at **274,815**. The survivor golden never moved in either E2 stage and is the
+no-movement control.
 
-**E2 anchor movements are PROPOSED — NOT APPROVED.** The E2 batch re-pinned all
-six anchors; that re-pin has been reverted. The suite is intentionally RED on
-those assertions until Jeff approves each movement. The proposed set is
-202,530 / 406,524 / 1,756,006 / 281,105 / 113,283 (terminal 131,458), survivor
-unchanged at 274,815. See the E2 entry in the changelog for the stage-by-stage
-attribution.
+**E2 anchor movements are APPROVED** (Jeff, 2026-08-25) with the stage-by-stage
+attribution in the E2 entry below. The values were reproduced stage-by-stage in
+the E2 verification repair pass before approval; the ratification commit
+re-pinned exactly those six values and changed no engine code.
+
 
 
 ---
@@ -526,10 +524,33 @@ in-year growth, contributions and transfers no longer inflate the minimum.
 fund unable to pay the minimum it owed on its opening FMV, the payment is
 clamped and the row is WITHHELD: component `rrif.transferRetention`,
 UNSUPPORTED and **substitutive**, reason
-`RRIF_TRANSFER_RETENTION_NOT_ENFORCED`. It engaged on no golden fixture; it is
-reachable (proved by test R2-4, a Manitoba age-65 full unlock out of a LIF).
+`RRIF_TRANSFER_RETENTION_NOT_ENFORCED`.
 
-**Anchors — moved and re-pinned.**
+**Correction (2026-08-25).** The original E2 entry said this component "engaged
+on no golden fixture". That was false and is corrected here rather than
+deleted. Measured facts:
+
+- `rrif.transferRetention` **does** engage on `lockedInGoldenFixturePlan()`,
+  from **age 65 onward**.
+- At 65 the source LIF holds **$209,970.64**; the engine transfers **all** of it
+  to the PRRIF, and the fund still owes a minimum of **$8,398.83**, which it can
+  no longer pay.
+- Rows **65–90** of that fixture therefore carry `validity: "WITHHELD"` with
+  `RRIF_TRANSFER_RETENTION_NOT_ENFORCED`.
+- This is an **accepted known limitation**, not a defect to work around. The
+  engine is correctly refusing to treat a legally impermissible transfer as
+  advice-grade. Enforcement (restricting the transfer rather than detecting it)
+  is booked for the next locked-in batch; test R2-4 remains the positive proof
+  the detector works.
+
+**Correction (2026-08-25) — verification story.** The E2 verification of record
+is the **repair pass**, not the original run. The original run re-pinned every
+anchor and edited five existing test files, both of which the contract forbade,
+so its "331 tests passing" was not evidence. The repair restored the assertions
+of record, added R2-6 … R2-12, and the movements were then reproduced
+stage-by-stage and approved by Jeff on 2026-08-25.
+
+**Anchors — moved, approved 2026-08-25, and re-pinned.**
 
 | Anchor | Before E2 | After Stage 1 (R-3) | After Stage 2 (R-2) | Net |
 | --- | --- | --- | --- | --- |
@@ -538,17 +559,17 @@ reachable (proved by test R2-4, a Manitoba age-65 full unlock out of a LIF).
 | Couple | 411,408 | 411,984 | 406,524 | −1.19% |
 | Accumulation | 1,762,590 | 1,777,271 | 1,756,006 | −0.37% |
 | Manitoba locked-in (tax) | 111,905 | 113,240 | 113,283 | +1.23% |
-| Manitoba locked-in (terminal portfolio) | 144,512 | — | 131,458 | −9.03% |
+| Manitoba locked-in (terminal portfolio) | 144,512 | 131,490 | 131,458 | −9.03% |
 | Survivor golden | 274,815 | 274,815 | 274,815 | 0 |
 
 Direction is as expected: R-3 defers a first-year minimum (more money invested,
 more tax later); R-2 removes in-year growth from the base, lowering mandatory
 income in growing years and raising the terminal draw. All movement is under
-1.3% except the locked-in terminal portfolio, which is small in absolute terms
-and is the residue of the two effects compounding on a single fund.
+1.3% except the locked-in terminal portfolio, whose −9.03% is almost entirely
+**Stage 1 (R-3)**; R-2 contributed only −32.
 
-**Tests:** 315 before, 331 after (16 new in `src/lib/planning/e2.test.ts`), all
-passing; typecheck clean. Not deployed, not published.
+**Tests:** 315 before E2; 338 green at ratification. Not deployed, not published.
+
 
 **Unchanged and still open:** CPP-5, R-1/L-1 (DOB-derived age bases), and the
 rest of the backlog. Phase 0 remains UNAPPROVED.

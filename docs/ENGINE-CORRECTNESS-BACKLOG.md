@@ -420,3 +420,21 @@ of them is off by a year. Verify before Phase 1; no code change until verified.
 - **PR-1 caller migration.** `projection()` still defaults to the system clock
   when `startYear` is omitted. Saved plans should eventually persist an explicit
   start year so a reopened plan reproduces its original figures exactly.
+
+## E2 follow-ups (recorded 2026-08-25 at the E2 ratification commit)
+
+- **E2-1 [C] — enforce transfer retention in step 2 (next locked-in batch).**
+  Today the engine *detects* an infeasible full transfer out of a LIF and
+  withholds the row (`rrif.transferRetention`, ITA s.146.3(2)(e.1)). It should
+  *restrict* the transfer to the amount the fund may legally move — the opening
+  FMV less the minimum amount it still owes — so the modelled path becomes
+  legally feasible instead of merely flagged. `lockedInGoldenFixturePlan()` must
+  stay exactly as it is: its rows from age 65 are currently `WITHHELD`, and it
+  becomes the regression proving the fix restores a feasible path (and moves the
+  MB anchors off 113,283 / 131,458 for a reason that must then be approved).
+
+- **E2-2 [A] — the draw solver's lumpy age-60 registered withdrawal.** On the
+  locked-in fixture the solver takes a single large registered draw at age 60
+  (+17,705, +3,172 of tax in that one year) rather than smoothing across
+  adjacent years. Pre-existing solver behaviour that R-3 exposed rather than
+  caused; not an E2 defect. Revisit when the draw solver is next opened.

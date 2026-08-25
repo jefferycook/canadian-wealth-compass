@@ -280,9 +280,13 @@ describe("engine integration", () => {
   it("leaves the Batch 0A single-filer golden untouched", () => {
     // Batch 0D re-pin: indexation. Ontario LIF re-pin 2026-08-21: 201470 ->
     // 201184 (see engine.test.ts for the year-by-year attribution).
-    expect(Math.round(lifetimeTax(runPlan(regressionFixturePlan())))).toBe(201184);
+    // E2 ratification 2026-08-25 (approved): 201184 -> 202530, +0.67%. Stage 2
+    // (R-2, beginning-of-year FMV base) only; Stage 1 (R-3) left this fixture
+    // unmoved.
+    expect(Math.round(lifetimeTax(runPlan(regressionFixturePlan())))).toBe(202530);
 
   });
+
 });
 
 /** Pinned Batch 0B anchor; see the run report for the derivation. */
@@ -303,4 +307,8 @@ describe("engine integration", () => {
 // investment income -> less lifetime tax. The single-filer and couple anchors
 // have `contrib: 0` throughout and did not move at all, which is the check
 // that this fix touched only contributing plans.
-const ACCUMULATION_GOLDEN = 1762590;
+// E2 ratification 2026-08-25 (approved): 1762590 -> 1756006, -0.37%. Stage 1
+// (R-3, nil establishment-year minimum) took it to 1777271; Stage 2 (R-2)
+// brought it to 1756006.
+const ACCUMULATION_GOLDEN = 1756006;
+
