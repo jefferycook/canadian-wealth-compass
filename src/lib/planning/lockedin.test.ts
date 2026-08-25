@@ -406,6 +406,7 @@ describe("Batch 0C follow-up — jurisdiction verification, 2026-08-21", () => {
  * single, couple and accumulation anchors. Pinned 2026-08-21.
  */
 describe("Batch 0C — locked-in golden fixture (Phase 0 exit #2)", () => {
+  // E2 re-pin (R-2/R-3), 111905 -> 113283 (+1.23%).
   const LOCKEDIN_GOLDEN_TAX = 113283;
   const LOCKEDIN_GOLDEN_TERMINAL = 144512;
 

@@ -303,4 +303,6 @@ describe("engine integration", () => {
 // investment income -> less lifetime tax. The single-filer and couple anchors
 // have `contrib: 0` throughout and did not move at all, which is the check
 // that this fix touched only contributing plans.
+// E2 re-pin (R-2/R-3), 1762590 -> 1756006 (-0.37%): beginning-of-year FMV
+// base and the nil establishment-year minimum.
 const ACCUMULATION_GOLDEN = 1756006;
