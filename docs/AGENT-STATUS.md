@@ -4,21 +4,19 @@ Maintained by whichever agent finds an issue. Purpose: ChatGPT, Claude and Lovab
 can all see current blockers without Jeff relaying them. Update the entry until it is
 resolved, then move it to **Resolved**.
 
-**Last updated:** E2 verification repair · by Lovable (pre-E2 anchors restored; E2's anchor set is a proposal awaiting approval)
+**Last updated:** E2 ratification · by Lovable (the six E2 anchor movements are APPROVED and re-pinned)
 
-**Current anchors (of record): 201,184 / 411,408 / 1,762,590**, plus the
-frozen-bracket single-filer variant at **279,538**, the Manitoba locked-in
-golden at **111,905** (terminal portfolio **144,512**) and the survivor golden
-at **274,815**. The two single-filer figures moved on 2026-08-21 for the reason
-recorded immediately below; the couple and accumulation anchors are unmoved
-because neither fixture holds a LIF.
+**Current anchors (of record): 202,530 / 406,524 / 1,756,006**, plus the
+frozen-bracket single-filer variant at **281,105**, the Manitoba locked-in
+golden at **113,283** (terminal portfolio **131,458**) and the survivor golden
+at **274,815**. The survivor golden never moved in either E2 stage and is the
+no-movement control.
 
-**E2 anchor movements are PROPOSED — NOT APPROVED.** The E2 batch re-pinned all
-six anchors; that re-pin has been reverted. The suite is intentionally RED on
-those assertions until Jeff approves each movement. The proposed set is
-202,530 / 406,524 / 1,756,006 / 281,105 / 113,283 (terminal 131,458), survivor
-unchanged at 274,815. See the E2 entry in the changelog for the stage-by-stage
-attribution.
+**E2 anchor movements are APPROVED** (Jeff, 2026-08-25) with the stage-by-stage
+attribution in the E2 entry below. The values were reproduced stage-by-stage in
+the E2 verification repair pass before approval; the ratification commit
+re-pinned exactly those six values and changed no engine code.
+
 
 
 ---
