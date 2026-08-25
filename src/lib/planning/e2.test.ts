@@ -9,15 +9,12 @@
  * Every test here is new. No existing test was modified for this batch.
  */
 
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { projection } from "./projection";
 import { regressionFixturePlan } from "./fixtures";
 import { lifMaximumFor, rrifMinFactor } from "./registered";
 import type { AccountInput, PlanInputs, ProjectionResult } from "./types";
-
-const SRC = (f: string) => readFileSync(`src/lib/planning/${f}`, "utf8");
 
 /** A bare account with everything switched off unless overridden. */
 function acct(a: Partial<AccountInput> & { id: string; type: AccountInput["type"] }): AccountInput {
@@ -314,7 +311,7 @@ describe("R-2 — the minimum and the LIF maximum are struck on beginning-of-yea
     const r = projection(plan);
     const lm = lifMaximumFor("ON", 72, plan.tax.lifRate);
     expect(lm.applies).toBe(true);
-    // Minimum plus the残 permitted top-up both come off the same 300,000 base.
+    // Minimum plus the permitted top-up both come off the same 300,000 base.
     expect(rowAt(r, 72).regWithdraw).toBeCloseTo(300000 * (lm.pct / 100), 3);
   });
 
@@ -358,5 +355,3 @@ describe("R-2 — the minimum and the LIF maximum are struck on beginning-of-yea
   });
 });
 
-
-export { SRC };
