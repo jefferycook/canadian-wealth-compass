@@ -604,4 +604,7 @@ describe("couple golden fixture", () => {
 // amounts in the derived tax years. Erratum 5 behaviour is unchanged.
 // 0D defect fix, 407458 -> 411408: the federal pension income amount is fixed
 // at $2,000 in law and no longer indexes.
-const COUPLE_GOLDEN = 411408;
+// E2 ratification 2026-08-25 (approved): 411408 -> 406524, -1.19%. Stage 1
+// (R-3) moved it to 411984; Stage 2 (R-2, opening-FMV base) did the rest.
+const COUPLE_GOLDEN = 406524;
+
