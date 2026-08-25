@@ -307,4 +307,8 @@ describe("engine integration", () => {
 // investment income -> less lifetime tax. The single-filer and couple anchors
 // have `contrib: 0` throughout and did not move at all, which is the check
 // that this fix touched only contributing plans.
-const ACCUMULATION_GOLDEN = 1762590;
+// E2 ratification 2026-08-25 (approved): 1762590 -> 1756006, -0.37%. Stage 1
+// (R-3, nil establishment-year minimum) took it to 1777271; Stage 2 (R-2)
+// brought it to 1756006.
+const ACCUMULATION_GOLDEN = 1756006;
+
