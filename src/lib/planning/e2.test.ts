@@ -175,10 +175,13 @@ describe("R-3 — the minimum amount is nil in the year the fund was entered int
       }),
     );
     // The source was present at intake with its conversion condition already
-    // met, so it is treated as pre-existing and pays a minimum on its own
-    // 200,000. The 200,000 in the newly created PRRIF pays nothing.
-    expect(rowAt(r, 55).regWithdraw).toBeCloseTo(200000 * minF(55), 4);
+    // met, so it is treated as pre-existing and pays a minimum. Under R-2 that
+    // minimum is struck on its BEGINNING-of-year FMV — the whole 400,000 —
+    // even though 200,000 left during the year. The newly created PRRIF has no
+    // beginning-of-year FMV and pays nothing.
+    expect(rowAt(r, 55).regWithdraw).toBeCloseTo(400000 * minF(55), 4);
     expect(rowAt(r, 55).regWithdraw).toBeGreaterThan(0);
+
   });
 
   it("R3-6b: that PRRIF does not get a second exemption when it receives a later transfer", () => {
