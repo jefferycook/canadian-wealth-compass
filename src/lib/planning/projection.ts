@@ -857,7 +857,8 @@ export function projection(
             // Present when the projection began and already in RRIF status:
             // entered into before the plan started. Never establishable later.
             preExistingRrif.add(a.id);
-            if (a.type === "RRSP" || a.type === "LIRA" || a.type === "DCPP") {
+            const it = initialAccountType[a.id];
+            if (it === "RRSP" || it === "LIRA" || it === "DCPP") {
               // Ambiguous start: the conversion condition is already met in the
               // first year and the input carries no conversion date. Not
               // exempted — exempting wrongly overstates client wealth.
