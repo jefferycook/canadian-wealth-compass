@@ -764,3 +764,21 @@ Stage attribution (measured by replaying each commit's engine on the fixtures):
   infeasible-transfer WITHHELD plan. The accepted source list is exported as
   `UNLOCK_SOURCE_TYPES` and pinned by a test.
 - Added R2-6 … R2-12 to `e2.test.ts` (no renumbering of R2-1 … R2-5).
+
+## E2-1 — enforce LIF transfer retention in step 2
+
+- A pre-existing LIF now retains its opening-FMV RRIF minimum before an unlock
+  transfer; step 6a pays the retained amount instead of clamping an empty fund.
+- Transferor provenance includes an explicit LIF or a LIRA/DCPP proven to have
+  established in a prior projection year. A current-year conversion retains
+  zero, and an ambiguous already-converted intake account remains excluded.
+- A retention-capped transfer advances `unlockedFraction` only by the share
+  actually moved, so growth left after the retained minimum is paid remains
+  eligible for a later transfer.
+- Transfer sufficiency is tested immediately after the transfer, before step-4
+  returns. A later market loss does not retroactively engage the retained
+  `rrif.transferRetention` UNSUPPORTED/substitutive invariant guard. Its pure
+  validator has positive unit coverage, while the enforced production path is
+  expected to leave it dormant. The Manitoba
+  rounded anchors remain 113,283 lifetime tax and 131,458 terminal portfolio.
+  Independent audit is still pending.

@@ -410,11 +410,9 @@ describe("Batch 0C — locked-in golden fixture (Phase 0 exit #2)", () => {
   //  - Tax 111905 -> 113283 (+1.23%): Stage 1 (R-3) 113240, Stage 2 (R-2) +43.
   //  - Terminal 144512 -> 131458 (-9.03%): almost entirely Stage 1 (R-3),
   //    which reached 131490; R-2 contributed only -32.
-  // NOTE: from age 65 this fixture's rows are `validity: "WITHHELD"`
-  // (`rrif.transferRetention`, s.146.3(2)(e.1)) — the age-65 full unlock leaves
-  // the LIF unable to pay its opening-FMV minimum. These anchors are therefore
-  // a REGRESSION CHECK, not advice-grade figures: WITHHELD governs what may be
-  // presented to a client, not what is computed.
+  // E2-1 restricts the age-65 transfer by the opening-FMV minimum, which the
+  // source LIF then pays. The path is no longer withheld by this transfer-
+  // retention defect; the rounded anchors happen not to move.
   const LOCKEDIN_GOLDEN_TAX = 113283;
   const LOCKEDIN_GOLDEN_TERMINAL = 131458;
 
@@ -452,6 +450,16 @@ describe("Batch 0C — locked-in golden fixture (Phase 0 exit #2)", () => {
     // flag would leave this money locked for life.
     expect(locked(65)).toBeCloseTo(0, 6);
     expect(unlocked(65)).toBeGreaterThan(unlocked(64));
+  });
+
+  it("retains the age-65 LIF minimum before transfer and no longer withholds the path", () => {
+    const r = projection(lockedInGoldenFixturePlan());
+    const retention = r.componentStatuses.find(
+      (x) => x.component === "rrif.transferRetention",
+    )!;
+    expect(retention.status).toBe("UNSUPPORTED");
+    expect(retention.engaged).toBe(false);
+    expect(r.rows.every((x) => x.validity !== "WITHHELD")).toBe(true);
   });
 
   it("routes unlocked Manitoba money to a PRRIF, not an RRSP", () => {
