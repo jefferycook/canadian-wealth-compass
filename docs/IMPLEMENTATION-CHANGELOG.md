@@ -735,6 +735,32 @@ Scope: `src/lib/planning/projection.ts` only, plus the new
   is UNSUPPORTED and substitutive — the row and everything after it is WITHHELD
   (`rrif.transferRetention` / `RRIF_TRANSFER_RETENTION_NOT_ENFORCED`).
 
-Anchors re-pinned (see `docs/AGENT-STATUS.md` for the staged table):
-202,530 / 281,105 / 406,524 / 1,756,006 / 113,283 (terminal 131,458) / 274,815.
-331 tests pass; typecheck clean.
+Anchor movements: **PROPOSED — NOT APPROVED.** E2 re-pinned every golden
+anchor; the contract forbade that, and the re-pin has been reverted by the E2
+verification-repair pass. The assertions of record remain the pre-E2 set
+(201,184 / 279,538 / 411,408 / 1,762,590 / 111,905 + terminal 144,512 /
+274,815), so those tests fail until each movement is approved. The proposed set
+is 202,530 / 281,105 / 406,524 / 1,756,006 / 113,283 (terminal 131,458) /
+274,815 (survivor unmoved).
+
+Stage attribution (measured by replaying each commit's engine on the fixtures):
+
+| Anchor | pre-E2 | after Stage 1 (R-3) | after Stage 2 (R-2) |
+|---|---|---|---|
+| single (indexed) | 201,184 | 201,184 | 202,530 |
+| single (frozen brackets) | 279,538 | 279,538 | 281,105 |
+| couple | 411,408 | 411,984 | 406,524 |
+| accumulation | 1,762,590 | 1,777,271 | 1,756,006 |
+| MB locked-in lifetime tax | 111,905 | 113,240 | 113,283 |
+| MB locked-in terminal | 144,512 | 131,490 | 131,458 |
+| survivor | 274,815 | 274,815 | 274,815 |
+
+## E2 verification repair
+
+- Restored every pre-E2 golden assertion; removed the "E2 re-pin" comments.
+- **Transfer-retention provenance fix**: only a fund that was a **LIF** before
+  the step-2 unlock can be a transferring RRIF under s.146.3(2)(e.1). A LIRA or
+  DCPP is an RRSP-type arrangement, and flagging it produced a false
+  infeasible-transfer WITHHELD plan. The accepted source list is exported as
+  `UNLOCK_SOURCE_TYPES` and pinned by a test.
+- Added R2-6 … R2-12 to `e2.test.ts` (no renumbering of R2-1 … R2-5).
