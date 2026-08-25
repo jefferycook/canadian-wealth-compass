@@ -410,6 +410,24 @@ export function projection(
     const ages = people.map((p) => p.curAge + off);
     const alive = people.map((p) => !(p.deathAge > 0 && p.curAge + off >= p.deathAge));
 
+    /**
+     * R-2 / ITA s.146.3(1) "minimum amount": the minimum is the prescribed
+     * factor times the fair market value of the property held by the fund **at
+     * the beginning of the year**, not the value after that year's growth,
+     * contributions or transfers. FSRA's LIF maximum takes the same
+     * beginning-of-year balance for its balance-based limb.
+     *
+     * Snapshotted here, before the spousal rollover and before any unlock, so
+     * it is genuinely the opening value. An account created later in the year
+     * has no entry, which is correct: it has no beginning-of-year FMV and, by
+     * R-3, no minimum amount for that year either.
+     */
+    const beginBal: Record<string, number> = {};
+    for (const a of accts) beginBal[a.id] = a.bal;
+    /** R2.4: funds that moved money out during this year (unlock transfers). */
+    const transferredOutThisYear = new Set<string>();
+
+
     /* --- 1. Spousal rollover at the year of passing (tax-free) --- */
     let deathBenefit = 0;
     if (couple) {
