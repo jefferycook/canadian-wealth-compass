@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { projection } from "./projection";
+import { projection, UNLOCK_SOURCE_TYPES } from "./projection";
 import { regressionFixturePlan } from "./fixtures";
 import { lifMaximumFor, rrifMinFactor } from "./registered";
 import type { AccountInput, PlanInputs, ProjectionResult } from "./types";
