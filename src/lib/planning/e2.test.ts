@@ -252,7 +252,10 @@ describe("R-3 — the minimum amount is nil in the year the fund was entered int
       (x) => x.component === "rrif.establishmentYearAmbiguousStart",
     )!;
     expect(c.engaged).toBe(false);
-    expect(r.rows.every((x) => x.validity === "OK")).toBe(true);
+    expect(r.rows.every((x) => x.validity === "APPROXIMATE")).toBe(true);
+    expect(r.rows[0]!.validityReasons.map((x) => x.code)).toContain(
+      "RRIF_AGE_BASIS_WHOLE_YEAR",
+    );
   });
 
   it("R3-10: TFSA, non-registered and a plain RRSP below conversion age are unaffected", () => {
@@ -268,7 +271,9 @@ describe("R-3 — the minimum amount is nil in the year the fund was entered int
       }),
     );
     expect(r.rows.every((x) => x.regWithdraw === 0)).toBe(true);
-    expect(r.rows.every((x) => x.validity === "OK")).toBe(true);
+    expect(r.rows[0]!.validity).toBe("OK");
+    expect(r.rows.slice(1).every((x) => x.validity === "APPROXIMATE")).toBe(true);
+    expect(r.rows[1]!.validityReasons.map((x) => x.code)).toContain("TAX_YEAR_DERIVED");
   });
 });
 
@@ -347,8 +352,11 @@ describe("R-2 — the minimum and the LIF maximum are struck on beginning-of-yea
       400000 * (1 - minF(66)),
       6,
     );
-    expect(rowAt(r, 66).validity).toBe("OK");
-    expect(rowAt(r, 67).validity).toBe("OK");
+    expect(rowAt(r, 66).validity).toBe("APPROXIMATE");
+    expect(rowAt(r, 66).validityReasons.map((x) => x.code)).toEqual(
+      expect.arrayContaining(["LIF_MAXIMUM_APPROXIMATE", "RRIF_AGE_BASIS_WHOLE_YEAR"]),
+    );
+    expect(rowAt(r, 67).validity).toBe("APPROXIMATE");
   });
 
   it("E2-1: the at-transfer retention invariant is independently testable", () => {
@@ -410,7 +418,7 @@ describe("R-2 — the minimum and the LIF maximum are struck on beginning-of-yea
     ).toBe(false);
   });
 
-  it("E2-1: a post-transfer loss does not retroactively fail transfer retention", () => {
+  it("V2-11 / E2-1: a post-transfer loss does not retroactively fail transfer retention", () => {
     const r = projection(
       probePlan({
         curAge: 66,
@@ -429,11 +437,14 @@ describe("R-2 — the minimum and the LIF maximum are struck on beginning-of-yea
     expect(c.engaged).toBe(false);
     expect(c.status).toBe("UNSUPPORTED");
     expect(c.substitutive).toBe(true);
-    expect(rowAt(r, 66).validity).toBe("OK");
+    expect(rowAt(r, 66).validity).toBe("APPROXIMATE");
+    expect(rowAt(r, 66).validityReasons.map((x) => x.code)).toEqual(
+      expect.arrayContaining(["LIF_MAXIMUM_APPROXIMATE", "RRIF_AGE_BASIS_WHOLE_YEAR"]),
+    );
     expect(rowAt(r, 66).validityReasons.map((x) => x.code)).not.toContain(
       "RRIF_TRANSFER_RETENTION_NOT_ENFORCED",
     );
-    expect(rowAt(r, 67).validity).toBe("OK");
+    expect(rowAt(r, 67).validity).toBe("APPROXIMATE");
   });
 
   it("R2-5: an ordinary plan does not engage the transfer-retention component", () => {

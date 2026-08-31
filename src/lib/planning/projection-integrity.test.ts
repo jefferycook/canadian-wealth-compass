@@ -386,8 +386,8 @@ describe("after-tax surplus sweep", () => {
 });
 
 describe("auto strategy selection is labelled APPROXIMATE (§7.8)", () => {
-  it("carries the status and the caveat when auto picked the ordering", () => {
-    const p = regressionFixturePlan();
+  it("carries the status and caveat when the estate tie-break picked the ordering", () => {
+    const p = accumulationGoldenFixturePlan();
     const r = runPlan({ ...p, strategy: "auto" });
     if (r.autoSelected) {
       expect(r.autoSelectionStatus).toBe("APPROXIMATE");

@@ -9,7 +9,7 @@
 
 import { projection } from "./projection";
 import { FIXED_STRATEGIES } from "./strategy";
-import { adviceBlockers } from "./types";
+import { automaticSelectionBlockers, engageResultComponent } from "./types";
 import type {
   ComponentStatusEntry,
   PlanInputs,
@@ -112,22 +112,35 @@ export function runPlan(
   let best: { s: WithdrawalStrategy; P: ProjectionResult; short: number; est: number } | null =
     null;
   const candidates = new Map<WithdrawalStrategy, ProjectionResult>();
+  const ranking: Array<{ short: number; est: number }> = [];
   for (const s of FIXED_STRATEGIES) {
     const P = projection(inputs, { ...override, strategy: s });
     candidates.set(s, P);
     const short = shortfallYears(P);
     const est = afterTaxEstate(P);
+    ranking.push({ short, est });
     if (!best || short < best.short || (short === best.short && est > best.est)) {
       best = { s, P, short, est };
     }
   }
 
-  // VALID-1 gate: every candidate contributed to the ranking, so a blocker on
-  // any one of them taints the comparison. Reads componentStatuses, never the
-  // display-only aggregate.
+  // The estate approximation participates only when at least two strategies
+  // share the best shortfall count and their estate values differ. A unique
+  // shortfall winner is decided before the tie-break; equal estate values do
+  // not determine an ordering either.
+  const shortfallContenders = ranking.filter(({ short }) => short === best!.short);
+  const estateTieBreakEngaged = shortfallContenders.some(
+    ({ est }) => est !== shortfallContenders[0]!.est,
+  );
+
+  // Every candidate contributed to the ranking, so an existing hard blocker on
+  // any one of them suppresses automatic selection. VALID-2 coverage statuses
+  // still suppress downstream comparisons/recommendations, but do not replace
+  // the selected projection and therefore cannot move numerical anchors.
+  // Reads componentStatuses, never the display-only aggregate.
   const byComponent = new Map<string, ComponentStatusEntry>();
   for (const P of candidates.values()) {
-    for (const b of adviceBlockers(P.componentStatuses)) {
+    for (const b of automaticSelectionBlockers(P.componentStatuses)) {
       if (!byComponent.has(b.component)) byComponent.set(b.component, b);
     }
   }
@@ -151,12 +164,18 @@ export function runPlan(
 
   return {
     ...best!.P,
+    componentStatuses: estateTieBreakEngaged
+      ? engageResultComponent(best!.P.componentStatuses, "estate.afterTaxHaircut")
+      : best!.P.componentStatuses,
     chosenStrategy: best!.s,
     autoSelected: true,
-    // Batch 0D (§7.8): the tie-break is an approximation until the terminal
-    // return is modelled in Phase 1. Labelled here so every display of the
-    // chosen strategy can carry the caveat.
-    autoSelectionStatus: "APPROXIMATE",
-    autoSelectionNote: AUTO_SELECTION_NOTE,
+    // Batch 0D (§7.8): expose the approximation only when the estate
+    // tie-break actually participated in selecting the ordering.
+    ...(estateTieBreakEngaged
+      ? {
+          autoSelectionStatus: "APPROXIMATE" as const,
+          autoSelectionNote: AUTO_SELECTION_NOTE,
+        }
+      : {}),
   };
 }

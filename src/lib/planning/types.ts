@@ -18,6 +18,252 @@ import type { PersonRoomYear } from "./room";
  */
 export type RuleStatus = "VERIFIED" | "APPROXIMATE" | "UNSUPPORTED";
 
+export type ResultValidity = "OK" | "APPROXIMATE" | "WITHHELD";
+
+export interface ValidityReason {
+  /** Stable machine-readable identifier. Tests assert this, never the prose. */
+  code: string;
+  /** Client-facing sentence. */
+  detail: string;
+}
+
+interface ComponentStatusDefinition {
+  /** Status used unless the point of use supplies a rule-record status. */
+  status: RuleStatus;
+  substitutive: boolean;
+  group?: "cppSurvivor";
+  /** Existing hard gate that may replace an automatic ordering with a fallback. */
+  blocksAutomaticSelection?: boolean;
+  /** Every non-VERIFIED use must have one centrally registered reason. */
+  reason?: ValidityReason;
+}
+
+const CPP_SURVIVOR_REASON: ValidityReason = {
+  code: "CPP_SURVIVOR_REDUCTION_APPROXIMATE",
+  detail:
+    "The CPP survivor's pension uses a simplified combined-maximum reduction " +
+    "rather than the statutory component-level calculation, and the statutory " +
+    "base-portion cap is not applied. Because the split of the CPP entitlement " +
+    "into its base and enhanced portions is not available to this plan, the " +
+    "statutory amount may be higher or lower than the figure shown, potentially " +
+    "materially. This figure is shown for planning context and is not used to " +
+    "generate recommendations.",
+};
+
+/**
+ * Authoritative locked-in status-source schema. The component registry and the
+ * `UnlockRule` status-bearing fields are both derived from these keys, so a new
+ * production rule-status source cannot be added to one without appearing in
+ * the other.
+ */
+export const LOCKED_IN_STATUS_SOURCES = {
+  unlockEntitlement: {
+    component: "lockedIn.unlockEntitlement",
+    definition: {
+      status: "VERIFIED",
+      substitutive: false,
+      reason: {
+        code: "LOCKED_IN_UNLOCK_ENTITLEMENT_APPROXIMATE",
+        detail:
+          "An unlocking entitlement used by this projection has not been confirmed " +
+          "with the pension regulator. Projection-derived recommendations are " +
+          "suppressed while that entitlement participates in the projection.",
+      },
+    },
+  },
+  destinationVehicle: {
+    component: "lockedIn.destinationVehicle",
+    definition: {
+      status: "VERIFIED",
+      substitutive: false,
+      reason: {
+        code: "LOCKED_IN_DESTINATION_VEHICLE_APPROXIMATE",
+        detail:
+          "The destination vehicle used for unlocked pension money has not been " +
+          "confirmed with the pension regulator. Projection-derived recommendations " +
+          "are suppressed while that destination participates in the projection.",
+      },
+    },
+  },
+  lifMaximum: {
+    component: "lockedIn.lifMaximum",
+    definition: {
+      status: "VERIFIED",
+      substitutive: false,
+      reason: {
+        code: "LIF_MAXIMUM_APPROXIMATE",
+        detail:
+          "An applied LIF maximum uses an approximate annuity formula rather than a " +
+          "verified published table. Projection-derived recommendations are suppressed " +
+          "while that maximum participates in the projection.",
+      },
+    },
+  },
+} as const satisfies Record<
+  string,
+  { component: string; definition: ComponentStatusDefinition }
+>;
+
+export type LockedInStatusSourceKey = keyof typeof LOCKED_IN_STATUS_SOURCES;
+
+type LockedInComponentStatusRegistry = {
+  [K in LockedInStatusSourceKey as (typeof LOCKED_IN_STATUS_SOURCES)[K]["component"]]:
+    (typeof LOCKED_IN_STATUS_SOURCES)[K]["definition"];
+};
+
+const LOCKED_IN_COMPONENT_STATUS_REGISTRY = Object.fromEntries(
+  Object.values(LOCKED_IN_STATUS_SOURCES).map((source) => [
+    source.component,
+    source.definition,
+  ]),
+) as LockedInComponentStatusRegistry;
+
+/**
+ * VALID-2's single typed registry for every engine component that can affect
+ * validity or advice. Projection results are generated from this object, so a
+ * component cannot be added to one manually maintained list while being
+ * omitted from another.
+ */
+export const COMPONENT_STATUS_REGISTRY = {
+  "cpp.survivorOwnPensionUnadjusted": {
+    status: "VERIFIED",
+    substitutive: false,
+    group: "cppSurvivor",
+  },
+  "cpp.survivorIndexationBasis": {
+    status: "VERIFIED",
+    substitutive: false,
+    group: "cppSurvivor",
+  },
+  "cpp.survivorPayabilityPredicate": {
+    status: "VERIFIED",
+    substitutive: false,
+    group: "cppSurvivor",
+  },
+  "cpp.survivorBranchRates": {
+    status: "VERIFIED",
+    substitutive: false,
+    group: "cppSurvivor",
+  },
+  "cpp.survivorReduction": {
+    status: "APPROXIMATE",
+    substitutive: false,
+    group: "cppSurvivor",
+    blocksAutomaticSelection: true,
+    reason: CPP_SURVIVOR_REASON,
+  },
+  "cpp.survivorBaseCap": {
+    status: "UNSUPPORTED",
+    substitutive: false,
+    group: "cppSurvivor",
+    blocksAutomaticSelection: true,
+    reason: CPP_SURVIVOR_REASON,
+  },
+  "rrif.establishmentYearAmbiguousStart": {
+    status: "APPROXIMATE",
+    substitutive: false,
+    blocksAutomaticSelection: true,
+    reason: {
+      code: "RRIF_ESTABLISHMENT_DATE_UNKNOWN",
+      detail:
+        "A registered account already met its conversion condition in the first " +
+        "year of this plan, and the plan does not record the date the fund was " +
+        "entered into. The projection assumes the fund was entered into before the " +
+        "projection began and charges a minimum withdrawal for that first year. " +
+        "That is the conservative assumption: a fund actually entered into during " +
+        "the first year would have no minimum amount for that year, so the " +
+        "mandatory withdrawal and the tax on it may be overstated in year one.",
+    },
+  },
+  "rrif.transferRetention": {
+    status: "UNSUPPORTED",
+    substitutive: true,
+    blocksAutomaticSelection: true,
+    reason: {
+      code: "RRIF_TRANSFER_RETENTION_NOT_ENFORCED",
+      detail:
+        "The plan models a transfer out of a fund that left it short of the " +
+        "minimum amount it was required to pay for that year. Federal law requires " +
+        "the transferring fund to retain enough to make that payment, so a carrier " +
+        "would have restricted the transfer instead. The projection from that year " +
+        "forward describes a transaction that is not permitted, and its figures are " +
+        "not fit to advise on.",
+    },
+  },
+  ...LOCKED_IN_COMPONENT_STATUS_REGISTRY,
+  "taxYear.derived": {
+    status: "APPROXIMATE",
+    substitutive: false,
+    reason: {
+      code: "TAX_YEAR_DERIVED",
+      detail:
+        "At least one projected year uses an indexed tax-year record rather than a " +
+        "published table. Projection-derived recommendations are suppressed for " +
+        "figures that depend on those derived values.",
+    },
+  },
+  "estate.afterTaxHaircut": {
+    status: "APPROXIMATE",
+    substitutive: false,
+    reason: {
+      code: "ESTATE_AFTER_TAX_HAIRCUT_APPROXIMATE",
+      detail:
+        "Automatic withdrawal ordering used an approximate after-tax estate haircut " +
+        "to compare strategies. Projection-derived recommendations are suppressed " +
+        "while that comparison rule is engaged.",
+    },
+  },
+  "rrif.ageBasisWholeYear": {
+    status: "APPROXIMATE",
+    substitutive: false,
+    reason: {
+      code: "RRIF_AGE_BASIS_WHOLE_YEAR",
+      detail:
+        "An RRIF minimum or LIF maximum factor uses the projection's whole-year age " +
+        "proxy rather than a date-of-birth-derived statutory age. Projection-derived " +
+        "recommendations are suppressed while that lookup participates.",
+    },
+  },
+  "payroll.employeePremiums": {
+    status: "UNSUPPORTED",
+    substitutive: false,
+    reason: {
+      code: "PAYROLL_PREMIUMS_NOT_MODELLED",
+      detail:
+        "Employee CPP, CPP2 and EI premiums are not deducted; spendable cash is " +
+        "therefore overstated, and projection-derived recommendations are suppressed " +
+        "while employment income is present.",
+    },
+  },
+} as const satisfies Record<string, ComponentStatusDefinition>;
+
+export type ComponentId = keyof typeof COMPONENT_STATUS_REGISTRY;
+
+export interface ComponentStatusSource {
+  component: ComponentId;
+  status: RuleStatus;
+}
+
+/** Build a fixed or runtime-status source only from the authoritative registry. */
+export function componentStatusSource(
+  component: ComponentId,
+  status?: RuleStatus,
+): ComponentStatusSource {
+  const definition = (COMPONENT_STATUS_REGISTRY as Record<string, ComponentStatusDefinition>)[
+    component
+  ];
+  if (!definition) throw new Error(`Unregistered component status: ${String(component)}`);
+  return { component, status: status ?? definition.status };
+}
+
+/** Resolve a locked-in rule field through the authoritative source schema. */
+export function lockedInStatusSource(
+  source: LockedInStatusSourceKey,
+  status: RuleStatus,
+): ComponentStatusSource {
+  return componentStatusSource(LOCKED_IN_STATUS_SOURCES[source].component, status);
+}
+
 /**
  * The status of one rule component that participated in producing a figure.
  *
@@ -27,7 +273,7 @@ export type RuleStatus = "VERIFIED" | "APPROXIMATE" | "UNSUPPORTED";
  */
 export interface ComponentStatusEntry {
   /** Stable identifier, e.g. "cpp.survivorReduction". Tests assert this. */
-  component: string;
+  component: ComponentId;
   status: RuleStatus;
   /**
    * True when the component participated in producing a figure in this run.
@@ -45,13 +291,149 @@ export interface ComponentStatusEntry {
   substitutive: boolean;
 }
 
-export type ResultValidity = "OK" | "APPROXIMATE" | "WITHHELD";
+const RULE_STATUS_RANK: Record<RuleStatus, number> = {
+  VERIFIED: 0,
+  APPROXIMATE: 1,
+  UNSUPPORTED: 2,
+};
 
-export interface ValidityReason {
-  /** Stable machine-readable identifier. Tests assert this, never the prose. */
-  code: string;
-  /** Client-facing sentence. */
-  detail: string;
+/**
+ * Registry-backed accumulator for one row or one full run. An engaged
+ * non-VERIFIED status without a registered reason throws immediately, which is
+ * the runtime half of VALID-2's coverage guard.
+ */
+export class ComponentStatusTracker {
+  private readonly observed = new Map<ComponentId, RuleStatus>();
+  private readonly engaged = new Map<ComponentId, RuleStatus>();
+
+  observe(component: ComponentId, status: RuleStatus): void {
+    const definition = (COMPONENT_STATUS_REGISTRY as Record<string, ComponentStatusDefinition>)[
+      component
+    ];
+    if (!definition) throw new Error(`Unregistered component status: ${String(component)}`);
+    if (status !== "VERIFIED" && !definition.reason) {
+      throw new Error(`Non-VERIFIED component has no registered reason: ${component}`);
+    }
+    const previous = this.observed.get(component);
+    if (!previous || RULE_STATUS_RANK[status] > RULE_STATUS_RANK[previous]) {
+      this.observed.set(component, status);
+    }
+  }
+
+  engage(component: ComponentId, status?: RuleStatus): void {
+    const definition = (COMPONENT_STATUS_REGISTRY as Record<string, ComponentStatusDefinition>)[
+      component
+    ];
+    if (!definition) throw new Error(`Unregistered component status: ${String(component)}`);
+    const next = status ?? definition.status;
+    this.observe(component, next);
+    const previous = this.engaged.get(component);
+    if (!previous || RULE_STATUS_RANK[next] > RULE_STATUS_RANK[previous]) {
+      this.engaged.set(component, next);
+    }
+  }
+
+  /** Engage a point-of-use rule only when its actual status is non-VERIFIED. */
+  engageIfNonVerified(component: ComponentId, status: RuleStatus): void {
+    this.observe(component, status);
+    if (status !== "VERIFIED") this.engage(component, status);
+  }
+
+  engageGroup(group: NonNullable<ComponentStatusDefinition["group"]>): void {
+    for (const component of Object.keys(COMPONENT_STATUS_REGISTRY) as ComponentId[]) {
+      const definition = COMPONENT_STATUS_REGISTRY[component] as ComponentStatusDefinition;
+      if (definition.group === group) this.engage(component);
+    }
+  }
+
+  merge(entries: ComponentStatusEntry[]): void {
+    for (const entry of entries) {
+      this.observe(entry.component, entry.status);
+      if (entry.engaged) this.engage(entry.component, entry.status);
+    }
+  }
+
+  entries(): ComponentStatusEntry[] {
+    return (Object.keys(COMPONENT_STATUS_REGISTRY) as ComponentId[]).map((component) => {
+      const definition = COMPONENT_STATUS_REGISTRY[component];
+      return {
+        component,
+        status: this.engaged.get(component) ?? this.observed.get(component) ?? definition.status,
+        engaged: this.engaged.has(component),
+        substitutive: definition.substitutive,
+      };
+    });
+  }
+
+  reasons(): ValidityReason[] {
+    const seen = new Set<string>();
+    const reasons: ValidityReason[] = [];
+    for (const entry of this.entries()) {
+      if (!entry.engaged || entry.status === "VERIFIED") continue;
+      const reason = (COMPONENT_STATUS_REGISTRY[entry.component] as ComponentStatusDefinition).reason;
+      if (!reason || seen.has(reason.code)) continue;
+      seen.add(reason.code);
+      reasons.push(reason);
+    }
+    return reasons;
+  }
+}
+
+/**
+ * Record one typed production status source at its point of use. Observation is
+ * run-level; an actually used non-VERIFIED source is engaged in both the row
+ * and the full run, so row validity and advice gating cannot diverge.
+ */
+export function recordComponentStatusUse(
+  rowTracker: ComponentStatusTracker,
+  runTracker: ComponentStatusTracker,
+  source: ComponentStatusSource,
+  used: boolean,
+): void {
+  runTracker.observe(source.component, source.status);
+  if (!used || source.status === "VERIFIED") return;
+  rowTracker.engage(source.component, source.status);
+  runTracker.engage(source.component, source.status);
+}
+
+/**
+ * Status-backed disclosures can be added only through `addForStatus`, which
+ * records the same authoritative source before retaining the display string.
+ * Plain notices are reserved for refusals where no figure was produced.
+ */
+export class ComponentDisclosureCollector {
+  private readonly disclosures = new Set<string>();
+
+  addForStatus(
+    rowTracker: ComponentStatusTracker,
+    runTracker: ComponentStatusTracker,
+    source: ComponentStatusSource,
+    used: boolean,
+    detail: string,
+  ): void {
+    recordComponentStatusUse(rowTracker, runTracker, source, used);
+    if (used && source.status !== "VERIFIED") this.disclosures.add(detail);
+  }
+
+  addRefusal(detail: string): void {
+    this.disclosures.add(detail);
+  }
+
+  values(): string[] {
+    return [...this.disclosures];
+  }
+}
+
+/** Add one result-level component while preserving the registry's full shape. */
+export function engageResultComponent(
+  entries: ComponentStatusEntry[],
+  component: ComponentId,
+  status?: RuleStatus,
+): ComponentStatusEntry[] {
+  const tracker = new ComponentStatusTracker();
+  tracker.merge(entries);
+  tracker.engage(component, status);
+  return tracker.entries();
 }
 
 const VALIDITY_RANK: Record<ResultValidity, number> = {
@@ -90,6 +472,21 @@ export function adviceBlockers(
   entries: ComponentStatusEntry[],
 ): ComponentStatusEntry[] {
   return entries.filter((e) => e.engaged && !isAdviceGrade(e.status));
+}
+
+/**
+ * Components that may change an automatic ordering to the legacy deterministic
+ * fallback. VALID-2 coverage components suppress downstream recommendations
+ * but do not change the selected projection, preserving numerical anchors.
+ */
+export function automaticSelectionBlockers(
+  entries: ComponentStatusEntry[],
+): ComponentStatusEntry[] {
+  return adviceBlockers(entries).filter(
+    (entry) =>
+      (COMPONENT_STATUS_REGISTRY[entry.component] as ComponentStatusDefinition)
+        .blocksAutomaticSelection === true,
+  );
 }
 
 
@@ -615,9 +1012,9 @@ export interface ProjectionResult {
   /** Batch 0D. Non-registered distribution/ACB notices (e.g. ROC through zero). */
   nonregDisclosures: string[];
   /**
-   * Rule components registered with VALID-1. E1 registers only the
-   * CPP-survivor components specified below. Existing status/disclosure systems
-   * are not migrated in this batch.
+   * Registry-backed rule components. VALID-2 includes the pre-existing VALID-1
+   * components plus locked-in, derived-tax-year, estate, age-basis and payroll
+   * coverage used by the advice gates.
    */
   componentStatuses: ComponentStatusEntry[];
   /**
