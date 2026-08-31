@@ -11,7 +11,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { projection, UNLOCK_SOURCE_TYPES } from "./projection";
+import {
+  isProvenTransferringRrif,
+  projection,
+  transferUnderRetained,
+  UNLOCK_SOURCE_TYPES,
+} from "./projection";
 import { regressionFixturePlan } from "./fixtures";
 import { lifMaximumFor, rrifMinFactor } from "./registered";
 import type { AccountInput, PlanInputs, ProjectionResult } from "./types";
@@ -319,7 +324,7 @@ describe("R-2 — the minimum and the LIF maximum are struck on beginning-of-yea
     expect(rowAt(r, 72).regWithdraw).toBeCloseTo(300000 * (lm.pct / 100), 3);
   });
 
-  it("R2-4: a transfer that leaves a fund short of its minimum is UNSUPPORTED and withheld", () => {
+  it("E2-1: a pre-existing LIF transfer retains and pays its opening-FMV minimum", () => {
     const r = projection(
       probePlan({
         curAge: 66,
@@ -330,18 +335,105 @@ describe("R-2 — the minimum and the LIF maximum are struck on beginning-of-yea
         ],
       }),
     );
-    // Manitoba's age-65 right moves the whole balance out before step 6a, so
-    // the fund cannot pay the minimum it owed on its opening FMV.
+    // Manitoba's age-65 right requests the whole balance, but step 2 retains
+    // the minimum owed on opening FMV and step 6a pays it from the source LIF.
     const c = r.componentStatuses.find((x) => x.component === "rrif.transferRetention")!;
     expect(c.status).toBe("UNSUPPORTED");
     expect(c.substitutive).toBe(true);
-    expect(c.engaged).toBe(true);
-    expect(rowAt(r, 66).validity).toBe("WITHHELD");
-    expect(rowAt(r, 66).validityReasons.map((x) => x.code)).toContain(
+    expect(c.engaged).toBe(false);
+    expect(rowAt(r, 66).regWithdraw).toBeCloseTo(400000 * minF(66), 6);
+    expect(rowAt(r, 66).balances["lif"]).toBeCloseTo(0, 6);
+    expect(rowAt(r, 66).balances["lif_unlk"]).toBeCloseTo(
+      400000 * (1 - minF(66)),
+      6,
+    );
+    expect(rowAt(r, 66).validity).toBe("OK");
+    expect(rowAt(r, 67).validity).toBe("OK");
+  });
+
+  it("E2-1: the at-transfer retention invariant is independently testable", () => {
+    expect(transferUnderRetained(8398.825698224313, 8398.825698224313)).toBe(false);
+    expect(transferUnderRetained(8000, 8398.825698224313)).toBe(true);
+  });
+
+  it("E2-1: proven prior DCPP conversion retains the later transfer-year minimum", () => {
+    const r = projection(
+      probePlan({
+        curAge: 49,
+        endAge: 57,
+        ret: 0,
+        accounts: [
+          acct({ id: "dcpp", type: "DCPP", bal: 400000, juris: "MB", conv: 50, unlock: 100 }),
+        ],
+      }),
+    );
+
+    // The account genuinely establishes at 50 (off 1), five years before its
+    // first Manitoba unlock at 55 (off 6), so it has proven RRIF provenance.
+    expect(isProvenTransferringRrif("DCPP", 1, 6)).toBe(true);
+    expect(rowAt(r, 50).regWithdraw).toBe(0);
+    const opening55 = rowAt(r, 54).balances["dcpp"]!;
+    expect(rowAt(r, 55).balances["dcpp_unlk"]).toBeCloseTo(opening55 * 0.5, 6);
+    expect(rowAt(r, 55).regWithdraw).toBeCloseTo(opening55 * minF(55), 6);
+    expect(rowAt(r, 55).balances["dcpp"]).toBeCloseTo(
+      opening55 * (0.5 - minF(55)),
+      6,
+    );
+    expect(
+      r.componentStatuses.find((x) => x.component === "rrif.transferRetention")!.engaged,
+    ).toBe(false);
+  });
+
+  it("E2-1: a positive-return residual is released in later years instead of stranded", () => {
+    const r = projection(
+      probePlan({
+        curAge: 66,
+        endAge: 69,
+        ret: 0.1,
+        accounts: [
+          acct({ id: "lif", type: "LIF", bal: 400000, juris: "MB", conv: 55, unlock: 100 }),
+        ],
+      }),
+    );
+
+    // Year one retains its minimum, grows it by 10%, then pays the unchanged
+    // opening-FMV minimum, leaving only that retained amount's growth.
+    const firstResidual = 400000 * minF(66) * 0.1;
+    expect(rowAt(r, 66).balances["lif"]).toBeCloseTo(firstResidual, 6);
+    // The retained growth is still eligible next year. Advancing progress to
+    // 100% in year one would strand it and leave more than the year-one residual;
+    // correct progress accounting transfers it, retaining only the next minimum.
+    expect(rowAt(r, 67).balances["lif"]).toBeCloseTo(firstResidual * minF(67) * 0.1, 6);
+    expect(rowAt(r, 67).balances["lif"]).toBeLessThan(rowAt(r, 66).balances["lif"]!);
+    expect(
+      r.componentStatuses.find((x) => x.component === "rrif.transferRetention")!.engaged,
+    ).toBe(false);
+  });
+
+  it("E2-1: a post-transfer loss does not retroactively fail transfer retention", () => {
+    const r = projection(
+      probePlan({
+        curAge: 66,
+        endAge: 68,
+        ret: -0.5,
+        accounts: [
+          acct({ id: "lif", type: "LIF", bal: 400000, juris: "MB", conv: 55, unlock: 100 }),
+        ],
+      }),
+    );
+
+    // Step 2 retains the opening-FMV minimum. The deterministic 50% loss in
+    // step 4 later reduces that property, but statutory sufficiency was tested
+    // immediately after transfer and is not retroactively invalidated.
+    const c = r.componentStatuses.find((x) => x.component === "rrif.transferRetention")!;
+    expect(c.engaged).toBe(false);
+    expect(c.status).toBe("UNSUPPORTED");
+    expect(c.substitutive).toBe(true);
+    expect(rowAt(r, 66).validity).toBe("OK");
+    expect(rowAt(r, 66).validityReasons.map((x) => x.code)).not.toContain(
       "RRIF_TRANSFER_RETENTION_NOT_ENFORCED",
     );
-    // Withheld status propagates forward.
-    expect(rowAt(r, 67).validity).toBe("WITHHELD");
+    expect(rowAt(r, 67).validity).toBe("OK");
   });
 
   it("R2-5: an ordinary plan does not engage the transfer-retention component", () => {
@@ -506,6 +598,7 @@ describe("R-2 — the minimum and the LIF maximum are struck on beginning-of-yea
     // At 55 the fund is established (minimum nil) and moves everything it can
     // to the PRRIF. A nil minimum cannot be left unpaid.
     expect(rowAt(r, 55).regWithdraw).toBe(0);
+    expect(isProvenTransferringRrif("LIRA", 1, 1)).toBe(false);
     expect(
       r.componentStatuses.find((x) => x.component === "rrif.transferRetention")!.engaged,
     ).toBe(false);
@@ -514,8 +607,8 @@ describe("R-2 — the minimum and the LIF maximum are struck on beginning-of-yea
 
   it("R2-11: step 2's accepted unlock source types are exactly LIRA, DCPP and LIF", () => {
     // Structural guard. Widening this list must fail here rather than silently
-    // bypassing the `wasLifBeforeTransfer` provenance check: only a LIF is a
-    // RRIF arrangement bound by s.146.3(2)(e.1).
+    // bypassing the explicit-type/prior-establishment provenance check used to
+    // determine whether s.146.3(2)(e.1) applies.
     expect([...UNLOCK_SOURCE_TYPES]).toEqual(["LIRA", "DCPP", "LIF"]);
   });
 
@@ -536,11 +629,10 @@ describe("R-2 — the minimum and the LIF maximum are struck on beginning-of-yea
     // Identical in shape to R2-4 except the arrangement type at intake: this
     // one is a LIRA, so Manitoba's age-65 right moves the whole balance out of
     // an RRSP-type arrangement and s.146.3(2)(e.1) has nothing to say about it.
+    expect(isProvenTransferringRrif("LIRA", undefined, 0)).toBe(false);
     expect(
       r.componentStatuses.find((x) => x.component === "rrif.transferRetention")!.engaged,
     ).toBe(false);
     expect(r.rows.every((x) => x.validity !== "WITHHELD")).toBe(true);
   });
 });
-
-

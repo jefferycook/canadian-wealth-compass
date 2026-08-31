@@ -54,6 +54,31 @@ import { worstValidity, validityFromComponents } from "./types";
  */
 export const UNLOCK_SOURCE_TYPES = ["LIRA", "DCPP", "LIF"] as const;
 
+/** E2-1 invariant: true only when an actual post-transfer balance is too small. */
+export function transferUnderRetained(
+  retainedBalance: number,
+  requiredRetention: number,
+): boolean {
+  return retainedBalance + 1e-6 < requiredRetention;
+}
+
+/**
+ * Proven RRIF/LIF provenance at the transfer point. Derived age status is not
+ * enough: an intake LIRA/DCPP already past conversion remains ambiguous.
+ */
+export function isProvenTransferringRrif(
+  preTransferType: AccountType,
+  establishedOff: number | undefined,
+  currentOff: number,
+): boolean {
+  return (
+    preTransferType === "LIF" ||
+    ((preTransferType === "LIRA" || preTransferType === "DCPP") &&
+      establishedOff != null &&
+      establishedOff < currentOff)
+  );
+}
+
 
 import type {
 
@@ -135,11 +160,10 @@ const RRIF_ESTABLISHMENT_REASON: ValidityReason = {
 
 /**
  * R2.4 / ITA s.146.3(2)(e.1): a transferring RRIF must retain enough to pay its
- * own minimum amount for the year of the transfer. The engine unlocks before it
- * computes minimums, so a transfer can leave the fund short; the payment is then
- * clamped to what is left. The identifier names the statutory component; the
- * reason code names the failure. `substitutive: true` — a stand-in (the clamped
- * payment) is put in the place of the statutory amount — so the row is WITHHELD.
+ * own minimum amount for the year of the transfer. E2-1 enforces and tests that
+ * requirement at the transfer point in step 2, before later investment returns.
+ * This component remains the detector/gate if a future transfer path is still
+ * under-retained at that point.
  */
 const RRIF_TRANSFER_RETENTION_COMPONENT: Omit<ComponentStatusEntry, "engaged"> = {
   component: "rrif.transferRetention",
@@ -432,8 +456,8 @@ export function projection(
      */
     const beginBal: Record<string, number> = {};
     for (const a of accts) beginBal[a.id] = a.bal;
-    /** R2.4: funds that moved money out during this year (unlock transfers). */
-    const transferredOutThisYear = new Set<string>();
+    /** E2-1: a transfer was under-retained at the transfer point this year. */
+    let transferRetentionThisRow = false;
 
 
     /* --- 1. Spousal rollover at the year of passing (tax-free) --- */
@@ -459,13 +483,16 @@ export function projection(
     // balance-at-65 are both available to the same client.
     for (const a of [...accts]) {
       if (!(UNLOCK_SOURCE_TYPES as readonly string[]).includes(a.type)) continue;
-      // s.146.3(2)(e.1) binds a transferring RRIF. Of the step-2 sources —
-      // LIRA, DCPP, LIF — only a LIF is one. Read the type BEFORE the mutation
-      // below converts a LIRA to LIF, or every converting LIRA looks like a
-      // transferring RRIF. Do NOT use isRRIFnow(): it reports RRIF status for a
-      // LIRA or DCPP past its conversion age, and those are RRSP-type
-      // arrangements, not RRIFs.
-      const wasLifBeforeTransfer = a.type === "LIF";
+      // s.146.3(2)(e.1) binds a transferring RRIF. Proven provenance is either
+      // an explicit pre-transfer LIF or a LIRA/DCPP genuinely established in a
+      // PRIOR projection year. Do NOT use isRRIFnow(): derived age status would
+      // misclassify an already-converted intake account whose establishment
+      // date and actual arrangement type are ambiguous (R2-12).
+      const wasTransferringRrif = isProvenTransferringRrif(
+        a.type,
+        establishedAtOff[a.id],
+        off,
+      );
       const jr = tryUnlockRule(a.juris);
 
       // No silent Ontario default. An unknown jurisdiction, or one whose
@@ -503,17 +530,38 @@ export function projection(
       const remainingFrac = Math.max(0, 1 - already);
       const takeFrac =
         remainingFrac <= 1e-9 ? 0 : Math.min(1, (target - already) / remainingFrac);
-      const moved = a.bal * takeFrac;
+      const requestedMove = a.bal * takeFrac;
+      // E2-1 / ITA s.146.3(2)(e.1): a proven transferring RRIF must retain the
+      // minimum struck on its opening FMV. Provenance comes from an explicit
+      // LIF or prior in-projection establishment; a current-year transition has
+      // a nil minimum, and ambiguous intake status is not inferred from age.
+      const minimumToRetain = wasTransferringRrif
+        ? (beginBal[a.id] ?? 0) * (rrifMinFactor(ageNow) / 100)
+        : 0;
+      const transferable = Math.max(0, a.bal - minimumToRetain);
+      const moved = Math.min(requestedMove, transferable);
+      const retentionCapped = moved + 1e-9 < requestedMove;
       if (moved <= 0.01) {
-        a.unlockedFraction = target;
+        // A retention cap may prevent even a dust transfer. Do not consume the
+        // entitlement unless the requested incremental transfer was completed.
+        if (!retentionCapped) a.unlockedFraction = target;
         continue;
       }
+      const balanceBeforeMove = a.bal;
       a.bal -= moved;
-      // R2.4: record the transfer out, so step 6a can tell a fund that was
-      // left short of its minimum amount by a transfer from one that simply
-      // never had the money.
-      if (wasLifBeforeTransfer) transferredOutThisYear.add(a.id);
-      a.unlockedFraction = target;
+      // ITA s.146.3(2)(e.1)/(e.2): sufficiency is tested immediately after the
+      // transfer, on the assumption that retained property does not later
+      // decline. A step-4 market loss must not retroactively fail this test.
+      if (wasTransferringRrif && transferUnderRetained(a.bal, minimumToRetain)) {
+        transferRetentionThisRow = true;
+      }
+      // Record only the share actually moved. If minimum retention caps a full
+      // unlock, later years must be able to transfer residual property left by
+      // post-transfer growth after the retained minimum is paid.
+      a.unlockedFraction = Math.min(
+        target,
+        already + (moved / balanceBeforeMove) * remainingFrac,
+      );
       // §13.2 — an APPROXIMATE component must be flagged wherever the number
       // it produces is displayed. The entitlement drives HOW MUCH moves, so it
       // needs its own disclosure, not just the destination vehicle.
@@ -880,9 +928,6 @@ export function projection(
 
     /** R-3: an ambiguous-start account was met in this row. */
     let rrifAmbiguousThisRow = false;
-    /** R2.4: a transfer left a fund short of its own minimum amount this year. */
-    let transferRetentionThisRow = false;
-
     for (const a of accts) {
       const age = ages[oi(a)]!;
       if (isRRIFnow(a, age)) {
@@ -946,13 +991,6 @@ export function projection(
             // same beginning-of-year balance as the minimum.
             lifCapRemaining[a.id] = Math.max(0, base * maxF - minW);
           }
-        }
-        if (minW > a.bal + 1e-6 && transferredOutThisYear.has(a.id)) {
-          // R2.4 / ITA s.146.3(2)(e.1): the fund transferred out and cannot now
-          // pay the minimum amount it owed for the year. A carrier would have
-          // restricted the transfer; the engine cannot, so the payment is
-          // clamped and the row is withheld rather than silently substituted.
-          transferRetentionThisRow = true;
         }
         minW = Math.min(minW, a.bal);
         a.bal -= minW;
@@ -1406,7 +1444,6 @@ export function projection(
     if (survivorRuleEngagedThisRow) carriedReasons.push(CPP_SURVIVOR_REASON);
     if (rrifAmbiguousThisRow) carriedReasons.push(RRIF_ESTABLISHMENT_REASON);
     if (transferRetentionThisRow) carriedReasons.push(RRIF_TRANSFER_RETENTION_REASON);
-
     carriedValidity = worstValidity(ownValidity, carriedValidity);
     const rowReasons = dedupeReasons(carriedReasons);
 

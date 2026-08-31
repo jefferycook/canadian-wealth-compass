@@ -4,7 +4,7 @@ Maintained by whichever agent finds an issue. Purpose: ChatGPT, Claude and Lovab
 can all see current blockers without Jeff relaying them. Update the entry until it is
 resolved, then move it to **Resolved**.
 
-**Last updated:** E2 ratification · by Lovable (the six E2 anchor movements are APPROVED and re-pinned)
+**Last updated:** E2-1 transfer-retention enforcement · 2026-08-25
 
 **Current anchors (of record): 202,530 / 406,524 / 1,756,006**, plus the
 frozen-bracket single-filer variant at **281,105**, the Manitoba locked-in
@@ -520,28 +520,28 @@ RRIF minimum and for the balance-based limb of the LIF maximum. The opening
 value is snapshotted before the spousal rollover and before any unlock, so
 in-year growth, contributions and transfers no longer inflate the minimum.
 
-**R2.4 — s.146.3(2)(e.1) transfer retention.** Where an unlock transfer leaves a
-fund unable to pay the minimum it owed on its opening FMV, the payment is
-clamped and the row is WITHHELD: component `rrif.transferRetention`,
-UNSUPPORTED and **substitutive**, reason
-`RRIF_TRANSFER_RETENTION_NOT_ENFORCED`.
+**E2-1 / R2.4 — s.146.3(2)(e.1) transfer retention — IMPLEMENTED, AWAITING INDEPENDENT AUDIT.**
+Step 2 restricts a pre-existing LIF's transfer to its current balance less the
+minimum owed on opening FMV. Step 6a then pays that retained minimum. The
+`rrif.transferRetention` remains an independently tested invariant guard for an
+actual at-transfer under-retention state. The enforced transfer cap is expected
+not to reach it. Proven transferor provenance includes an explicit LIF and a
+LIRA/DCPP genuinely established in a prior projection year. A current-year
+conversion retains zero; an ambiguous already-converted intake LIRA/DCPP is not
+classified from derived age status and remains under the existing R-3 treatment.
 
-**Correction (2026-08-25).** The original E2 entry said this component "engaged
-on no golden fixture". That was false and is corrected here rather than
-deleted. Measured facts:
+When retention caps a requested transfer, `unlockedFraction` advances only by
+the share actually moved. This leaves post-transfer growth on the retained
+minimum eligible for transfer in later years instead of falsely consuming the
+entitlement. Transfer sufficiency is tested immediately after the transfer,
+before investment returns. A later market loss cannot retroactively engage the
+UNSUPPORTED/substitutive WITHHELD guard; the pure invariant check has positive
+unit coverage without manufacturing an invalid projection path.
 
-- `rrif.transferRetention` **does** engage on `lockedInGoldenFixturePlan()`,
-  from **age 65 onward**.
-- At 65 the source LIF holds **$209,970.64**; the engine transfers **all** of it
-  to the PRRIF, and the fund still owes a minimum of **$8,398.83**, which it can
-  no longer pay.
-- Rows **65–90** of that fixture therefore carry `validity: "WITHHELD"` with
-  `RRIF_TRANSFER_RETENTION_NOT_ENFORCED`.
-- This is an **accepted known limitation**, not a defect to work around. The
-  engine is correctly refusing to treat a legally impermissible transfer as
-  advice-grade. Enforcement (restricting the transfer rather than detecting it)
-  is booked for the next locked-in batch; test R2-4 remains the positive proof
-  the detector works.
+`lockedInGoldenFixturePlan()` is the positive regression: at age 65 the LIF
+retains and pays **$8,398.83** rather than transferring an infeasible full
+balance. Its age-65-and-later rows are no longer WITHHELD. Rounded lifetime-tax
+and terminal-portfolio anchors remain **113,283 / 131,458**.
 
 **Correction (2026-08-25) — verification story.** The E2 verification of record
 is the **repair pass**, not the original run. The original run re-pinned every

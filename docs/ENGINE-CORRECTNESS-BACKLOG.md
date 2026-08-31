@@ -423,15 +423,20 @@ of them is off by a year. Verify before Phase 1; no code change until verified.
 
 ## E2 follow-ups (recorded 2026-08-25 at the E2 ratification commit)
 
-- **E2-1 [C] — enforce transfer retention in step 2 (next locked-in batch).**
-  Today the engine *detects* an infeasible full transfer out of a LIF and
-  withholds the row (`rrif.transferRetention`, ITA s.146.3(2)(e.1)). It should
-  *restrict* the transfer to the amount the fund may legally move — the opening
-  FMV less the minimum amount it still owes — so the modelled path becomes
-  legally feasible instead of merely flagged. `lockedInGoldenFixturePlan()` must
-  stay exactly as it is: its rows from age 65 are currently `WITHHELD`, and it
-  becomes the regression proving the fix restores a feasible path (and moves the
-  MB anchors off 113,283 / 131,458 for a reason that must then be approved).
+- **E2-1 [C] — IMPLEMENTED, AWAITING INDEPENDENT AUDIT.** Step 2 now restricts a transfer out of a
+  pre-existing LIF to its current balance less the minimum owed on opening FMV.
+  Step 6a pays the retained minimum, so `rrif.transferRetention` does not engage
+  and the path is no longer withheld. An independently tested invariant guard
+  remains for an actual at-transfer under-retention state; the enforced path is
+  expected not to reach it. Establishment-year funds retain zero. A LIRA/DCPP
+  proven to have converted in a prior projection year retains a later transfer-
+  year minimum, while ambiguous already-converted intake accounts remain
+  excluded. `lockedInGoldenFixturePlan()`
+  is unchanged and proves the age-65 path is feasible. Its rounded anchors remain
+  113,283 / 131,458. Retention-capped progress records only the share actually
+  moved, so post-transfer growth cannot strand a residual LIF. Compliance is
+  tested immediately after transfer; a later market loss does not retroactively
+  engage the defensive WITHHELD gate.
 
 - **E2-2 [A] — the draw solver's lumpy age-60 registered withdrawal.** On the
   locked-in fixture the solver takes a single large registered draw at age 60
