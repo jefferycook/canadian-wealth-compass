@@ -23,6 +23,7 @@ import { FIXED_STRATEGIES } from "./strategy";
 import { getTaxYear } from "./taxYears";
 import {
   adviceBlockers,
+  automaticSelectionBlockers,
   isAdviceGrade,
   validityFromComponents,
   worstValidity,
@@ -184,7 +185,15 @@ const survivorPlan = survivorProbePlan({ survAge: 75, survCppAge: 65 });
 
 describe("VALID-1 — validity model", () => {
   it("V1: a plan with no non-VERIFIED engaged component is OK everywhere", () => {
-    const P = projection(regressionFixturePlan(), { startYear: 2026 });
+    const base = regressionFixturePlan();
+    const P = projection(
+      {
+        ...base,
+        endAge: 60,
+        accounts: [base.accounts.find((account) => account.type === "TFSA")!],
+      },
+      { startYear: 2026 },
+    );
     expect(P.validity).toBe("OK");
     expect(P.validityReasons).toEqual([]);
     expect(P.rows.every((r) => r.validity === "OK")).toBe(true);
@@ -193,7 +202,10 @@ describe("VALID-1 — validity model", () => {
   it("V2: validity propagates forward once a row is APPROXIMATE", () => {
     const P = projection(survivorGoldenFixturePlan(), { startYear: 2026 });
     const first = P.rows.findIndex((r) => r.validity !== "OK");
-    expect(first).toBe(8);
+    expect(first).toBe(1);
+    expect(P.rows[first]!.validityReasons.map((r) => r.code)).toContain(
+      "TAX_YEAR_DERIVED",
+    );
     expect(P.rows.slice(first).every((r) => r.validity === "APPROXIMATE")).toBe(true);
   });
 
@@ -205,6 +217,7 @@ describe("VALID-1 — validity model", () => {
     );
     expect(P.validity).toBe(worst);
     expect(P.validityReasons.map((r) => r.code)).toEqual([
+      "TAX_YEAR_DERIVED",
       "CPP_SURVIVOR_REDUCTION_APPROXIMATE",
     ]);
   });
@@ -223,7 +236,7 @@ describe("VALID-1 — validity model", () => {
     expect(/\.validity\b/.test(SRC("analysis.ts"))).toBe(false);
   });
 
-  it("V5: an SK locked-in unlocking case stays OK at the plan level", () => {
+  it("V5: an SK unlock refusal does not make the plan WITHHELD", () => {
     const base = regressionFixturePlan();
     const plan: PlanInputs = {
       ...base,
@@ -234,7 +247,10 @@ describe("VALID-1 — validity model", () => {
     };
     const P = projection(plan, { startYear: 2026 });
     expect(P.lockedInDisclosures.length).toBeGreaterThan(0);
-    expect(P.validity).toBe("OK");
+    expect(P.validity).toBe("APPROXIMATE");
+    expect(P.validityReasons.map((r) => r.code)).not.toContain(
+      "LOCKED_IN_UNLOCK_ENTITLEMENT_APPROXIMATE",
+    );
   });
 
   it("V6: underlying figures stay populated on a non-OK row", () => {
@@ -248,10 +264,11 @@ describe("VALID-1 — validity model", () => {
 
   it("V7: reasons are asserted by code, and the code is stable", () => {
     const P = projection(survivorGoldenFixturePlan(), { startYear: 2026 });
-    expect(P.rows[8]!.validityReasons[0]!.code).toBe(
-      "CPP_SURVIVOR_REDUCTION_APPROXIMATE",
+    const reason = P.rows[8]!.validityReasons.find(
+      (entry) => entry.code === "CPP_SURVIVOR_REDUCTION_APPROXIMATE",
     );
-    expect(P.rows[8]!.validityReasons[0]!.detail.length).toBeGreaterThan(0);
+    expect(reason?.code).toBe("CPP_SURVIVOR_REDUCTION_APPROXIMATE");
+    expect(reason!.detail.length).toBeGreaterThan(0);
   });
 
   it("V8: isAdviceGrade is true only for VERIFIED", () => {
@@ -262,22 +279,42 @@ describe("VALID-1 — validity model", () => {
 
   it("V9: engaged UNSUPPORTED and substitutive maps to WITHHELD", () => {
     const e: ComponentStatusEntry[] = [
-      { component: "x", status: "UNSUPPORTED", engaged: true, substitutive: true },
+      {
+        component: "rrif.transferRetention",
+        status: "UNSUPPORTED",
+        engaged: true,
+        substitutive: true,
+      },
     ];
     expect(validityFromComponents(e)).toBe("WITHHELD");
   });
 
   it("V10: engaged UNSUPPORTED and non-substitutive maps to APPROXIMATE", () => {
     const e: ComponentStatusEntry[] = [
-      { component: "x", status: "UNSUPPORTED", engaged: true, substitutive: false },
+      {
+        component: "payroll.employeePremiums",
+        status: "UNSUPPORTED",
+        engaged: true,
+        substitutive: false,
+      },
     ];
     expect(validityFromComponents(e)).toBe("APPROXIMATE");
   });
 
   it("V11: a non-engaged non-VERIFIED component affects nothing", () => {
     const e: ComponentStatusEntry[] = [
-      { component: "x", status: "UNSUPPORTED", engaged: false, substitutive: true },
-      { component: "y", status: "APPROXIMATE", engaged: false, substitutive: false },
+      {
+        component: "rrif.transferRetention",
+        status: "UNSUPPORTED",
+        engaged: false,
+        substitutive: true,
+      },
+      {
+        component: "taxYear.derived",
+        status: "APPROXIMATE",
+        engaged: false,
+        substitutive: false,
+      },
     ];
     expect(validityFromComponents(e)).toBe("OK");
     expect(adviceBlockers(e)).toEqual([]);
@@ -328,7 +365,8 @@ describe("VALID-1 — advice gates", () => {
   it("A2: a plan with no death still auto-selects and ranks as before", () => {
     const R = runPlan({ ...coupleGoldenFixturePlan(), strategy: "auto" }, { startYear: 2026 });
     expect(R.autoSelected).toBe(true);
-    expect(R.autoSelectionStatus).toBe("APPROXIMATE");
+    expect(R.autoSelectionStatus).toBeUndefined();
+    expect(R.autoSelectionNote).toBeUndefined();
     expect(R.autoSelectionBlockers).toBeUndefined();
   });
 
@@ -351,7 +389,7 @@ describe("VALID-1 — advice gates", () => {
     const union = new Set<string>();
     for (const s of FIXED_STRATEGIES) {
       const P = projection(survivorPlan, { startYear: 2026, strategy: s });
-      for (const b of adviceBlockers(P.componentStatuses)) union.add(b.component);
+      for (const b of automaticSelectionBlockers(P.componentStatuses)) union.add(b.component);
     }
     const R = runPlan({ ...survivorPlan, strategy: "auto" }, { startYear: 2026 });
     expect([...(R.autoSelectionBlockers ?? [])].sort()).toEqual([...union].sort());
@@ -365,16 +403,11 @@ describe("VALID-1 — advice gates", () => {
     expect(rows.every((r) => r.estateDelta === 0)).toBe(true);
   });
 
-  it("A8: strategy comparison on a no-death plan is unchanged", () => {
+  it("A8: VALID-2 statuses suppress comparison advice on a no-death plan", () => {
     const rows = compareStrategies(coupleGoldenFixturePlan(), "nonreg_reg_tfsa");
-    expect(rows.every((r) => r.comparisonWithheld === undefined)).toBe(true);
-    const sorted = [...rows].sort(
-      (a, b) => a.shortfallYears - b.shortfallYears || b.afterTaxEstate - a.afterTaxEstate,
-    );
-    expect(rows.map((r) => r.key)).toEqual(sorted.map((r) => r.key));
-    // Deltas are computed (not suppressed); their values are the pre-E1 values.
-    expect(rows.every((r) => Number.isFinite(r.estateDelta))).toBe(true);
-    expect(rows.find((r) => r.chosen)!.estateDelta).toBe(0);
+    expect(rows.map((r) => r.key)).toEqual([...FIXED_STRATEGIES]);
+    expect(rows.every((r) => r.comparisonWithheld === true)).toBe(true);
+    expect(rows.every((r) => r.estateDelta === 0)).toBe(true);
   });
 
   it("A9: no projection-derived recommendation survives on a survivor plan", () => {
@@ -413,14 +446,14 @@ describe("VALID-1 — advice gates", () => {
     expect(ids).toContain("recommendations-withheld");
   });
 
-  it("A11: a no-death plan keeps the full recommendation set", () => {
+  it("A11: VALID-2 statuses suppress derived recommendations without a death", () => {
     const plan = coupleGoldenFixturePlan();
     const P = runPlan(plan, { startYear: 2026 });
     const strategies = compareStrategies(plan, P.chosenStrategy);
     const goal = goalProgress(plan, P);
     const ids = buildRecommendations(plan, P, strategies, goal).map((r) => r.id);
-    expect(ids).not.toContain("recommendations-withheld");
-    expect(ids.some((id) => ["funded", "shortfall"].includes(id))).toBe(true);
+    expect(ids).toContain("recommendations-withheld");
+    expect(ids.some((id) => ["funded", "shortfall"].includes(id))).toBe(false);
   });
 
   it("A12: a withheld strategy comparison suppresses projection recommendations", () => {

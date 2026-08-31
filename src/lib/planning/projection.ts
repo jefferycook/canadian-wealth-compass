@@ -45,7 +45,15 @@ import {
   type PersonRoomYear,
 } from "./room";
 
-import { worstValidity, validityFromComponents } from "./types";
+import {
+  ComponentDisclosureCollector,
+  ComponentStatusTracker,
+  componentStatusSource,
+  lockedInStatusSource,
+  recordComponentStatusUse,
+  worstValidity,
+  validityFromComponents,
+} from "./types";
 
 /**
  * The account types step 2 accepts as an unlock source. Exported so a test can
@@ -84,7 +92,6 @@ import type {
 
   AccountInput,
   AccountType,
-  ComponentStatusEntry,
   IncomeComponents,
 
   PersonInput,
@@ -98,89 +105,6 @@ import type {
   WorkingAccount,
   WorkingAsset,
 } from "./types";
-
-/**
- * VALID-1 / CPP-1: the CPP survivor rule components. `engaged` is set true for
- * a run whenever the s.58 survivor calculation participates in the row —
- * including when it produces a result of exactly zero, since the approximate
- * combined-maximum ceiling can itself clamp the benefit to nil.
- *
- * `cpp.survivorReduction` is APPROXIMATE because the combined-maximum ceiling
- * stands in for the statutory component-level erosion. `cpp.survivorBaseCap`
- * (the 25%-of-MPEA cap on the base portion) is UNSUPPORTED and NOT
- * substitutive: no other rule is put in its place, the limb is simply absent
- * and the absence is declared.
- */
-const CPP_SURVIVOR_COMPONENTS: ReadonlyArray<Omit<ComponentStatusEntry, "engaged">> = [
-  { component: "cpp.survivorOwnPensionUnadjusted", status: "VERIFIED", substitutive: false },
-  { component: "cpp.survivorIndexationBasis", status: "VERIFIED", substitutive: false },
-  { component: "cpp.survivorPayabilityPredicate", status: "VERIFIED", substitutive: false },
-  { component: "cpp.survivorBranchRates", status: "VERIFIED", substitutive: false },
-  { component: "cpp.survivorReduction", status: "APPROXIMATE", substitutive: false },
-  { component: "cpp.survivorBaseCap", status: "UNSUPPORTED", substitutive: false },
-];
-
-const CPP_SURVIVOR_REASON: ValidityReason = {
-  code: "CPP_SURVIVOR_REDUCTION_APPROXIMATE",
-  detail:
-    "The CPP survivor's pension uses a simplified combined-maximum reduction " +
-    "rather than the statutory component-level calculation, and the statutory " +
-    "base-portion cap is not applied. Because the split of the CPP entitlement " +
-    "into its base and enhanced portions is not available to this plan, the " +
-    "statutory amount may be higher or lower than the figure shown, potentially " +
-    "materially. This figure is shown for planning context and is not used to " +
-    "generate recommendations.",
-};
-
-/**
- * R-3: an account entered at intake as an RRSP/LIRA/DCPP whose conversion
- * condition is ALREADY met in the first projection year is ambiguous — the
- * input model carries no conversion date, so the engine cannot tell whether the
- * fund was entered into this calendar year or an earlier one. The RULE is
- * verified; what is approximate is the model basis. The conservative reading is
- * taken: the fund is assumed pre-existing and a minimum is charged.
- */
-const RRIF_ESTABLISHMENT_COMPONENT: Omit<ComponentStatusEntry, "engaged"> = {
-  component: "rrif.establishmentYearAmbiguousStart",
-  status: "APPROXIMATE",
-  substitutive: false,
-};
-
-const RRIF_ESTABLISHMENT_REASON: ValidityReason = {
-  code: "RRIF_ESTABLISHMENT_DATE_UNKNOWN",
-  detail:
-    "A registered account already met its conversion condition in the first " +
-    "year of this plan, and the plan does not record the date the fund was " +
-    "entered into. The projection assumes the fund was entered into before the " +
-    "projection began and charges a minimum withdrawal for that first year. " +
-    "That is the conservative assumption: a fund actually entered into during " +
-    "the first year would have no minimum amount for that year, so the " +
-    "mandatory withdrawal and the tax on it may be overstated in year one.",
-};
-
-/**
- * R2.4 / ITA s.146.3(2)(e.1): a transferring RRIF must retain enough to pay its
- * own minimum amount for the year of the transfer. E2-1 enforces and tests that
- * requirement at the transfer point in step 2, before later investment returns.
- * This component remains the detector/gate if a future transfer path is still
- * under-retained at that point.
- */
-const RRIF_TRANSFER_RETENTION_COMPONENT: Omit<ComponentStatusEntry, "engaged"> = {
-  component: "rrif.transferRetention",
-  status: "UNSUPPORTED",
-  substitutive: true,
-};
-
-const RRIF_TRANSFER_RETENTION_REASON: ValidityReason = {
-  code: "RRIF_TRANSFER_RETENTION_NOT_ENFORCED",
-  detail:
-    "The plan models a transfer out of a fund that left it short of the " +
-    "minimum amount it was required to pay for that year. Federal law requires " +
-    "the transferring fund to retain enough to make that payment, so a carrier " +
-    "would have restricted the transfer instead. The projection from that year " +
-    "forward describes a transaction that is not permitted, and its figures are " +
-    "not fit to advise on.",
-};
 
 /** Deduplicate validity reasons by `code`, preserving first-seen order. */
 function dedupeReasons(reasons: ValidityReason[]): ValidityReason[] {
@@ -391,8 +315,8 @@ export function projection(
   );
   const roomDisclosures = new Set<string>();
   /** Batch 0C locked-in disclosures (withheld / approximate), point-of-use. */
-  const lockedInDisclosures = new Set<string>();
-  const taxYearDisclosures = new Set<string>();
+  const lockedInDisclosures = new ComponentDisclosureCollector();
+  const taxYearDisclosures = new ComponentDisclosureCollector();
   const nonregDisclosures = new Set<string>();
   /** The most recent closed year of each person's ledger. */
   let lastClosedRoom: PersonRoomYear[] = [];
@@ -402,12 +326,8 @@ export function projection(
   /** VALID-1: validity carried forward from the previous year's closing state. */
   let carriedValidity: ResultValidity = "OK";
   const carriedReasons: ValidityReason[] = [];
-  /** CPP-1: true once the survivor branch has produced a value in any year. */
-  let cppSurvivorEngaged = false;
-  /** R-3: true once an ambiguous-start account has been met in any year. */
-  let rrifAmbiguousEngaged = false;
-  /** R2.4: true once an infeasible transfer has left a fund short of its minimum. */
-  let transferRetentionEngaged = false;
+  /** VALID-2: registry-backed union of every component engaged in the run. */
+  const runComponentTracker = new ComponentStatusTracker();
 
   // Whether the household has ever held investable assets. A plan that starts
   // with nothing invested cannot "run out" of investments — that is an intake
@@ -416,6 +336,7 @@ export function projection(
 
 
   for (let off = 0; off <= endAge - curAgeA; off++) {
+    const rowComponentTracker = new ComponentStatusTracker();
     const yr = startYear + off;
     const infFac = Math.pow(1 + infl, off);
     // Batch 0D: statutory amounts are indexed past the last published table
@@ -435,7 +356,11 @@ export function projection(
             oasThresh: opts.oasThresh * idxFac,
           };
     if (tyY.derivedFrom != null) {
-      taxYearDisclosures.add(
+      taxYearDisclosures.addForStatus(
+        rowComponentTracker,
+        runComponentTracker,
+        componentStatusSource("taxYear.derived"),
+        true,
         `Tax years after ${tyY.derivedFrom} are indexed from the published ${tyY.derivedFrom} table at ${(idxRate * 100).toFixed(1)}% per year (APPROXIMATE): brackets, personal amounts, the age and pension amounts and the OAS recovery threshold. Published years are exact.`,
       );
     }
@@ -494,13 +419,27 @@ export function projection(
         off,
       );
       const jr = tryUnlockRule(a.juris);
+      if (jr) {
+        recordComponentStatusUse(
+          rowComponentTracker,
+          runComponentTracker,
+          lockedInStatusSource("unlockEntitlement", jr.unlockEntitlement.status),
+          false,
+        );
+        recordComponentStatusUse(
+          rowComponentTracker,
+          runComponentTracker,
+          lockedInStatusSource("destinationVehicle", jr.destinationVehicle.status),
+          false,
+        );
+      }
 
       // No silent Ontario default. An unknown jurisdiction, or one whose
       // unlocking entitlement is UNSUPPORTED, has its unlock WITHHELD — the
       // rest of the client's projection and tax are unaffected (§13.2a).
       if (!jr || jr.unlockEntitlement.status === "UNSUPPORTED") {
         if ((override.unlockAll ?? a.unlock ?? 0) > 0 || !jr) {
-          lockedInDisclosures.add(
+          lockedInDisclosures.addRefusal(
             `Pension jurisdiction ${a.juris ?? "(not specified)"} is not yet supported: unlocking for "${
               a.name || a.type
             }" is withheld. No other jurisdiction's rule is substituted.`,
@@ -566,12 +505,20 @@ export function projection(
       // it produces is displayed. The entitlement drives HOW MUCH moves, so it
       // needs its own disclosure, not just the destination vehicle.
       if (jr.unlockEntitlement.status === "APPROXIMATE") {
-        lockedInDisclosures.add(
+        lockedInDisclosures.addForStatus(
+          rowComponentTracker,
+          runComponentTracker,
+          lockedInStatusSource("unlockEntitlement", jr.unlockEntitlement.status),
+          true,
           `${jr.name}: the unlocking percentage (${jr.partialPct}%) and minimum age (${jr.partialMinAge}) are carried from the original engine and have not been confirmed with the regulator. Confirm the amount shown with your plan administrator before relying on it.`,
         );
       }
-      if (jr.destinationVehicle.status === "APPROXIMATE") {
-        lockedInDisclosures.add(
+      if (jr.destinationVehicle.status !== "VERIFIED") {
+        lockedInDisclosures.addForStatus(
+          rowComponentTracker,
+          runComponentTracker,
+          lockedInStatusSource("destinationVehicle", jr.destinationVehicle.status),
+          true,
           `${jr.name}: the destination vehicle for unlocked locked-in money is modelled as an ${jr.destinationType} but has not been verified against the regulator.`,
         );
       }
@@ -956,6 +903,12 @@ export function projection(
         }
         const establishedThisYear = establishedAtOff[a.id] === off;
 
+        recordComponentStatusUse(
+          rowComponentTracker,
+          runComponentTracker,
+          componentStatusSource("rrif.ageBasisWholeYear"),
+          true,
+        );
         const minF = rrifMinFactor(age) / 100;
         /**
          * R-2: the base is the fair market value at the BEGINNING of the year.
@@ -974,15 +927,26 @@ export function projection(
           // minimum: nothing in s.146.3(1) touches it, so it is computed in an
           // establishment year exactly as in any other year.
           const lm = lifMaximumFor(a.juris, age, opts.lifRate);
+          const lifMaximumSource = lockedInStatusSource("lifMaximum", lm.status);
+          recordComponentStatusUse(
+            rowComponentTracker,
+            runComponentTracker,
+            lifMaximumSource,
+            false,
+          );
           if (lm.status === "UNSUPPORTED") {
-            lockedInDisclosures.add(
+            lockedInDisclosures.addRefusal(
               `Pension jurisdiction ${a.juris ?? "(not specified)"} is not yet supported: the LIF maximum for "${
                 a.name || a.type
               }" is withheld and no other jurisdiction's table is substituted.`,
             );
           } else if (lm.applies) {
             if (lm.status === "APPROXIMATE") {
-              lockedInDisclosures.add(
+              lockedInDisclosures.addForStatus(
+                rowComponentTracker,
+                runComponentTracker,
+                lifMaximumSource,
+                true,
                 `LIF maximum for ${a.juris} is an approximation (annuity formula at the reference rate), not the published table.`,
               );
             }
@@ -1429,21 +1393,18 @@ export function projection(
     for (const ry of closedRoom) for (const d of ry.disclosures) roomDisclosures.add(d);
 
     /* --- VALID-1: this row's own validity, then forward propagation --- */
-    if (survivorRuleEngagedThisRow) cppSurvivorEngaged = true;
-    if (rrifAmbiguousThisRow) rrifAmbiguousEngaged = true;
-    if (transferRetentionThisRow) transferRetentionEngaged = true;
-    const rowComponents: ComponentStatusEntry[] = [
-      ...CPP_SURVIVOR_COMPONENTS.map((c) => ({
-        ...c,
-        engaged: survivorRuleEngagedThisRow,
-      })),
-      { ...RRIF_ESTABLISHMENT_COMPONENT, engaged: rrifAmbiguousThisRow },
-      { ...RRIF_TRANSFER_RETENTION_COMPONENT, engaged: transferRetentionThisRow },
-    ];
+    if (survivorRuleEngagedThisRow) rowComponentTracker.engageGroup("cppSurvivor");
+    if (rrifAmbiguousThisRow) {
+      rowComponentTracker.engage("rrif.establishmentYearAmbiguousStart");
+    }
+    if (transferRetentionThisRow) rowComponentTracker.engage("rrif.transferRetention");
+    if (alive.some((isAlive, i) => isAlive && raw[i]!.employInc > 0)) {
+      rowComponentTracker.engage("payroll.employeePremiums");
+    }
+    const rowComponents = rowComponentTracker.entries();
+    runComponentTracker.merge(rowComponents);
     const ownValidity = validityFromComponents(rowComponents);
-    if (survivorRuleEngagedThisRow) carriedReasons.push(CPP_SURVIVOR_REASON);
-    if (rrifAmbiguousThisRow) carriedReasons.push(RRIF_ESTABLISHMENT_REASON);
-    if (transferRetentionThisRow) carriedReasons.push(RRIF_TRANSFER_RETENTION_REASON);
+    carriedReasons.push(...rowComponentTracker.reasons());
     carriedValidity = worstValidity(ownValidity, carriedValidity);
     const rowReasons = dedupeReasons(carriedReasons);
 
@@ -1516,11 +1477,7 @@ export function projection(
   const spousalNote =
     couple && lastClosedRoom.length === 2 ? spousalRrspDisclosure(lastClosedRoom) : null;
 
-  const componentStatuses: ComponentStatusEntry[] = [
-    ...CPP_SURVIVOR_COMPONENTS.map((c) => ({ ...c, engaged: cppSurvivorEngaged })),
-    { ...RRIF_ESTABLISHMENT_COMPONENT, engaged: rrifAmbiguousEngaged },
-    { ...RRIF_TRANSFER_RETENTION_COMPONENT, engaged: transferRetentionEngaged },
-  ];
+  const componentStatuses = runComponentTracker.entries();
 
 
   return {
@@ -1530,8 +1487,8 @@ export function projection(
     validity: rows.reduce<ResultValidity>((w, r) => worstValidity(w, r.validity), "OK"),
     validityReasons: dedupeReasons(rows.flatMap((r) => r.validityReasons)),
     roomDisclosures: [...roomDisclosures, ...(spousalNote ? [spousalNote] : [])],
-    lockedInDisclosures: [...lockedInDisclosures],
-    taxYearDisclosures: [...taxYearDisclosures],
+    lockedInDisclosures: lockedInDisclosures.values(),
+    taxYearDisclosures: taxYearDisclosures.values(),
     nonregDisclosures: [...nonregDisclosures],
     roomValidationErrors,
 

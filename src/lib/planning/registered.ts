@@ -5,7 +5,12 @@
  * Ported verbatim from the verified original engine. Pure functions.
  */
 
-import type { JurisdictionKey, RuleStatus } from "./types";
+import { LOCKED_IN_STATUS_SOURCES } from "./types";
+import type {
+  JurisdictionKey,
+  LockedInStatusSourceKey,
+  RuleStatus,
+} from "./types";
 
 // VALID-1 (§2.1): the single definition of RuleStatus lives in types.ts.
 // Re-exported here for compatibility with existing import paths.
@@ -181,12 +186,13 @@ export interface RuleComponent {
 }
 
 /** The three locked-in components a calculation can read. */
-export type UnlockComponentKey =
-  | "unlockEntitlement"
-  | "destinationVehicle"
-  | "lifMaximum";
+export type UnlockComponentKey = LockedInStatusSourceKey;
 
-export interface UnlockRule {
+type UnlockRuleStatusComponents = {
+  [K in UnlockComponentKey]: RuleComponent;
+};
+
+export interface UnlockRule extends UnlockRuleStatusComponents {
   name: string;
   /** Percentage available as the partial (age-based) unlock. */
   partialPct: number;
@@ -206,11 +212,6 @@ export interface UnlockRule {
   lifMaxNoneFromAge?: number;
   /** Procedural detail a client would need in order to act. */
   notes: string;
-
-  /* Component-level metadata (Erratum 4B). */
-  unlockEntitlement: RuleComponent;
-  destinationVehicle: RuleComponent;
-  lifMaximum: RuleComponent;
 
   /* ---- Legacy derived aliases, kept so existing callers/tests hold ---- */
   /** @deprecated use `partialPct`. */
@@ -614,11 +615,9 @@ const STATUS_RANK: Record<RuleStatus, number> = {
   UNSUPPORTED: 2,
 };
 
-export const UNLOCK_COMPONENTS: UnlockComponentKey[] = [
-  "unlockEntitlement",
-  "destinationVehicle",
-  "lifMaximum",
-];
+export const UNLOCK_COMPONENTS = Object.keys(
+  LOCKED_IN_STATUS_SOURCES,
+) as UnlockComponentKey[];
 
 /**
  * Look up a rule without throwing. UI paths that must render a saved but
