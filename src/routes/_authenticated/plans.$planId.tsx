@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PlanResults } from "@/components/plan/PlanResults";
+import { ProjectionValidityDisclosure } from "@/components/plan/ProjectionValidityDisclosure";
 import { GoalPanel, NetWorthPanel } from "@/components/plan/PlanInsights";
 import { StrategiesWorkspace } from "@/components/plan/PlanStrategies";
 import { WhatIfWorkspace } from "@/components/plan/PlanWhatIf";
@@ -220,49 +221,52 @@ function PlanBuilder() {
         ) : results.isPending ? (
           <p className="text-muted-foreground">Running the projection…</p>
         ) : results.data ? (
-          <Tabs defaultValue="projection">
-            <TabsList className="mb-6 flex h-auto flex-wrap justify-start">
-              <TabsTrigger value="projection">Projection</TabsTrigger>
-              <TabsTrigger value="networth">Net worth</TabsTrigger>
-              <TabsTrigger value="goal">Goal progress</TabsTrigger>
-              <TabsTrigger value="strategies">Strategies</TabsTrigger>
-              <TabsTrigger value="advice">Recommendations</TabsTrigger>
-              <TabsTrigger value="whatif">What if</TabsTrigger>
-              <TabsTrigger value="scenarios">Saved scenarios</TabsTrigger>
-            </TabsList>
-            <TabsContent value="projection">
-              <PlanResults output={results.data.output} />
-            </TabsContent>
-            <TabsContent value="networth">
-              <NetWorthPanel view={results.data.netWorth} />
-            </TabsContent>
-            <TabsContent value="goal">
-              <GoalPanel goal={results.data.goal} couple={draft.people.length > 1} />
-            </TabsContent>
-            <TabsContent value="strategies">
-              <StrategiesWorkspace draft={draft} patch={patch} onApplyToScenario={setPatch} />
-            </TabsContent>
-            <TabsContent value="advice">
-              <OpportunitiesWorkspace
-                draft={draft}
-                baseline={baselineRun.data?.metrics}
-                patch={patch}
-                onApplyToScenario={setPatch}
-              />
-            </TabsContent>
-            <TabsContent value="whatif">
-              <WhatIfWorkspace draft={draft} patch={patch} onChange={setPatch} />
-            </TabsContent>
-            <TabsContent value="scenarios">
-              <ScenariosWorkspace
-                planId={planId}
-                draft={draft}
-                patch={patch}
-                onOpenScenario={setPatch}
-                onReset={() => setPatch({})}
-              />
-            </TabsContent>
-          </Tabs>
+          <div className="space-y-6">
+            <ProjectionValidityDisclosure output={results.data.output} />
+            <Tabs defaultValue="projection">
+              <TabsList className="mb-6 flex h-auto flex-wrap justify-start">
+                <TabsTrigger value="projection">Projection</TabsTrigger>
+                <TabsTrigger value="networth">Net worth</TabsTrigger>
+                <TabsTrigger value="goal">Goal progress</TabsTrigger>
+                <TabsTrigger value="strategies">Strategies</TabsTrigger>
+                <TabsTrigger value="advice">Recommendations</TabsTrigger>
+                <TabsTrigger value="whatif">What if</TabsTrigger>
+                <TabsTrigger value="scenarios">Saved scenarios</TabsTrigger>
+              </TabsList>
+              <TabsContent value="projection">
+                <PlanResults output={results.data.output} />
+              </TabsContent>
+              <TabsContent value="networth">
+                <NetWorthPanel view={results.data.netWorth} />
+              </TabsContent>
+              <TabsContent value="goal">
+                <GoalPanel goal={results.data.goal} couple={draft.people.length > 1} />
+              </TabsContent>
+              <TabsContent value="strategies">
+                <StrategiesWorkspace draft={draft} patch={patch} onApplyToScenario={setPatch} />
+              </TabsContent>
+              <TabsContent value="advice">
+                <OpportunitiesWorkspace
+                  draft={draft}
+                  baseline={baselineRun.data?.metrics}
+                  patch={patch}
+                  onApplyToScenario={setPatch}
+                />
+              </TabsContent>
+              <TabsContent value="whatif">
+                <WhatIfWorkspace draft={draft} patch={patch} onChange={setPatch} />
+              </TabsContent>
+              <TabsContent value="scenarios">
+                <ScenariosWorkspace
+                  planId={planId}
+                  draft={draft}
+                  patch={patch}
+                  onOpenScenario={setPatch}
+                  onReset={() => setPatch({})}
+                />
+              </TabsContent>
+            </Tabs>
+          </div>
         ) : (
           <p className="text-destructive">The projection could not be run.</p>
         )}

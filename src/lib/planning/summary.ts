@@ -13,7 +13,12 @@ import {
   portfolioExhaustionAge,
   shortfallYears,
 } from "./engine";
-import type { AccountMeta, PlanResult } from "./types";
+import type {
+  AccountMeta,
+  PlanResult,
+  ResultValidity,
+  ValidityReason,
+} from "./types";
 
 export interface PlanChartPoint {
   age: number;
@@ -115,6 +120,14 @@ export interface PlanOutput {
   roomDisclosures: string[];
   /** Input-contract problems the client should correct (CRA figures that clash). */
   roomValidationErrors: string[];
+  /**
+   * Engine-owned validity for every client-visible result derived from this
+   * projection. Presentation may display it, but must not reconstruct it from
+   * plan inputs or use it to make calculation decisions.
+   */
+  validity: ResultValidity;
+  /** Engine-owned, centrally registered reasons, already deduplicated by code. */
+  validityReasons: ValidityReason[];
   /**
    * Batch 0D. Approximation notices that must appear wherever these numbers
    * are shown: indexed (unpublished) tax years, non-registered ACB events and
@@ -230,6 +243,8 @@ export function summarize(P: PlanResult): PlanOutput {
     accounts: P.acctMeta,
     roomDisclosures: P.roomDisclosures,
     roomValidationErrors: P.roomValidationErrors,
+    validity: P.validity,
+    validityReasons: P.validityReasons,
     methodDisclosures: [
       ...P.taxYearDisclosures,
       ...P.nonregDisclosures,
