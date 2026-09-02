@@ -51,7 +51,6 @@ function baseDraft(): PlanDraft {
     {
       ...emptyPerson("A"),
       firstName: "Alex",
-      dob: "1966-01-01",
       curAge: 60,
       retAge: 65,
       employ: 100000,
@@ -71,7 +70,6 @@ function coupleDraft(): PlanDraft {
     {
       ...emptyPerson("B"),
       firstName: "Bailey",
-      dob: "1968-01-01",
       curAge: 58,
       retAge: 65,
       employ: 80000,

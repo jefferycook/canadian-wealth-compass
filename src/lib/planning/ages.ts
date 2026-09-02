@@ -21,9 +21,9 @@
  *     owner attaining 65 during the year has 26 annual-in-advance periods at
  *     6% — exactly FSRA Appendix A's 7.25513%.
  *
- * Both helpers are pure: date of birth and calendar year in, whole-year age
- * out. Neither reads the clock. They differ by exactly one year except for a
- * January-1 birthday, where they coincide.
+ * Both statutory age-basis helpers are pure: date of birth and calendar year
+ * in, whole-year age out. Neither reads the clock. They differ by exactly one
+ * year except for a January-1 birthday, where they coincide.
  *
  * Verified against primary sources 2026-08-21.
  */
@@ -42,6 +42,46 @@ function parseDob(dob: string | null | undefined): { y: number; m: number; d: nu
   const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate();
   if (d > daysInMonth) return null;
   return { y, m: mo, d };
+}
+
+/**
+ * Whole-year age on an actual calendar date.
+ *
+ * This is the one runtime current-age convention used by draft normalization
+ * and by UI controls. A February-29 birthday advances on March 1 in a
+ * non-leap year: on February 28 the calendar month/day is still before 02-29.
+ */
+export function ageFromDob(
+  dob: string | null | undefined,
+  asOf: Date = new Date(),
+): number | null {
+  const b = parseDob(dob);
+  if (!b || Number.isNaN(asOf.getTime())) return null;
+  let age = asOf.getFullYear() - b.y;
+  const month = asOf.getMonth() + 1;
+  const beforeBirthday = month < b.m || (month === b.m && asOf.getDate() < b.d);
+  if (beforeBirthday) age -= 1;
+  return age >= 0 && age <= 120 ? age : null;
+}
+
+/**
+ * Runtime age authority for persisted drafts. A usable DOB wins; the stored
+ * age remains only as compatibility data for legacy or unusable DOB values.
+ */
+export function effectiveCurrentAge(
+  dob: string | null | undefined,
+  persistedCurAge: number | null | undefined,
+  asOf: Date = new Date(),
+): number | null {
+  const derived = ageFromDob(dob, asOf);
+  if (derived != null) return derived;
+  const usablePersistedAge =
+    persistedCurAge != null &&
+    Number.isFinite(persistedCurAge) &&
+    Number.isInteger(persistedCurAge) &&
+    persistedCurAge >= 0 &&
+    persistedCurAge <= 120;
+  return usablePersistedAge ? persistedCurAge : null;
 }
 
 /**

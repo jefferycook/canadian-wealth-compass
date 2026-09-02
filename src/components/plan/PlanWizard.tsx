@@ -15,10 +15,10 @@ import {
   NumberField,
   SelectField,
   TextField,
-  ageFromDob,
   money,
 } from "@/components/plan/fields";
 import { annualFromMonthly } from "@/lib/planning/units";
+import { ageFromDob, effectiveCurrentAge } from "@/lib/planning/ages";
 import { BenefitEstimator } from "@/components/plan/BenefitEstimator";
 import { monthlyMortgagePayment } from "@/lib/planning/estimates";
 import type { PersonDraft, PlanDraft } from "@/lib/planning/draft";
@@ -208,8 +208,8 @@ function HouseholdStep({ draft, onChange }: StepProps) {
           <DateField
             label="Date of birth"
             hint={
-              p.curAge != null
-                ? `Age ${p.curAge} today. Drives CPP, OAS, RRIF and LIF timing.`
+              effectiveCurrentAge(p.dob, p.curAge) != null
+                ? `Age ${effectiveCurrentAge(p.dob, p.curAge)} today. Drives CPP, OAS, RRIF and LIF timing.`
                 : "Drives CPP, OAS, RRIF conversion and LIF timing."
             }
             value={p.dob}
@@ -676,7 +676,7 @@ function PropertyStep({ draft, onChange }: StepProps) {
 
   // Assets are entered as calendar years; the engine works in Person A's ages.
   const me = draft.people[0];
-  const meAge = me?.curAge ?? ageFromDob(me?.dob ?? null);
+  const meAge = effectiveCurrentAge(me?.dob, me?.curAge);
   const nowYear = new Date().getFullYear();
   const toYear = (age: number) => (meAge == null || !age ? null : nowYear + (age - meAge));
   const toAge = (year: number | null) =>

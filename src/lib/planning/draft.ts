@@ -25,6 +25,7 @@ import type {
   ProvinceKey,
   WithdrawalStrategy,
 } from "./types";
+import { effectiveCurrentAge } from "./ages";
 import { getProvince, getTaxYear, LATEST_TAX_YEAR } from "./taxYears";
 
 /** Every property becomes answerable-or-not. */
@@ -111,12 +112,19 @@ const num = (v: number | null | undefined, fallback: number) =>
   v == null || Number.isNaN(v) ? fallback : v;
 
 function normalizePerson(p: PersonDraft): PersonInput {
+  const curAge = effectiveCurrentAge(p.dob, p.curAge);
+  if (curAge == null) {
+    throw new Error(
+      `Cannot normalize person ${p.id}: a valid date of birth or persisted current age is required.`,
+    );
+  }
+
   return {
     id: p.id,
     firstName: p.firstName,
     lastName: p.lastName,
     ...(p.dob ? { dob: p.dob } : {}),
-    curAge: num(p.curAge, 0),
+    curAge,
     // 999 is the engine's "never works" sentinel; a client who hasn't given a
     // retirement age is not asserting that they retire today.
     retAge: num(p.retAge, 999),
