@@ -131,8 +131,9 @@ export interface PlanOutput {
   autoSelectionBlockers?: string[];
   /**
    * Batch 0D. Approximation notices that must appear wherever these numbers
-   * are shown: indexed (unpublished) tax years and non-registered ACB events.
-   * Automatic-selection limitations use their dedicated fields above.
+   * are shown: indexed tax years, non-registered ACB events, and locked-in
+   * rules or refusals. Automatic-selection limitations use their dedicated
+   * fields above.
    */
   methodDisclosures: string[];
 }
@@ -245,6 +246,12 @@ export function summarize(P: PlanResult): PlanOutput {
     ...(P.autoSelectionStatus ? { autoSelectionStatus: P.autoSelectionStatus } : {}),
     ...(P.autoSelectionNote ? { autoSelectionNote: P.autoSelectionNote } : {}),
     ...(P.autoSelectionBlockers ? { autoSelectionBlockers: P.autoSelectionBlockers } : {}),
-    methodDisclosures: [...P.taxYearDisclosures, ...P.nonregDisclosures],
+    methodDisclosures: [
+      ...new Set([
+        ...P.taxYearDisclosures,
+        ...P.nonregDisclosures,
+        ...P.lockedInDisclosures,
+      ]),
+    ],
   };
 }

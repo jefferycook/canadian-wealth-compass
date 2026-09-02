@@ -248,8 +248,8 @@ describe("VALID-1 — validity model", () => {
     const P = projection(plan, { startYear: 2026 });
     expect(P.lockedInDisclosures.length).toBeGreaterThan(0);
     expect(P.validity).toBe("APPROXIMATE");
-    expect(P.validityReasons.map((r) => r.code)).not.toContain(
-      "LOCKED_IN_UNLOCK_ENTITLEMENT_APPROXIMATE",
+    expect(P.validityReasons.map((r) => r.code)).toContain(
+      "LOCKED_IN_UNLOCK_ENTITLEMENT_NOT_VERIFIED",
     );
   });
 
