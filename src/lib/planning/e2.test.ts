@@ -354,7 +354,7 @@ describe("R-2 — the minimum and the LIF maximum are struck on beginning-of-yea
     );
     expect(rowAt(r, 66).validity).toBe("APPROXIMATE");
     expect(rowAt(r, 66).validityReasons.map((x) => x.code)).toEqual(
-      expect.arrayContaining(["LIF_MAXIMUM_APPROXIMATE", "RRIF_AGE_BASIS_WHOLE_YEAR"]),
+      expect.arrayContaining(["LIF_MAXIMUM_NOT_VERIFIED", "RRIF_AGE_BASIS_WHOLE_YEAR"]),
     );
     expect(rowAt(r, 67).validity).toBe("APPROXIMATE");
   });
@@ -439,7 +439,7 @@ describe("R-2 — the minimum and the LIF maximum are struck on beginning-of-yea
     expect(c.substitutive).toBe(true);
     expect(rowAt(r, 66).validity).toBe("APPROXIMATE");
     expect(rowAt(r, 66).validityReasons.map((x) => x.code)).toEqual(
-      expect.arrayContaining(["LIF_MAXIMUM_APPROXIMATE", "RRIF_AGE_BASIS_WHOLE_YEAR"]),
+      expect.arrayContaining(["LIF_MAXIMUM_NOT_VERIFIED", "RRIF_AGE_BASIS_WHOLE_YEAR"]),
     );
     expect(rowAt(r, 66).validityReasons.map((x) => x.code)).not.toContain(
       "RRIF_TRANSFER_RETENTION_NOT_ENFORCED",

@@ -162,7 +162,7 @@ describe("VALID-2 — universal component-status coverage", () => {
     });
     expect(P.rows[0]!.validity).toBe("APPROXIMATE");
     expect(P.rows[0]!.validityReasons.map((x) => x.code)).toContain(
-      "LIF_MAXIMUM_APPROXIMATE",
+      "LIF_MAXIMUM_NOT_VERIFIED",
     );
     expect(recommendationIds(plan)).toContain("recommendations-withheld");
   });

@@ -63,11 +63,12 @@ export const LOCKED_IN_STATUS_SOURCES = {
       status: "VERIFIED",
       substitutive: false,
       reason: {
-        code: "LOCKED_IN_UNLOCK_ENTITLEMENT_APPROXIMATE",
+        code: "LOCKED_IN_UNLOCK_ENTITLEMENT_NOT_VERIFIED",
         detail:
-          "An unlocking entitlement used by this projection has not been confirmed " +
-          "with the pension regulator. Projection-derived recommendations are " +
-          "suppressed while that entitlement participates in the projection.",
+          "An unlocking entitlement that participates in this projection is not " +
+          "regulator-verified. An approximate entitlement is modelled as disclosed; " +
+          "an unavailable entitlement is refused without substituting another " +
+          "jurisdiction's rule. Projection-derived recommendations are suppressed.",
       },
     },
   },
@@ -77,11 +78,11 @@ export const LOCKED_IN_STATUS_SOURCES = {
       status: "VERIFIED",
       substitutive: false,
       reason: {
-        code: "LOCKED_IN_DESTINATION_VEHICLE_APPROXIMATE",
+        code: "LOCKED_IN_DESTINATION_VEHICLE_NOT_VERIFIED",
         detail:
-          "The destination vehicle used for unlocked pension money has not been " +
-          "confirmed with the pension regulator. Projection-derived recommendations " +
-          "are suppressed while that destination participates in the projection.",
+          "A destination vehicle used for unlocked pension money is not " +
+          "regulator-verified. It participates only when a transfer is modelled; " +
+          "projection-derived recommendations are suppressed while it is used.",
       },
     },
   },
@@ -91,11 +92,12 @@ export const LOCKED_IN_STATUS_SOURCES = {
       status: "VERIFIED",
       substitutive: false,
       reason: {
-        code: "LIF_MAXIMUM_APPROXIMATE",
+        code: "LIF_MAXIMUM_NOT_VERIFIED",
         detail:
-          "An applied LIF maximum uses an approximate annuity formula rather than a " +
-          "verified published table. Projection-derived recommendations are suppressed " +
-          "while that maximum participates in the projection.",
+          "A LIF maximum that participates in this projection is not regulator-verified. " +
+          "An available approximate maximum is enforced as disclosed; when the maximum " +
+          "is unavailable, additional LIF withdrawals are refused without substituting " +
+          "another jurisdiction's rule. Projection-derived recommendations are suppressed.",
       },
     },
   },

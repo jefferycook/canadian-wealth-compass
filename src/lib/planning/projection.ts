@@ -278,6 +278,9 @@ export function projection(
         ? 71
         : people[pIndex[a.owner] ?? 0]!.retAge || 71;
 
+  const isPreConversionLocked = (a: WorkingAccount, age: number) =>
+    (a.type === "LIRA" || a.type === "DCPP") && age < convAgeOf(a);
+
   const expenses = inputs.expenses;
   const otherInc = inputs.otherIncome;
   const lumps = inputs.lumpSums;
@@ -418,6 +421,7 @@ export function projection(
         establishedAtOff[a.id],
         off,
       );
+      const requestedUnlock = override.unlockAll ?? a.unlock ?? 0;
       const jr = tryUnlockRule(a.juris);
       if (jr) {
         recordComponentStatusUse(
@@ -438,8 +442,12 @@ export function projection(
       // unlocking entitlement is UNSUPPORTED, has its unlock WITHHELD — the
       // rest of the client's projection and tax are unaffected (§13.2a).
       if (!jr || jr.unlockEntitlement.status === "UNSUPPORTED") {
-        if ((override.unlockAll ?? a.unlock ?? 0) > 0 || !jr) {
-          lockedInDisclosures.addRefusal(
+        if (requestedUnlock > 0) {
+          lockedInDisclosures.addForStatus(
+            rowComponentTracker,
+            runComponentTracker,
+            lockedInStatusSource("unlockEntitlement", "UNSUPPORTED"),
+            true,
             `Pension jurisdiction ${a.juris ?? "(not specified)"} is not yet supported: unlocking for "${
               a.name || a.type
             }" is withheld. No other jurisdiction's rule is substituted.`,
@@ -451,7 +459,7 @@ export function projection(
       const ageNow = people[idx]!.curAge + off;
       const maxPct = maxUnlockPctAtAge(jr, ageNow);
       if (maxPct <= 0) continue;
-      const desired = override.unlockAll != null ? override.unlockAll : a.unlock || 0;
+      const desired = requestedUnlock;
       if (desired <= 0) continue;
       // Cumulative target fraction of the ORIGINAL locked-in money.
       const target = Math.min(desired, maxPct) / 100;
@@ -858,6 +866,8 @@ export function projection(
     // A LIRA/LIF unlock moves that share to RRIF treatment, so no maximum
     // applies to the unlocked portion.
     const lifCapRemaining: Record<string, number> = {};
+    /** Accounts whose legal maximum is unavailable, used only to explain a refused schedule. */
+    const unsupportedLifMaximum = new Set<string>();
     // A PRRIF is in RRIF status from the moment it is created, so no maximum
     // applies to it. Its MINIMUM, however, does not start immediately: a fund
     // created this year was entered into this year, and ITA s.146.3(1) makes
@@ -935,11 +945,18 @@ export function projection(
             false,
           );
           if (lm.status === "UNSUPPORTED") {
-            lockedInDisclosures.addRefusal(
+            lockedInDisclosures.addForStatus(
+              rowComponentTracker,
+              runComponentTracker,
+              lifMaximumSource,
+              true,
               `Pension jurisdiction ${a.juris ?? "(not specified)"} is not yet supported: the LIF maximum for "${
                 a.name || a.type
-              }" is withheld and no other jurisdiction's table is substituted.`,
+              }" is unavailable, so additional LIF withdrawals are not modelled and no other jurisdiction's table or formula is substituted.`,
             );
+            // Operational refusal capacity only; this is not a statutory maximum of zero.
+            lifCapRemaining[a.id] = 0;
+            unsupportedLifMaximum.add(a.id);
           } else if (lm.applies) {
             if (lm.status === "APPROXIMATE") {
               lockedInDisclosures.addForStatus(
@@ -968,7 +985,33 @@ export function projection(
     for (const a of accts) {
       const age = ages[oi(a)]!;
       if (a.wd > 0 && age >= a.wdStart && age <= (a.wdEnd || 999) && a.bal > 0) {
-        const w = Math.min(a.wd * infFac, a.bal);
+        if (isPreConversionLocked(a, age)) {
+          lockedInDisclosures.addRefusal(
+            `The requested scheduled withdrawal for "${
+              a.name || a.type
+            }" is not modelled before the account's LIF conversion age. Jurisdiction-specific unlocking must use the locked-in unlocking mechanism.`,
+          );
+          continue;
+        }
+        const requested = a.wd * infFac;
+        const available = Math.min(requested, a.bal);
+        const remainingLifCap = isLockedIn(a, age) ? lifCapRemaining[a.id] : undefined;
+        const w =
+          remainingLifCap == null ? available : Math.min(available, remainingLifCap);
+        if (remainingLifCap != null) {
+          lifCapRemaining[a.id] = Math.max(0, remainingLifCap - w);
+          if (w + 0.01 < available) {
+            lockedInDisclosures.addRefusal(
+              unsupportedLifMaximum.has(a.id)
+                ? `The requested scheduled LIF withdrawal for "${
+                    a.name || a.type
+                  }" is not modelled because its legal annual maximum is unavailable. No other jurisdiction's rule is substituted.`
+                : `The requested scheduled LIF withdrawal for "${
+                    a.name || a.type
+                  }" was limited to the remaining annual LIF maximum.`,
+            );
+          }
+        }
         const p = P[oi(a)]!;
         if (a.type === "TFSA") {
           p.schedTfsaCash += w;
@@ -1191,11 +1234,9 @@ export function projection(
     // Locked-in DC/LIRA money before conversion is not drawable; converted LIF
     // accounts are capped at the LIF maximum.
     const order = strategyOrder(accts, strategy);
-    const locked = (a: WorkingAccount) =>
-      (a.type === "DCPP" || a.type === "LIRA") && ages[oi(a)]! < convAgeOf(a);
 
     const drawable = order
-      .filter((a) => a.bal > 0.01 && !locked(a))
+      .filter((a) => a.bal > 0.01 && !isPreConversionLocked(a, ages[oi(a)]!))
       .map((a) => {
         let cap = a.bal;
         if (lifCapRemaining[a.id] != null) cap = Math.min(cap, lifCapRemaining[a.id]!);
@@ -1310,6 +1351,9 @@ export function projection(
         drawn.reg += take;
       }
       a.bal -= take;
+      if (lifCapRemaining[a.id] != null) {
+        lifCapRemaining[a.id] = Math.max(0, lifCapRemaining[a.id]! - take);
+      }
     }
 
 
