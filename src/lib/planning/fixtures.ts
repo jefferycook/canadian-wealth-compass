@@ -11,7 +11,7 @@
 
 import type { PlanInputs } from "./types";
 
-/** Person A is born 1966-01-01; pinned so results don't drift with the clock. */
+/** The base year and current age are pinned so results don't drift with the clock. */
 export const DEFAULT_BASE_YEAR = 2026;
 
 export function regressionFixturePlan(): PlanInputs {
@@ -37,7 +37,6 @@ export function regressionFixturePlan(): PlanInputs {
         id: "A",
         firstName: "",
         lastName: "",
-        dob: "1966-01-01",
         curAge: 60,
         retAge: 65,
         employ: 0,

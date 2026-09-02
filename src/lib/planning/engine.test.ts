@@ -578,7 +578,6 @@ describe("couples and survivorship", () => {
       id: "B",
       firstName: "",
       lastName: "",
-      dob: "1968-01-01",
       curAge: 58,
       retAge: 65,
       employ: 0,

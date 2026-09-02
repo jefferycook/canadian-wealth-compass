@@ -25,6 +25,7 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { simulateScenario } from "@/lib/plans.functions";
 import type { PlanDraft } from "@/lib/planning/draft";
+import { effectiveCurrentAge } from "@/lib/planning/ages";
 import type { ScenarioPatch } from "@/lib/planning/scenario";
 import { money, monthlyDisplay, monthlyFromAnnual } from "@/lib/planning/units";
 import {
@@ -38,6 +39,13 @@ import {
   AdviceGateDisclosure,
   combinePresentedAdviceGates,
 } from "@/components/plan/ProjectionValidityDisclosure";
+
+/** Minimum offered by the retirement-age control for a persisted person. */
+export function whatIfRetirementAgeMinimum(
+  person: Pick<PlanDraft["people"][number], "dob" | "curAge">,
+): number {
+  return Math.max(45, effectiveCurrentAge(person.dob, person.curAge) ?? 45);
+}
 
 const STRATEGY_OPTIONS: { value: string; label: string }[] = [
   { value: "auto", label: "Auto selection" },
@@ -146,7 +154,7 @@ export function WhatIfWorkspace({
                   <SliderRow
                     label={`${who}Retirement age`}
                     value={patch.retireAgeByPerson?.[p.id] ?? p.retAge}
-                    min={Math.max(45, p.curAge ?? 45)}
+                    min={whatIfRetirementAgeMinimum(p)}
                     max={80}
                     step={1}
                     display={(v) => `Age ${v}`}

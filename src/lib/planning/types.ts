@@ -608,9 +608,9 @@ export interface PersonInput {
   id: PersonKey;
   firstName: string;
   lastName: string;
-  /** Date of birth, ISO yyyy-mm-dd. Optional; `curAge` is what the engine uses. */
+  /** Date of birth, ISO yyyy-mm-dd. Authoritative when a draft is normalized. */
   dob?: string;
-  /** Current age in whole years. */
+  /** Runtime current age in whole years; persisted drafts may use it as a legacy fallback. */
   curAge: number;
   /** Retirement age. Use 999 for "already retired / never works". */
   retAge: number;
