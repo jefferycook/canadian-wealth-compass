@@ -42,6 +42,7 @@ import {
 import type { PlanDraft } from "@/lib/planning/draft";
 import type { ScenarioPatch } from "@/lib/planning/scenario";
 import { METRICS } from "@/components/plan/scenario-ui";
+import { AdviceGateDisclosure } from "@/components/plan/ProjectionValidityDisclosure";
 
 export function ScenariosWorkspace({
   planId,
@@ -297,9 +298,7 @@ export function ScenariosWorkspace({
                         <Trash2 className="size-4 text-destructive" />
                       </Button>
                     </div>
-                    {s.error ? (
-                      <p className="w-full text-xs text-destructive">{s.error}</p>
-                    ) : null}
+                    {s.error ? <p className="w-full text-xs text-destructive">{s.error}</p> : null}
                   </>
                 )}
               </div>
@@ -317,64 +316,81 @@ export function ScenariosWorkspace({
             {comparison.isPending ? (
               <p className="text-sm text-muted-foreground">Re-running each scenario…</p>
             ) : comparison.data ? (
-              <div className="overflow-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-secondary text-left">
-                    <tr>
-                      <th className="p-3 font-medium">Measure</th>
-                      <th className="p-3 text-right font-medium">Baseline</th>
-                      {comparison.data.scenarios.map((s) => (
-                        <th key={s.id} className="p-3 text-right font-medium">
-                          {s.name}
+              <div className="space-y-3">
+                <AdviceGateDisclosure
+                  gate={comparison.data.comparisonAdviceGate}
+                  title="Saved-scenario comparison withheld"
+                />
+                {comparison.data.comparisonAdviceGate.adviceWithheld ? (
+                  <p className="text-sm text-muted-foreground">
+                    Values in the table are shown as separate projection context only. No ranking,
+                    difference or favourable comparison is being made.
+                  </p>
+                ) : null}
+                <div className="overflow-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-secondary text-left">
+                      <tr>
+                        <th className="p-3 font-medium">Measure</th>
+                        <th className="p-3 text-right font-medium">
+                          Baseline
+                          {comparison.data.comparisonAdviceGate.adviceWithheld
+                            ? " (context only)"
+                            : ""}
                         </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {METRICS.map((m) => (
-                      <tr key={m.key} className="border-t">
-                        <td className="p-3">{m.label}</td>
-                        <td className="tabular p-3 text-right">
-                          {m.value(comparison.data!.baseline)}
-                        </td>
-                        {comparison.data!.scenarios.map((s) => (
-                          <td key={s.id} className="tabular p-3 text-right">
-                            {m.value(s.metrics)}
-                          </td>
+                        {comparison.data.scenarios.map((s) => (
+                          <th key={s.id} className="p-3 text-right font-medium">
+                            {s.name}
+                          </th>
                         ))}
                       </tr>
-                    ))}
-                    <tr className="border-t">
-                      <td className="p-3">First retirement age</td>
-                      <td className="tabular p-3 text-right">
-                        {comparison.data.baseline.retirementAge ?? "—"}
-                      </td>
-                      {comparison.data.scenarios.map((s) => (
-                        <td key={s.id} className="tabular p-3 text-right">
-                          {s.metrics.retirementAge ?? "—"}
-                        </td>
+                    </thead>
+                    <tbody>
+                      {METRICS.map((m) => (
+                        <tr key={m.key} className="border-t">
+                          <td className="p-3">{m.label}</td>
+                          <td className="tabular p-3 text-right">
+                            {m.value(comparison.data!.baseline)}
+                          </td>
+                          {comparison.data!.scenarios.map((s) => (
+                            <td key={s.id} className="tabular p-3 text-right">
+                              {m.value(s.metrics)}
+                            </td>
+                          ))}
+                        </tr>
                       ))}
-                    </tr>
-                    {couple ? (
                       <tr className="border-t">
-                        <td className="p-3">Both retired by age</td>
+                        <td className="p-3">First retirement age</td>
                         <td className="tabular p-3 text-right">
-                          {comparison.data.baseline.lastRetirementAge ?? "—"}
+                          {comparison.data.baseline.retirementAge ?? "—"}
                         </td>
                         {comparison.data.scenarios.map((s) => (
                           <td key={s.id} className="tabular p-3 text-right">
-                            {s.metrics.lastRetirementAge ?? "—"}
+                            {s.metrics.retirementAge ?? "—"}
                           </td>
                         ))}
                       </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-                {comparison.data.skipped.map((s) => (
-                  <p key={s.id} className="mt-3 text-xs text-destructive">
-                    {s.name}: {s.error}
-                  </p>
-                ))}
+                      {couple ? (
+                        <tr className="border-t">
+                          <td className="p-3">Both retired by age</td>
+                          <td className="tabular p-3 text-right">
+                            {comparison.data.baseline.lastRetirementAge ?? "—"}
+                          </td>
+                          {comparison.data.scenarios.map((s) => (
+                            <td key={s.id} className="tabular p-3 text-right">
+                              {s.metrics.lastRetirementAge ?? "—"}
+                            </td>
+                          ))}
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                  {comparison.data.skipped.map((s) => (
+                    <p key={s.id} className="mt-3 text-xs text-destructive">
+                      {s.name}: {s.error}
+                    </p>
+                  ))}
+                </div>
               </div>
             ) : (
               <p className="text-sm text-destructive">These scenarios could not be run.</p>

@@ -14,6 +14,11 @@ import {
   runPlan,
   shortfallYears,
 } from "./engine";
+import {
+  adviceGateFromStatuses,
+  combineAdviceGates,
+  type AdviceGatePayload,
+} from "./advice-gate";
 import { FIXED_STRATEGIES } from "./strategy";
 import { strategyLabel } from "./summary";
 import { adviceBlockers } from "./types";
@@ -144,6 +149,7 @@ export function compareStrategies(inputs: PlanInputs, chosen: WithdrawalStrategy
 /* ------------------------------------------------------------------ */
 
 export interface GoalProgress {
+  adviceGate: AdviceGatePayload;
   retirementAge: number | null;
   yearsToRetirement: number | null;
   currentSavings: number;
@@ -165,8 +171,15 @@ export interface GoalProgress {
  * more capital than they hold today; 0.8 means they are 25% ahead.
  */
 export function goalProgress(inputs: PlanInputs, P: PlanResult): GoalProgress {
-  const scaled = (f: number) =>
-    runPlan({ ...inputs, accounts: inputs.accounts.map((a) => ({ ...a, bal: a.bal * f })) });
+  const adviceGates = [adviceGateFromStatuses(P.componentStatuses)];
+  const scaled = (f: number) => {
+    const result = runPlan({
+      ...inputs,
+      accounts: inputs.accounts.map((a) => ({ ...a, bal: a.bal * f })),
+    });
+    adviceGates.push(adviceGateFromStatuses(result.componentStatuses));
+    return result;
+  };
 
   const currentSavings = inputs.accounts.reduce((s, a) => s + a.bal, 0);
   const funds = (f: number) => {
@@ -213,6 +226,7 @@ export function goalProgress(inputs: PlanInputs, P: PlanResult): GoalProgress {
   const fundedRatio = requiredToday > 0 ? Math.min(1.5, currentSavings / requiredToday) : 1;
 
   return {
+    adviceGate: combineAdviceGates(adviceGates),
     retirementAge,
     yearsToRetirement,
     currentSavings: Math.round(currentSavings),

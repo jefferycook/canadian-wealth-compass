@@ -51,6 +51,7 @@ function Stat({
 
 export function PlanResults({ output }: { output: PlanOutput }) {
   const { summary, chart } = output;
+  const automaticSelectionWithheld = output.autoSelectionStatus === "WITHHELD";
   // Cash-flow lines are shown per month; the engine works in annual dollars.
   const monthlyChart = chart.map((p) => ({
     ...p,
@@ -124,13 +125,10 @@ export function PlanResults({ output }: { output: PlanOutput }) {
         </Card>
       ) : null}
 
-
       {output.methodDisclosures.length > 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">
-              How to read these numbers
-            </CardTitle>
+            <CardTitle className="text-base">How to read these numbers</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
             {output.methodDisclosures.map((d) => (
@@ -144,13 +142,23 @@ export function PlanResults({ output }: { output: PlanOutput }) {
         <CardHeader>
           <CardTitle className="text-base">
             Withdrawal order used: {strategyLabel(summary.strategy)}
-            {summary.autoSelected ? " (chosen automatically)" : ""}
+            {automaticSelectionWithheld
+              ? " (deterministic fallback)"
+              : summary.autoSelected
+                ? " (chosen automatically)"
+                : ""}
           </CardTitle>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
-          {summary.shortfallYears > 0
-            ? `The plan falls short of your spending target in ${summary.shortfallYears} year${summary.shortfallYears === 1 ? "" : "s"}. Try retiring later, spending less, or starting CPP later.`
-            : "Every year of the projection funds your spending target in full."}
+          {automaticSelectionWithheld
+            ? "This fixed ordering is shown only to produce projection context; it was not selected by the engine and is not a recommendation."
+            : summary.shortfallYears > 0
+              ? output.adviceGate.adviceWithheld
+                ? `The projection falls short of the spending target in ${summary.shortfallYears} year${summary.shortfallYears === 1 ? "" : "s"}. Projection-derived suggestions are withheld.`
+                : `The plan falls short of your spending target in ${summary.shortfallYears} year${summary.shortfallYears === 1 ? "" : "s"}. Try retiring later, spending less, or starting CPP later.`
+              : output.adviceGate.adviceWithheld
+                ? "The projection shows the spending target funded in each modelled year, but no funding conclusion or recommendation is made while projection-derived advice is withheld."
+                : "Every year of the projection funds your spending target in full."}
         </CardContent>
       </Card>
 
@@ -252,10 +260,7 @@ export function PlanResults({ output }: { output: PlanOutput }) {
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="age" tickLine={false} axisLine={false} fontSize={12} />
                 <YAxis tickFormatter={compact} tickLine={false} axisLine={false} fontSize={12} />
-                <Tooltip
-                  formatter={(v: number) => money(v)}
-                  labelFormatter={(l) => `Age ${l}`}
-                />
+                <Tooltip formatter={(v: number) => money(v)} labelFormatter={(l) => `Age ${l}`} />
                 <Bar dataKey="tax" name="Tax" fill="var(--chart-2)" radius={[2, 2, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>

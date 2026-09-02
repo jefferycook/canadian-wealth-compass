@@ -12,18 +12,13 @@
 
 import { runPlan } from "./engine";
 import { summarize, strategyLabel, type PlanOutput } from "./summary";
+import { combineAdviceGates, type AdviceGatePayload } from "./advice-gate";
 import { FIXED_STRATEGIES } from "./strategy";
 import { normalizeDraft } from "./draft";
 import { sustainableSpendFor } from "./levers";
 import type { PlanDraft } from "./draft";
-import type {
-  PersonKey,
-  PlanInputs,
-  ProjectionOverride,
-  WithdrawalStrategy,
-} from "./types";
+import type { PersonKey, PlanInputs, ProjectionOverride, WithdrawalStrategy } from "./types";
 import { annualFromMonthly } from "./units";
-
 
 /* ------------------------------------------------------------------ */
 /* The patch                                                           */
@@ -158,8 +153,11 @@ export function isExtraSavingSupported(draft: PlanDraft): boolean {
   return extraSavingTargets(draft).length > 0;
 }
 
-function byPersonDiffers(v: ByPerson, read: (id: PersonKey) => number | null | undefined,
-  draft: PlanDraft): boolean {
+function byPersonDiffers(
+  v: ByPerson,
+  read: (id: PersonKey) => number | null | undefined,
+  draft: PlanDraft,
+): boolean {
   return draft.people.some((p) => {
     const want = v[p.id];
     return want != null && want !== read(p.id);
@@ -167,11 +165,7 @@ function byPersonDiffers(v: ByPerson, read: (id: PersonKey) => number | null | u
 }
 
 /** Is this lever actually doing anything, against the baseline draft? */
-export function isLeverActive(
-  patch: ScenarioPatch,
-  key: PatchLeverKey,
-  draft: PlanDraft,
-): boolean {
+export function isLeverActive(patch: ScenarioPatch, key: PatchLeverKey, draft: PlanDraft): boolean {
   const v = patch[key];
   if (v == null) return false;
   switch (key) {
@@ -214,7 +208,9 @@ export function isLeverActive(
       const owners = extraSavingTargets(draft);
       if (owners.length === 0) return false;
       // More than one eligible owner: an explicit choice is required.
-      return owners.length === 1 || (patch.savingOwner != null && owners.includes(patch.savingOwner));
+      return (
+        owners.length === 1 || (patch.savingOwner != null && owners.includes(patch.savingOwner))
+      );
     }
     default:
       return typeof v === "number" && v !== 0;
@@ -234,7 +230,6 @@ export function isolatePatch(patch: ScenarioPatch, key: PatchLeverKey): Scenario
   (out as Record<string, unknown>)[key] = patch[key];
   return out;
 }
-
 
 /* ------------------------------------------------------------------ */
 /* Applying the patch                                                  */
@@ -309,7 +304,6 @@ export function scenarioOverride(patch: ScenarioPatch, inputs: PlanInputs): Proj
     }
   }
 
-
   const cppBy = patch.cppAgeByPerson ?? undefined;
   const oasBy = patch.oasAgeByPerson ?? undefined;
   const retBy = patch.retireAgeByPerson ?? undefined;
@@ -335,7 +329,6 @@ export function scenarioOverride(patch: ScenarioPatch, inputs: PlanInputs): Proj
   return o;
 }
 
-
 /* ------------------------------------------------------------------ */
 /* Running                                                             */
 /* ------------------------------------------------------------------ */
@@ -360,6 +353,9 @@ export interface ScenarioMetrics {
   lifetimeOasClawback: number;
   strategy: WithdrawalStrategy;
   autoSelected: boolean;
+  autoSelectionStatus?: "APPROXIMATE" | "WITHHELD";
+  autoSelectionNote?: string;
+  autoSelectionBlockers?: string[];
 }
 
 /** A read-only view of one person as the engine ran them. */
@@ -380,6 +376,8 @@ export interface ScenarioSeriesPoint {
 
 export interface ScenarioRun {
   metrics: ScenarioMetrics;
+  /** Authoritative gate for advice derived from this specific run. */
+  adviceGate: AdviceGatePayload;
   /** The people the engine actually ran, after every override was applied. */
   people: ExecutedPerson[];
   output: PlanOutput;
@@ -412,7 +410,6 @@ export function runScenario(draft: PlanDraft, patch: ScenarioPatch = {}): Scenar
       ? (P.rows.find((r) => r.age >= retirementAge) ?? P.rows[P.rows.length - 1])
       : P.rows[0];
 
-
   const sustainable = sustainableSpendFor(inputs, P.chosenStrategy, override, inputs.spendNeed);
 
   return {
@@ -438,7 +435,11 @@ export function runScenario(draft: PlanDraft, patch: ScenarioPatch = {}): Scenar
       lifetimeOasClawback: s.lifetimeOasClawback,
       strategy: P.chosenStrategy,
       autoSelected: P.autoSelected,
+      ...(P.autoSelectionStatus ? { autoSelectionStatus: P.autoSelectionStatus } : {}),
+      ...(P.autoSelectionNote ? { autoSelectionNote: P.autoSelectionNote } : {}),
+      ...(P.autoSelectionBlockers ? { autoSelectionBlockers: P.autoSelectionBlockers } : {}),
     },
+    adviceGate: output.adviceGate,
     output,
     series: output.chart.map((c) => ({
       age: c.age,
@@ -460,6 +461,7 @@ export interface StrategyCard {
   key: WithdrawalStrategy;
   label: string;
   metrics: ScenarioMetrics;
+  adviceGate: AdviceGatePayload;
   /** True for the ordering the plan is currently running. */
   current: boolean;
 }
@@ -469,6 +471,8 @@ export interface StrategyComparison {
   current: StrategyCard;
   /** Every supported ordering, plus Auto, each re-run. */
   cards: StrategyCard[];
+  /** Withholds comparison claims when any run needed by the surface is blocked. */
+  adviceGate: AdviceGatePayload;
   autoRule: string;
   currentSeries: ScenarioSeriesPoint[];
 }
@@ -481,16 +485,28 @@ export interface IsolatedEffect {
   key: PatchLeverKey;
   label: string;
   metrics: ScenarioMetrics;
+  adviceGate: AdviceGatePayload;
 }
 
 export interface ScenarioSet {
   baseline: ScenarioMetrics;
+  baselineAdviceGate: AdviceGatePayload;
   baselineSeries: ScenarioSeriesPoint[];
   combined: ScenarioMetrics;
+  combinedAdviceGate: AdviceGatePayload;
+  comparisonAdviceGate: AdviceGatePayload;
   combinedSeries: ScenarioSeriesPoint[];
   combinedOutput: PlanOutput;
   /** Each change re-run on its own. These are NOT additive. */
   isolated: IsolatedEffect[];
+}
+
+/** Pure comparison-level gate used by live and saved scenario surfaces. */
+export function adviceGateForComparison(
+  baseline: AdviceGatePayload,
+  scenarios: readonly AdviceGatePayload[],
+): AdviceGatePayload {
+  return combineAdviceGates([baseline, ...scenarios]);
 }
 
 export function runScenarioSet(draft: PlanDraft, patch: ScenarioPatch): ScenarioSet {
@@ -499,16 +515,23 @@ export function runScenarioSet(draft: PlanDraft, patch: ScenarioPatch): Scenario
   const keys = activeLevers(patch, draft);
   const isolated =
     keys.length > 1
-      ? keys.map((key) => ({
-          key,
-          label: PATCH_LEVER_LABELS[key],
-          metrics: runScenario(draft, isolatePatch(patch, key)).metrics,
-        }))
+      ? keys.map((key) => {
+          const run = runScenario(draft, isolatePatch(patch, key));
+          return {
+            key,
+            label: PATCH_LEVER_LABELS[key],
+            metrics: run.metrics,
+            adviceGate: run.adviceGate,
+          };
+        })
       : [];
   return {
     baseline: base.metrics,
+    baselineAdviceGate: base.adviceGate,
     baselineSeries: base.series,
     combined: combined.metrics,
+    combinedAdviceGate: combined.adviceGate,
+    comparisonAdviceGate: adviceGateForComparison(base.adviceGate, [combined.adviceGate]),
     combinedSeries: combined.series,
     combinedOutput: combined.output,
     isolated,
@@ -524,22 +547,37 @@ export function runStrategyComparison(draft: PlanDraft): StrategyComparison {
   const currentRun = runScenario(draft, {});
   const current: StrategyCard = {
     key: draft.strategy,
-    label: draft.strategy === "auto" ? "Current Auto selection" : strategyLabel(draft.strategy),
+    label:
+      draft.strategy === "auto"
+        ? currentRun.metrics.autoSelectionStatus === "WITHHELD"
+          ? "Deterministic fallback"
+          : "Current Auto selection"
+        : strategyLabel(draft.strategy),
     metrics: currentRun.metrics,
+    adviceGate: currentRun.adviceGate,
     current: true,
   };
 
   const keys: WithdrawalStrategy[] = [...FIXED_STRATEGIES, "auto"];
-  const cards = keys.map<StrategyCard>((key) => ({
-    key,
-    label: key === "auto" ? "Auto (engine-selected)" : strategyLabel(key),
-    metrics: key === draft.strategy ? currentRun.metrics : runScenario(draft, { strategy: key }).metrics,
-    current: key === draft.strategy,
-  }));
+  const cards = keys.map<StrategyCard>((key) => {
+    const run = key === draft.strategy ? currentRun : runScenario(draft, { strategy: key });
+    return {
+      key,
+      label: key === "auto" ? "Auto" : strategyLabel(key),
+      metrics: run.metrics,
+      adviceGate: run.adviceGate,
+      current: key === draft.strategy,
+    };
+  });
 
-  return { current, cards, autoRule: AUTO_RULE_TEXT, currentSeries: currentRun.series };
+  return {
+    current,
+    cards,
+    adviceGate: combineAdviceGates(cards.map((card) => card.adviceGate)),
+    autoRule: AUTO_RULE_TEXT,
+    currentSeries: currentRun.series,
+  };
 }
-
 
 /* ------------------------------------------------------------------ */
 /* Promoting a scenario to the baseline                                */

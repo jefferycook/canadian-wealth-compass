@@ -13,13 +13,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { newPlanDraft } from "./planning/defaults";
 import type { PlanDraft } from "./planning/draft";
-import type {
-  GoalProgress,
-  NetWorthView,
-  Recommendation,
-  StrategyRow,
-} from "./planning/analysis";
+import type { GoalProgress, NetWorthView, Recommendation, StrategyRow } from "./planning/analysis";
 import type { PlanOutput } from "./planning/summary";
+import type { AdviceGatePayload } from "./planning/advice-gate";
 import type {
   ScenarioMetrics,
   ScenarioPatch,
@@ -213,7 +209,6 @@ export const simulateScenario = createServerFn({ method: "POST" })
     return runScenarioSet(data.draft, data.patch ?? {});
   });
 
-
 /** The changes a client can test. Proposals only — impacts come from re-runs. */
 export const planOpportunities = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -222,7 +217,6 @@ export const planOpportunities = createServerFn({ method: "POST" })
     const { buildOpportunities } = await import("./planning/opportunities");
     return buildOpportunities(data.draft);
   });
-
 
 /* ------------------------------------------------------------------ */
 /* Saved scenarios (UX Batch 2)                                        */
@@ -242,7 +236,14 @@ export interface SavedScenario {
 
 export interface ScenarioComparison {
   baseline: ScenarioMetrics;
-  scenarios: { id: string; name: string; metrics: ScenarioMetrics }[];
+  baselineAdviceGate: AdviceGatePayload;
+  scenarios: {
+    id: string;
+    name: string;
+    metrics: ScenarioMetrics;
+    adviceGate: AdviceGatePayload;
+  }[];
+  comparisonAdviceGate: AdviceGatePayload;
   /** Scenarios that could not be read back safely. */
   skipped: { id: string; name: string; error: string }[];
 }
@@ -326,9 +327,8 @@ export const createScenario = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { planId: string; name: string; patch: ScenarioPatch }) => input)
   .handler(async ({ data, context }): Promise<SavedScenario> => {
-    const { serializeScenarioPatch, SCENARIO_SCHEMA_VERSION } = await import(
-      "./planning/scenario-persist"
-    );
+    const { serializeScenarioPatch, SCENARIO_SCHEMA_VERSION } =
+      await import("./planning/scenario-persist");
     await requireOwnedPlan(context.supabase, data.planId);
     const { data: row, error } = await context.supabase
       .from("plan_scenarios")
@@ -352,16 +352,15 @@ export const updateScenario = createServerFn({ method: "POST" })
     (input: { planId: string; id: string; name?: string; patch?: ScenarioPatch }) => input,
   )
   .handler(async ({ data, context }): Promise<SavedScenario> => {
-    const { serializeScenarioPatch, SCENARIO_SCHEMA_VERSION } = await import(
-      "./planning/scenario-persist"
-    );
+    const { serializeScenarioPatch, SCENARIO_SCHEMA_VERSION } =
+      await import("./planning/scenario-persist");
     await requireOwnedPlan(context.supabase, data.planId);
     await requireScenarioOfPlan(context.supabase, data.planId, data.id);
     const patch: Record<string, unknown> = {};
-    if (data.name !== undefined) patch['name'] = data.name.trim() || "Untitled scenario";
+    if (data.name !== undefined) patch["name"] = data.name.trim() || "Untitled scenario";
     if (data.patch !== undefined) {
-      patch['overrides'] = serializeScenarioPatch(data.patch);
-      patch['schema_version'] = SCENARIO_SCHEMA_VERSION;
+      patch["overrides"] = serializeScenarioPatch(data.patch);
+      patch["schema_version"] = SCENARIO_SCHEMA_VERSION;
     }
     const { data: row, error } = await context.supabase
       .from("plan_scenarios")
@@ -424,10 +423,13 @@ export const compareScenarios = createServerFn({ method: "POST" })
       .from("plan_scenarios")
       .select(SCENARIO_COLUMNS)
       .eq("plan_id", data.planId)
-      .in("id", data.scenarioIds.length ? data.scenarioIds : ["00000000-0000-0000-0000-000000000000"]);
+      .in(
+        "id",
+        data.scenarioIds.length ? data.scenarioIds : ["00000000-0000-0000-0000-000000000000"],
+      );
     if (error) throw new Error(error.message);
 
-    const { runScenario } = await import("./planning/scenario");
+    const { adviceGateForComparison, runScenario } = await import("./planning/scenario");
     const saved = await Promise.all(((rows ?? []) as ScenarioRowShape[]).map(toSaved));
 
     const scenarios: ScenarioComparison["scenarios"] = [];
@@ -437,9 +439,25 @@ export const compareScenarios = createServerFn({ method: "POST" })
         skipped.push({ id: s.id, name: s.name, error: s.error ?? "Unreadable scenario" });
         continue;
       }
-      scenarios.push({ id: s.id, name: s.name, metrics: runScenario(draft, s.patch).metrics });
+      const run = runScenario(draft, s.patch);
+      scenarios.push({
+        id: s.id,
+        name: s.name,
+        metrics: run.metrics,
+        adviceGate: run.adviceGate,
+      });
     }
-    return { baseline: runScenario(draft, {}).metrics, scenarios, skipped };
+    const baseline = runScenario(draft, {});
+    return {
+      baseline: baseline.metrics,
+      baselineAdviceGate: baseline.adviceGate,
+      scenarios,
+      comparisonAdviceGate: adviceGateForComparison(
+        baseline.adviceGate,
+        scenarios.map((scenario) => scenario.adviceGate),
+      ),
+      skipped,
+    };
   });
 
 /**
@@ -490,4 +508,3 @@ export const promoteScenarioToBaseline = createServerFn({ method: "POST" })
     if (upErr) throw new Error(upErr.message);
     return { ok: true as const, unsupported: promoted.unsupported };
   });
-

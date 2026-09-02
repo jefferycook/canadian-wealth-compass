@@ -13,12 +13,8 @@ import {
   portfolioExhaustionAge,
   shortfallYears,
 } from "./engine";
-import type {
-  AccountMeta,
-  PlanResult,
-  ResultValidity,
-  ValidityReason,
-} from "./types";
+import { adviceGateFromStatuses, type AdviceGatePayload } from "./advice-gate";
+import type { AccountMeta, PlanResult, ResultValidity, ValidityReason } from "./types";
 
 export interface PlanChartPoint {
   age: number;
@@ -83,7 +79,6 @@ export interface PlanYearDetail {
   balances: Record<string, number>;
 }
 
-
 export interface PlanSummary {
   /** Age money runs out, or null when the plan lasts. */
   /** Age a previously funded portfolio is drawn to zero. Not a failure signal. */
@@ -128,14 +123,19 @@ export interface PlanOutput {
   validity: ResultValidity;
   /** Engine-owned, centrally registered reasons, already deduplicated by code. */
   validityReasons: ValidityReason[];
+  /** Server-derived gate for every projection-driven advice surface. */
+  adviceGate: AdviceGatePayload;
+  /** Engine-owned automatic-selection metadata, kept separate from validity. */
+  autoSelectionStatus?: "APPROXIMATE" | "WITHHELD";
+  autoSelectionNote?: string;
+  autoSelectionBlockers?: string[];
   /**
    * Batch 0D. Approximation notices that must appear wherever these numbers
-   * are shown: indexed (unpublished) tax years, non-registered ACB events and
-   * the approximate estate tie-break behind an automatic withdrawal order.
+   * are shown: indexed (unpublished) tax years and non-registered ACB events.
+   * Automatic-selection limitations use their dedicated fields above.
    */
   methodDisclosures: string[];
 }
-
 
 const STRATEGY_LABEL: Record<string, string> = {
   nonreg_reg_tfsa: "Non-registered first, then registered, TFSA last",
@@ -212,15 +212,11 @@ export function summarize(P: PlanResult): PlanOutput {
     portfolioEmpty: r.portfolioEmpty,
     portfolioExhausted: r.portfolioExhausted,
     anyDeceased: r.anyDeceased,
-    balances: Object.fromEntries(
-      Object.entries(r.balances).map(([id, b]) => [id, round(b)]),
-    ),
+    balances: Object.fromEntries(Object.entries(r.balances).map(([id, b]) => [id, round(b)])),
   }));
 
   const last = P.rows[P.rows.length - 1];
   const first = P.rows[0];
-
-
 
   return {
     summary: {
@@ -245,12 +241,10 @@ export function summarize(P: PlanResult): PlanOutput {
     roomValidationErrors: P.roomValidationErrors,
     validity: P.validity,
     validityReasons: P.validityReasons,
-    methodDisclosures: [
-      ...P.taxYearDisclosures,
-      ...P.nonregDisclosures,
-      ...(P.autoSelected && P.autoSelectionNote ? [P.autoSelectionNote] : []),
-    ],
+    adviceGate: adviceGateFromStatuses(P.componentStatuses),
+    ...(P.autoSelectionStatus ? { autoSelectionStatus: P.autoSelectionStatus } : {}),
+    ...(P.autoSelectionNote ? { autoSelectionNote: P.autoSelectionNote } : {}),
+    ...(P.autoSelectionBlockers ? { autoSelectionBlockers: P.autoSelectionBlockers } : {}),
+    methodDisclosures: [...P.taxYearDisclosures, ...P.nonregDisclosures],
   };
-
-
 }

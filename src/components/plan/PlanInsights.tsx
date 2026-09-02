@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { money } from "@/components/plan/fields";
+import { AdviceGateDisclosure } from "@/components/plan/ProjectionValidityDisclosure";
 import { perMonthWithYear } from "@/lib/planning/units";
 import type {
   GoalProgress,
@@ -253,8 +254,8 @@ export function RecommendationsPanel({ items }: { items: Recommendation[] }) {
         </Card>
       ))}
       <p className="text-xs text-muted-foreground">
-        These are generated from your own numbers, not general advice, and they are not a
-        substitute for tax or legal advice.
+        These are generated from your own numbers, not general advice, and they are not a substitute
+        for tax or legal advice.
       </p>
     </div>
   );
@@ -262,11 +263,67 @@ export function RecommendationsPanel({ items }: { items: Recommendation[] }) {
 
 /* ------------------------------------------------------------------ */
 
-export function GoalPanel({ goal, couple = false }: { goal: GoalProgress; couple?: boolean }) {
-  const pct = Math.round(Math.min(1, goal.fundedRatio) * 100);
+export function GoalPanel({
+  goal,
+  couple = false,
+}: {
+  goal: GoalProgress;
+  couple?: boolean;
+}) {
   // The household convention is the earliest retirement in the household, so
   // couples see "first retirement" wording instead of a single joint age.
   const retLabel = couple ? "first retirement" : "retirement";
+
+  if (goal.adviceGate.adviceWithheld) {
+    return (
+      <div className="space-y-6">
+        <AdviceGateDisclosure gate={goal.adviceGate} title="Goal assessment withheld" />
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Stat
+            label="Saved today"
+            value={money(goal.currentSavings)}
+            note="Across every investment account"
+          />
+          <Stat
+            label={couple ? "Savings at first retirement" : "Savings at retirement"}
+            value={money(goal.projectedAtRetirement)}
+            note={
+              goal.retirementAge != null
+                ? couple
+                  ? `Projected at first retirement, age ${goal.retirementAge}`
+                  : `Projected at age ${goal.retirementAge}`
+                : `No ${retLabel} age set`
+            }
+          />
+          <Stat
+            label={couple ? "Years to first retirement" : "Years to retirement"}
+            value={goal.yearsToRetirement == null ? "—" : String(goal.yearsToRetirement)}
+          />
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Retirement income context</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p className="text-xs text-muted-foreground">
+              Shown per month, with the annual figure in brackets. No funding-gap conclusion is
+              shown while projection-derived advice is withheld.
+            </p>
+            <div className="flex justify-between">
+              <span>Spending target in the first year of retirement</span>
+              <span className="tabular">{perMonthWithYear(goal.annualSpendTarget)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>CPP, OAS and workplace pensions</span>
+              <span className="tabular">{perMonthWithYear(goal.guaranteedIncomeAtRetirement)}</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const pct = Math.round(Math.min(1, goal.fundedRatio) * 100);
   return (
     <div className="space-y-6">
       <Card>
@@ -310,7 +367,9 @@ export function GoalPanel({ goal, couple = false }: { goal: GoalProgress; couple
         <Stat
           label={couple ? "Years to first retirement" : "Years to retirement"}
           value={goal.yearsToRetirement == null ? "—" : String(goal.yearsToRetirement)}
-          note={goal.firstShortfallAge != null ? `First shortfall at ${goal.firstShortfallAge}` : ""}
+          note={
+            goal.firstShortfallAge != null ? `First shortfall at ${goal.firstShortfallAge}` : ""
+          }
         />
       </div>
 
@@ -328,9 +387,7 @@ export function GoalPanel({ goal, couple = false }: { goal: GoalProgress; couple
           </div>
           <div className="flex justify-between">
             <span>CPP, OAS and workplace pensions</span>
-            <span className="tabular">
-              {perMonthWithYear(goal.guaranteedIncomeAtRetirement)}
-            </span>
+            <span className="tabular">{perMonthWithYear(goal.guaranteedIncomeAtRetirement)}</span>
           </div>
           <div className="flex justify-between border-t pt-2 font-medium">
             <span>Left for your savings to cover</span>

@@ -27,7 +27,17 @@ import { simulateScenario } from "@/lib/plans.functions";
 import type { PlanDraft } from "@/lib/planning/draft";
 import type { ScenarioPatch } from "@/lib/planning/scenario";
 import { money, monthlyDisplay, monthlyFromAnnual } from "@/lib/planning/units";
-import { CompareChart, DeltaChip, METRICS, MetricStrip, YearLedger } from "@/components/plan/scenario-ui";
+import {
+  CompareChart,
+  DeltaChip,
+  METRICS,
+  MetricStrip,
+  YearLedger,
+} from "@/components/plan/scenario-ui";
+import {
+  AdviceGateDisclosure,
+  combinePresentedAdviceGates,
+} from "@/components/plan/ProjectionValidityDisclosure";
 
 const STRATEGY_OPTIONS: { value: string; label: string }[] = [
   { value: "auto", label: "Auto selection" },
@@ -54,19 +64,16 @@ export function WhatIfWorkspace({
   // Mirrors extraSavingTargets() in scenario.ts; kept local so the engine
   // module never reaches the browser bundle. No arithmetic, just a filter.
   const savingOwners = useMemo(
-    () =>
-      [
-        ...new Set(
-          draft.accounts
-            .filter((a) => a.type === "NONREG")
-            .map((a) => a.owner)
-            .filter((o): o is "A" | "B" => o === "A" || o === "B"),
-        ),
-      ],
+    () => [
+      ...new Set(
+        draft.accounts
+          .filter((a) => a.type === "NONREG")
+          .map((a) => a.owner)
+          .filter((o): o is "A" | "B" => o === "A" || o === "B"),
+      ),
+    ],
     [draft.accounts],
   );
-
-
 
   const set = (p: Partial<ScenarioPatch>) => onChange({ ...patch, ...p });
 
@@ -79,6 +86,12 @@ export function WhatIfWorkspace({
     () => draft.hardAssets.map((a, i) => ({ i, name: a.name || `Property ${i + 1}` })),
     [draft.hardAssets],
   );
+  const isolatedAdviceGate = q.data
+    ? combinePresentedAdviceGates([
+        q.data.baselineAdviceGate,
+        ...q.data.isolated.map((effect) => effect.adviceGate),
+      ])
+    : undefined;
 
   return (
     <div className="space-y-8">
@@ -133,7 +146,7 @@ export function WhatIfWorkspace({
                   <SliderRow
                     label={`${who}Retirement age`}
                     value={patch.retireAgeByPerson?.[p.id] ?? p.retAge}
-                    min={Math.max(45, (p.curAge ?? 45))}
+                    min={Math.max(45, p.curAge ?? 45)}
                     max={80}
                     step={1}
                     display={(v) => `Age ${v}`}
@@ -146,7 +159,6 @@ export function WhatIfWorkspace({
             );
           })}
         </ControlCard>
-
 
         <ControlCard title="Spending">
           <SliderRow
@@ -174,9 +186,7 @@ export function WhatIfWorkspace({
             max={200000}
             step={5000}
             display={(v) => (v === 0 ? "None" : money(v))}
-            onChange={(v) =>
-              set({ oneTimeExpense: v > 0 ? { age: expenseAge, amt: v } : null })
-            }
+            onChange={(v) => set({ oneTimeExpense: v > 0 ? { age: expenseAge, amt: v } : null })}
           />
           <SliderRow
             label="Age the expense lands"
@@ -231,7 +241,6 @@ export function WhatIfWorkspace({
                   ) : null}
                 </div>
               ) : null}
-
             </>
           ) : (
             <p className="text-sm text-muted-foreground">
@@ -245,7 +254,6 @@ export function WhatIfWorkspace({
             contribute. Only non-registered saving, which has no room limit, is offered for now.
           </p>
         </ControlCard>
-
 
         <ControlCard title="Assumptions">
           <SliderRow
@@ -276,8 +284,8 @@ export function WhatIfWorkspace({
             onChange={(v) => set({ returnAdjustment: v })}
           />
           <p className="text-xs text-muted-foreground">
-            The engine models one net return per account, so this is an investment-return
-            adjustment — it is not a fee calculation.
+            The engine models one net return per account, so this is an investment-return adjustment
+            — it is not a fee calculation.
           </p>
           <SliderRow
             label="Inflation"
@@ -347,9 +355,7 @@ export function WhatIfWorkspace({
                 max={95}
                 step={1}
                 display={(v) => `Age ${v}`}
-                onChange={(v) =>
-                  set({ propertySale: { ...patch.propertySale!, saleAge: v } })
-                }
+                onChange={(v) => set({ propertySale: { ...patch.propertySale!, saleAge: v } })}
               />
             ) : null}
           </ControlCard>
@@ -361,80 +367,119 @@ export function WhatIfWorkspace({
       ) : (
         <div className="space-y-8">
           <section className="space-y-3">
-            <h3 className="text-lg">Combined scenario impact</h3>
+            <h3 className="text-lg">
+              {q.data.comparisonAdviceGate.adviceWithheld
+                ? "Combined scenario context"
+                : "Combined scenario impact"}
+            </h3>
             <p className="text-sm text-muted-foreground">
-              One full run containing every change you selected, compared with your baseline.
+              {q.data.comparisonAdviceGate.adviceWithheld
+                ? "One full run containing every change you selected. Comparative impacts are withheld."
+                : "One full run containing every change you selected, compared with your baseline."}
             </p>
-            <MetricStrip metrics={q.data.combined} baseline={q.data.baseline} />
+            <AdviceGateDisclosure
+              gate={q.data.comparisonAdviceGate}
+              title="What-if comparison withheld"
+            />
+            <MetricStrip
+              metrics={q.data.combined}
+              baseline={q.data.baseline}
+              adviceWithheld={q.data.comparisonAdviceGate.adviceWithheld}
+            />
           </section>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Baseline vs What if — total portfolio</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <CompareChart baseline={q.data.baselineSeries} scenario={q.data.combinedSeries} />
-            </CardContent>
-          </Card>
-
-          {q.data.isolated.length > 0 ? (
+          {!q.data.comparisonAdviceGate.adviceWithheld ? (
             <Card>
-              <CardHeader className="space-y-1">
-                <CardTitle className="text-base">Isolated effect of each change</CardTitle>
-                <p className="text-sm text-muted-foreground">
-                  Each row is its own separate re-run with only that change applied. These effects
-                  do <span className="font-medium">not</span> add up to the combined impact above.
-                </p>
+              <CardHeader>
+                <CardTitle className="text-base">Baseline vs What if — total portfolio</CardTitle>
               </CardHeader>
-              <CardContent className="overflow-auto p-0">
-                <table className="w-full text-sm">
-                  <thead className="bg-secondary text-left">
-                    <tr>
-                      <th className="p-3 font-medium">Change</th>
-                      <th className="p-3 text-right font-medium">Sustainable spending</th>
-                      <th className="p-3 text-right font-medium">Lifetime tax</th>
-                      <th className="p-3 text-right font-medium">Estate after tax</th>
-                      <th className="p-3 text-right font-medium">Funding</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {q.data.isolated.map((e) => (
-                      <tr key={e.key} className="border-t">
-                        <td className="p-3">{e.label}</td>
-                        <td className="p-3 text-right">
-                          <DeltaChip
-                            spec={METRICS.find((m) => m.key === "sustainable")!}
-                            delta={
-                              monthlyDisplay(e.metrics.sustainableSpend) -
-                              monthlyDisplay(q.data!.baseline.sustainableSpend)
-                            }
-                          />
-                        </td>
-                        <td className="p-3 text-right">
-                          <DeltaChip
-                            spec={METRICS.find((m) => m.key === "lifetimeTax")!}
-                            delta={e.metrics.lifetimeTax - q.data!.baseline.lifetimeTax}
-                          />
-                        </td>
-                        <td className="p-3 text-right">
-                          <DeltaChip
-                            spec={METRICS.find((m) => m.key === "estate")!}
-                            delta={e.metrics.afterTaxEstate - q.data!.baseline.afterTaxEstate}
-                          />
-                        </td>
-                        <td className="p-3 text-right">
-                          {e.metrics.shortfallYears === 0 ? (
-                            <Badge variant="secondary">Funded</Badge>
-                          ) : (
-                            `${e.metrics.shortfallYears} short years`
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <CardContent>
+                <CompareChart baseline={q.data.baselineSeries} scenario={q.data.combinedSeries} />
               </CardContent>
             </Card>
+          ) : null}
+
+          {q.data.isolated.length > 0 ? (
+            <div className="space-y-3">
+              {isolatedAdviceGate ? (
+                <AdviceGateDisclosure
+                  gate={isolatedAdviceGate}
+                  title="One or more isolated comparisons withheld"
+                />
+              ) : null}
+              <Card>
+                <CardHeader className="space-y-1">
+                  <CardTitle className="text-base">
+                    {isolatedAdviceGate?.adviceWithheld
+                      ? "Isolated change context"
+                      : "Isolated effect of each change"}
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Each row is its own separate re-run with only that change applied. These effects
+                    do <span className="font-medium">not</span> add up to the combined impact above.
+                  </p>
+                </CardHeader>
+                <CardContent className="overflow-auto p-0">
+                  <table className="w-full text-sm">
+                    <thead className="bg-secondary text-left">
+                      <tr>
+                        <th className="p-3 font-medium">Change</th>
+                        <th className="p-3 text-right font-medium">Sustainable spending</th>
+                        <th className="p-3 text-right font-medium">Lifetime tax</th>
+                        <th className="p-3 text-right font-medium">Estate after tax</th>
+                        <th className="p-3 text-right font-medium">Funding</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {q.data.isolated.map((e) => {
+                        const isolatedGate = combinePresentedAdviceGates([
+                          q.data!.baselineAdviceGate,
+                          e.adviceGate,
+                        ]);
+                        return (
+                          <tr key={e.key} className="border-t">
+                            <td className="p-3">{e.label}</td>
+                            <td className="p-3 text-right">
+                              <DeltaChip
+                                spec={METRICS.find((m) => m.key === "sustainable")!}
+                                delta={
+                                  monthlyDisplay(e.metrics.sustainableSpend) -
+                                  monthlyDisplay(q.data!.baseline.sustainableSpend)
+                                }
+                                withheld={isolatedGate.adviceWithheld}
+                              />
+                            </td>
+                            <td className="p-3 text-right">
+                              <DeltaChip
+                                spec={METRICS.find((m) => m.key === "lifetimeTax")!}
+                                delta={e.metrics.lifetimeTax - q.data!.baseline.lifetimeTax}
+                                withheld={isolatedGate.adviceWithheld}
+                              />
+                            </td>
+                            <td className="p-3 text-right">
+                              <DeltaChip
+                                spec={METRICS.find((m) => m.key === "estate")!}
+                                delta={e.metrics.afterTaxEstate - q.data!.baseline.afterTaxEstate}
+                                withheld={isolatedGate.adviceWithheld}
+                              />
+                            </td>
+                            <td className="p-3 text-right">
+                              {isolatedGate.adviceWithheld ? (
+                                <Badge variant="secondary">Withheld</Badge>
+                              ) : e.metrics.shortfallYears === 0 ? (
+                                <Badge variant="secondary">Funded</Badge>
+                              ) : (
+                                `${e.metrics.shortfallYears} short years`
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
+            </div>
           ) : null}
 
           <YearLedger output={q.data.combinedOutput} title="Scenario — year by year" />
