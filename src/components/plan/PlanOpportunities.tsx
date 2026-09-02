@@ -15,9 +15,24 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { planOpportunities, runScenarioFn } from "@/lib/plans.functions";
 import type { PlanDraft } from "@/lib/planning/draft";
 import type { Opportunity } from "@/lib/planning/opportunities";
-import type { ScenarioMetrics, ScenarioPatch } from "@/lib/planning/scenario";
+import type { ScenarioPatch, ScenarioRun } from "@/lib/planning/scenario";
+import type { AdviceGatePayload } from "@/lib/planning/advice-gate";
 import { money, perMonth } from "@/lib/planning/units";
 import { ComparisonTable } from "@/components/plan/scenario-ui";
+import {
+  AdviceGateDisclosure,
+  combinePresentedAdviceGates,
+} from "@/components/plan/ProjectionValidityDisclosure";
+
+/** Blocked runs may retain input-only information, never quantified proposals. */
+export function opportunitiesVisibleForGate(
+  opportunities: readonly Opportunity[],
+  gate: AdviceGatePayload,
+): Opportunity[] {
+  return gate.adviceWithheld
+    ? opportunities.filter((opportunity) => opportunity.patch == null)
+    : [...opportunities];
+}
 
 export function OpportunitiesWorkspace({
   draft,
@@ -26,7 +41,7 @@ export function OpportunitiesWorkspace({
   onApplyToScenario,
 }: {
   draft: PlanDraft;
-  baseline: ScenarioMetrics | undefined;
+  baseline: ScenarioRun | undefined;
   patch: ScenarioPatch;
   onApplyToScenario: (p: ScenarioPatch) => void;
 }) {
@@ -36,36 +51,42 @@ export function OpportunitiesWorkspace({
     queryFn: () => fetchOpps({ data: { draft } }),
   });
 
-  if (q.isPending) return <p className="text-muted-foreground">Looking at your plan…</p>;
+  if (q.isPending || !baseline)
+    return <p className="text-muted-foreground">Looking at your plan…</p>;
   if (!q.data) return <p className="text-destructive">Opportunities could not be built.</p>;
 
-  const themes = [...new Set(q.data.map((o) => o.theme))];
+  const visible = opportunitiesVisibleForGate(q.data, baseline.adviceGate);
+  const themes = [...new Set(visible.map((o) => o.theme))];
 
   return (
     <div className="space-y-8">
+      <AdviceGateDisclosure gate={baseline.adviceGate} title="Quantified opportunities withheld" />
       <div>
         <h3 className="text-lg">Planning opportunities to test</h3>
         <p className="text-sm text-muted-foreground">
-          These are changes worth testing, not ranked advice. Lifetime tax, estate, spending
-          capacity and timing are different objectives — the largest number is not automatically
-          the best choice for you.
+          {baseline.adviceGate.adviceWithheld
+            ? "Only input-based information is shown. Quantified opportunities, comparisons and actions are withheld."
+            : "These are changes worth testing, not ranked advice. Lifetime tax, estate, spending capacity and timing are different objectives — the largest number is not automatically the best choice for you."}
         </p>
       </div>
 
-      {baseline ? (
+      {!baseline.adviceGate.adviceWithheld ? (
         <Card>
           <CardContent className="grid gap-4 pt-6 sm:grid-cols-4">
             <Stat
               label="Spending funded to"
               value={
-                baseline.firstShortfallAge == null
-                  ? `Age ${baseline.fundedToAge}+`
-                  : `Age ${baseline.fundedToAge}`
+                baseline.metrics.firstShortfallAge == null
+                  ? `Age ${baseline.metrics.fundedToAge}+`
+                  : `Age ${baseline.metrics.fundedToAge}`
               }
             />
-            <Stat label="Sustainable spending" value={perMonth(baseline.sustainableSpend)} />
-            <Stat label="Lifetime tax" value={money(baseline.lifetimeTax)} />
-            <Stat label="Estate after income tax" value={money(baseline.afterTaxEstate)} />
+            <Stat
+              label="Sustainable spending"
+              value={perMonth(baseline.metrics.sustainableSpend)}
+            />
+            <Stat label="Lifetime tax" value={money(baseline.metrics.lifetimeTax)} />
+            <Stat label="Estate after income tax" value={money(baseline.metrics.afterTaxEstate)} />
           </CardContent>
         </Card>
       ) : null}
@@ -75,7 +96,7 @@ export function OpportunitiesWorkspace({
           <h4 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
             {theme}
           </h4>
-          {q.data
+          {visible
             .filter((o) => o.theme === theme)
             .map((o) => (
               <OpportunityCard
@@ -116,7 +137,7 @@ function OpportunityCard({
 }: {
   opportunity: Opportunity;
   draft: PlanDraft;
-  baseline: ScenarioMetrics | undefined;
+  baseline: ScenarioRun;
   patch: ScenarioPatch;
   onApplyToScenario: (p: ScenarioPatch) => void;
 }) {
@@ -126,6 +147,9 @@ function OpportunityCard({
     mutationFn: (p: ScenarioPatch) => runOne({ data: { draft, patch: p } }),
     onSuccess: () => setShown(true),
   });
+  const comparisonGate = preview.data
+    ? combinePresentedAdviceGates([baseline.adviceGate, preview.data.adviceGate])
+    : undefined;
 
   return (
     <Card>
@@ -171,18 +195,24 @@ function OpportunityCard({
 
         {shown && preview.data && baseline ? (
           <div className="space-y-3 pt-2">
+            {comparisonGate ? (
+              <AdviceGateDisclosure gate={comparisonGate} title="Opportunity comparison withheld" />
+            ) : null}
             <ComparisonTable
-              left={baseline}
+              left={baseline.metrics}
               right={preview.data.metrics}
               leftLabel="Current plan"
               rightLabel="Proposed plan"
+              adviceGate={comparisonGate}
             />
-            <Button
-              size="sm"
-              onClick={() => onApplyToScenario({ ...patch, ...opportunity.patch })}
-            >
-              Apply to scenario
-            </Button>
+            {!comparisonGate?.adviceWithheld ? (
+              <Button
+                size="sm"
+                onClick={() => onApplyToScenario({ ...patch, ...opportunity.patch })}
+              >
+                Apply to scenario
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </CardContent>

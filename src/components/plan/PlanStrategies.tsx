@@ -25,6 +25,10 @@ import {
   METRICS,
   YearLedger,
 } from "@/components/plan/scenario-ui";
+import {
+  AdviceGateDisclosure,
+  combinePresentedAdviceGates,
+} from "@/components/plan/ProjectionValidityDisclosure";
 
 export function StrategiesWorkspace({
   draft,
@@ -51,24 +55,35 @@ export function StrategiesWorkspace({
   if (q.isPending) return <p className="text-muted-foreground">Running every withdrawal order…</p>;
   if (!q.data) return <p className="text-destructive">The comparison could not be run.</p>;
 
-  const { current, cards, autoRule, currentSeries } = q.data;
+  const { current, cards, adviceGate, autoRule, currentSeries } = q.data;
   const chipKeys = ["lifetimeTax", "estate", "sustainable", "shortfallYears"];
+  const currentSelectionWithheld = current.metrics.autoSelectionStatus === "WITHHELD";
+  const previewAdviceGate = preview.data
+    ? combinePresentedAdviceGates([current.adviceGate, preview.data.adviceGate])
+    : undefined;
 
   return (
     <div className="space-y-8">
+      <AdviceGateDisclosure gate={adviceGate} title="Strategy comparison withheld" />
       <Card>
         <CardHeader className="space-y-1">
           <CardTitle className="text-base">
-            {current.metrics.autoSelected ? "Current Auto selection" : "Current withdrawal order"}
+            {currentSelectionWithheld
+              ? "Automatic selection withheld"
+              : current.metrics.autoSelected
+                ? "Current Auto selection"
+                : "Current withdrawal order"}
             <Badge variant="secondary" className="ml-2">
               {current.label}
             </Badge>
           </CardTitle>
           <p className="flex gap-2 text-sm text-muted-foreground">
             <Info className="mt-0.5 size-4 shrink-0" />
-            {current.metrics.autoSelected
-              ? autoRule
-              : "You chose this order yourself. The cards below re-run the same plan under each supported order."}
+            {currentSelectionWithheld
+              ? current.metrics.autoSelectionNote
+              : current.metrics.autoSelected
+                ? autoRule
+                : "You chose this order yourself. The cards below re-run the same plan under each supported order."}
           </p>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -93,9 +108,9 @@ export function StrategiesWorkspace({
         <div>
           <h3 className="text-lg">Supported withdrawal orders</h3>
           <p className="text-sm text-muted-foreground">
-            Each card is its own full re-run. Differences are shown against your current run — no
-            card is labelled optimal, because lifetime tax, estate and spending capacity are
-            different objectives.
+            {adviceGate.adviceWithheld
+              ? "Each card is its own full re-run. Raw figures remain visible for context; rankings, favourable comparisons and differences are withheld."
+              : "Each card is its own full re-run. Differences are shown against your current run — no card is labelled optimal, because lifetime tax, estate and spending capacity are different objectives."}
           </p>
         </div>
         <div className="grid gap-4 lg:grid-cols-2">
@@ -106,6 +121,7 @@ export function StrategiesWorkspace({
               current={current}
               chipKeys={chipKeys}
               busy={preview.isPending && previewKey === String(c.key)}
+              adviceWithheld={adviceGate.adviceWithheld}
               onPreview={() => {
                 setPreviewKey(String(c.key));
                 preview.mutate({ ...patch, strategy: c.key });
@@ -118,6 +134,12 @@ export function StrategiesWorkspace({
       {preview.data ? (
         <section className="space-y-4">
           <h3 className="text-lg">Preview</h3>
+          {previewAdviceGate ? (
+            <AdviceGateDisclosure
+              gate={previewAdviceGate}
+              title="Strategy preview comparison withheld"
+            />
+          ) : null}
           <Card>
             <CardContent className="p-0">
               <ComparisonTable
@@ -125,33 +147,38 @@ export function StrategiesWorkspace({
                 right={preview.data.metrics}
                 leftLabel="Current"
                 rightLabel="Previewed"
+                adviceGate={previewAdviceGate}
               />
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Total portfolio over time</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <CompareChart
-                baseline={currentSeries}
-                scenario={preview.data.series}
-                baselineLabel="Current"
-                scenarioLabel="Previewed"
-              />
-            </CardContent>
-          </Card>
+          {!previewAdviceGate?.adviceWithheld ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Total portfolio over time</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <CompareChart
+                  baseline={currentSeries}
+                  scenario={preview.data.series}
+                  baselineLabel="Current"
+                  scenarioLabel="Previewed"
+                />
+              </CardContent>
+            </Card>
+          ) : null}
           <YearLedger output={preview.data.output} title="Previewed run — year by year" />
-          <Button
-            onClick={() =>
-              onApplyToScenario({
-                ...patch,
-                strategy: preview.data!.metrics.strategy,
-              })
-            }
-          >
-            Apply to scenario
-          </Button>
+          {!previewAdviceGate?.adviceWithheld ? (
+            <Button
+              onClick={() =>
+                onApplyToScenario({
+                  ...patch,
+                  strategy: preview.data!.metrics.strategy,
+                })
+              }
+            >
+              Apply to scenario
+            </Button>
+          ) : null}
           <p className="text-xs text-muted-foreground">
             Your baseline plan is untouched. Applying here only updates the working scenario used on
             the What if page.
@@ -176,12 +203,14 @@ function StrategyCardView({
   current,
   chipKeys,
   busy,
+  adviceWithheld,
   onPreview,
 }: {
   card: StrategyCard;
   current: StrategyCard;
   chipKeys: string[];
   busy: boolean;
+  adviceWithheld: boolean;
   onPreview: () => void;
 }) {
   const specs = METRICS.filter((s) => chipKeys.includes(s.key));
@@ -205,7 +234,11 @@ function StrategyCardView({
               <dd className="flex items-center gap-2">
                 <span className="tabular">{s.value(card.metrics)}</span>
                 {card.current ? null : (
-                  <DeltaChip spec={s} delta={s.raw(card.metrics) - s.raw(current.metrics)} />
+                  <DeltaChip
+                    spec={s}
+                    delta={s.raw(card.metrics) - s.raw(current.metrics)}
+                    withheld={adviceWithheld}
+                  />
                 )}
               </dd>
             </div>
@@ -215,8 +248,8 @@ function StrategyCardView({
             <dd className="tabular">{money(card.metrics.endingAssets)}</dd>
           </div>
         </dl>
-        <Button variant="outline" size="sm" onClick={onPreview} disabled={busy}>
-          {busy ? "Running…" : "Preview"}
+        <Button variant="outline" size="sm" onClick={onPreview} disabled={busy || adviceWithheld}>
+          {adviceWithheld ? "Preview unavailable" : busy ? "Running…" : "Preview"}
         </Button>
       </CardContent>
     </Card>

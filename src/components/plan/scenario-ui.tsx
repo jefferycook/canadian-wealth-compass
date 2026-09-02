@@ -23,8 +23,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { money, monthlyDisplay, perMonth } from "@/lib/planning/units";
+import type { AdviceGatePayload } from "@/lib/planning/advice-gate";
 import type { ScenarioMetrics, ScenarioSeriesPoint } from "@/lib/planning/scenario";
 import type { PlanOutput } from "@/lib/planning/summary";
+import {
+  AutoSelectionDisclosure,
+  ProjectionValidityDisclosure,
+} from "@/components/plan/ProjectionValidityDisclosure";
 
 export const compact = (n: number) =>
   Math.abs(n) >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : `$${Math.round(n / 1000)}k`;
@@ -103,7 +108,16 @@ export const METRICS: MetricSpec[] = [
   },
 ];
 
-export function DeltaChip({ spec, delta }: { spec: MetricSpec; delta: number }) {
+export function DeltaChip({
+  spec,
+  delta,
+  withheld = false,
+}: {
+  spec: MetricSpec;
+  delta: number;
+  withheld?: boolean | undefined;
+}) {
+  if (withheld) return <Badge variant="secondary">Withheld</Badge>;
   if (Math.round(delta) === 0) return <Badge variant="secondary">No change</Badge>;
   const good = spec.better === "up" ? delta > 0 : delta < 0;
   return (
@@ -118,10 +132,12 @@ export function MetricStrip({
   metrics,
   baseline,
   keys,
+  adviceWithheld = false,
 }: {
   metrics: ScenarioMetrics;
   baseline?: ScenarioMetrics | undefined;
   keys?: string[] | undefined;
+  adviceWithheld?: boolean;
 }) {
   const specs = keys ? METRICS.filter((s) => keys.includes(s.key)) : METRICS;
   return (
@@ -133,7 +149,11 @@ export function MetricStrip({
             <p className="tabular mt-1 text-xl font-semibold">{s.value(metrics)}</p>
             {baseline ? (
               <div className="mt-2">
-                <DeltaChip spec={s} delta={s.raw(metrics) - s.raw(baseline)} />
+                <DeltaChip
+                  spec={s}
+                  delta={s.raw(metrics) - s.raw(baseline)}
+                  withheld={adviceWithheld}
+                />
               </div>
             ) : null}
           </CardContent>
@@ -149,11 +169,13 @@ export function ComparisonTable({
   right,
   leftLabel = "Current plan",
   rightLabel = "Proposed plan",
+  adviceGate,
 }: {
   left: ScenarioMetrics;
   right: ScenarioMetrics;
   leftLabel?: string;
   rightLabel?: string;
+  adviceGate?: AdviceGatePayload | undefined;
 }) {
   return (
     <div className="overflow-auto">
@@ -173,7 +195,11 @@ export function ComparisonTable({
               <td className="tabular p-3 text-right">{s.value(left)}</td>
               <td className="tabular p-3 text-right">{s.value(right)}</td>
               <td className="p-3 text-right">
-                <DeltaChip spec={s} delta={s.raw(right) - s.raw(left)} />
+                <DeltaChip
+                  spec={s}
+                  delta={s.raw(right) - s.raw(left)}
+                  withheld={adviceGate?.adviceWithheld}
+                />
               </td>
             </tr>
           ))}
@@ -238,44 +264,60 @@ export function CompareChart({
 }
 
 /** The engine's own year-by-year ledger, collapsed until asked for. */
-export function YearLedger({ output, title = "Year-by-year detail" }: { output: PlanOutput; title?: string }) {
+export function YearLedger({
+  output,
+  title = "Year-by-year detail",
+}: {
+  output: PlanOutput;
+  title?: string;
+}) {
   const [open, setOpen] = useState(false);
   return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between space-y-0">
-        <CardTitle className="text-base">{title}</CardTitle>
-        <Button variant="ghost" size="sm" onClick={() => setOpen((o) => !o)}>
-          {open ? "Hide" : "Show"} <ChevronDown className={"ml-1 size-4 " + (open ? "rotate-180" : "")} />
-        </Button>
-      </CardHeader>
-      {open ? (
-        <CardContent className="max-h-96 overflow-auto p-0">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-secondary text-left">
-              <tr>
-                <th className="p-2 font-medium">Age</th>
-                <th className="p-2 text-right font-medium">Portfolio</th>
-                <th className="p-2 text-right font-medium">Spending target / mo</th>
-                <th className="p-2 text-right font-medium">Funded / mo</th>
-                <th className="p-2 text-right font-medium">Tax</th>
-                <th className="p-2 text-right font-medium">Net worth</th>
-              </tr>
-            </thead>
-            <tbody>
-              {output.years.map((y) => (
-                <tr key={y.age} className={"border-t " + (y.fundingShortfall ? "bg-destructive/10" : "")}>
-                  <td className="p-2">{y.age}</td>
-                  <td className="tabular p-2 text-right">{money(y.portfolio)}</td>
-                  <td className="tabular p-2 text-right">{money(monthlyDisplay(y.spendTarget))}</td>
-                  <td className="tabular p-2 text-right">{money(monthlyDisplay(y.afterTax))}</td>
-                  <td className="tabular p-2 text-right">{money(y.tax)}</td>
-                  <td className="tabular p-2 text-right">{money(y.netWorth)}</td>
+    <div className="space-y-3">
+      <ProjectionValidityDisclosure output={output} />
+      <AutoSelectionDisclosure output={output} />
+      <Card>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-base">{title}</CardTitle>
+          <Button variant="ghost" size="sm" onClick={() => setOpen((o) => !o)}>
+            {open ? "Hide" : "Show"}{" "}
+            <ChevronDown className={"ml-1 size-4 " + (open ? "rotate-180" : "")} />
+          </Button>
+        </CardHeader>
+        {open ? (
+          <CardContent className="max-h-96 overflow-auto p-0">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-secondary text-left">
+                <tr>
+                  <th className="p-2 font-medium">Age</th>
+                  <th className="p-2 text-right font-medium">Portfolio</th>
+                  <th className="p-2 text-right font-medium">Spending target / mo</th>
+                  <th className="p-2 text-right font-medium">Funded / mo</th>
+                  <th className="p-2 text-right font-medium">Tax</th>
+                  <th className="p-2 text-right font-medium">Net worth</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </CardContent>
-      ) : null}
-    </Card>
+              </thead>
+              <tbody>
+                {output.years.map((y) => (
+                  <tr
+                    key={y.age}
+                    className={"border-t " + (y.fundingShortfall ? "bg-destructive/10" : "")}
+                  >
+                    <td className="p-2">{y.age}</td>
+                    <td className="tabular p-2 text-right">{money(y.portfolio)}</td>
+                    <td className="tabular p-2 text-right">
+                      {money(monthlyDisplay(y.spendTarget))}
+                    </td>
+                    <td className="tabular p-2 text-right">{money(monthlyDisplay(y.afterTax))}</td>
+                    <td className="tabular p-2 text-right">{money(y.tax)}</td>
+                    <td className="tabular p-2 text-right">{money(y.netWorth)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        ) : null}
+      </Card>
+    </div>
   );
 }
