@@ -1,0 +1,238 @@
+name: phase0-verify
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  verify-candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      NODE_VERSION: 22.22.2
+      BUN_VERSION: 1.3.13
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      EVIDENCE_DIR: ${{ runner.temp }}/phase0-evidence
+      FREEZE_JSON: ${{ runner.temp }}/phase0-freeze.json
+
+    steps:
+      - name: Check out the exact candidate
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Establish exact candidate identity
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$HEAD_BRANCH" != "main" ]]
+          actual_head="$(git rev-parse HEAD)"
+          [[ "$actual_head" == "$HEAD_SHA" ]]
+          mapfile -t identity < <(git rev-list --parents -n 1 HEAD)
+          read -r -a fields <<< "${identity[0]}"
+          [[ "${#fields[@]}" -eq 2 ]]
+          [[ "${fields[1]}" == "$BASE_SHA" ]]
+          [[ "$(git rev-list --count "$BASE_SHA..$HEAD_SHA")" == "1" ]]
+          [[ "$(git rev-list --count "$HEAD_SHA..$BASE_SHA")" == "0" ]]
+          [[ "$(git merge-base "$BASE_SHA" "$HEAD_SHA")" == "$BASE_SHA" ]]
+          printf 'PR: %s\nBASE: %s\nHEAD: %s\nparent: %s\ntree: %s\n' \
+            "$PR_NUMBER" "$BASE_SHA" "$HEAD_SHA" "${fields[1]}" "$(git rev-parse HEAD^{tree})"
+
+      - name: Set up Node
+        id: node_setup
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.22.2
+
+      - name: Set up Bun
+        id: bun_setup
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: 1.3.13
+
+      - name: Check exact runtime pins
+        id: runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(node --version)" == "v$NODE_VERSION" ]]
+          [[ "$(bun --version)" == "$BUN_VERSION" ]]
+          [[ "$(tr -d '\r\n' < .node-version)" == "$NODE_VERSION" ]]
+
+      - name: Install from a new empty Bun cache
+        id: install
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="$RUNNER_TEMP/phase0-bun-cache"
+          [[ ! -e "$cache" ]]
+          mkdir -p "$cache"
+          before="$(sha256sum bun.lock | cut -d ' ' -f 1)"
+          BUN_INSTALL_CACHE_DIR="$cache" bun install --frozen-lockfile
+          after="$(sha256sum bun.lock | cut -d ' ' -f 1)"
+          [[ "$before" == "$after" ]]
+
+      - name: Run isolated Git-integrity self-tests
+        id: audit
+        run: node --test scripts/audit/phase0-git-integrity.test.mjs
+
+      - name: Run the protected Phase 0 freeze suite explicitly
+        id: freeze
+        run: >-
+          node node_modules/vitest/vitest.mjs run
+          src/lib/planning/phase0-freeze.test.ts
+          --config vite.config.ts
+          --reporter=json
+          --outputFile="$FREEZE_JSON"
+
+      - name: Validate the protected freeze report independently
+        id: freeze_names
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          import { resolve } from "node:path";
+
+          const expectedFile = resolve("src/lib/planning/phase0-freeze.test.ts").replaceAll("\\", "/");
+          const expectedNames = [
+            "F0-1: seven economic anchors remain frozen",
+            "F0-2: E2-1 RRIF transfer retention remains frozen",
+            "F0-3: Goal divergence and blocker remain frozen",
+            "F0-4: whole-year RRIF age basis remains approximate and engaged",
+          ].sort();
+          const report = JSON.parse(readFileSync(process.env.FREEZE_JSON, "utf8"));
+          const represented = (report.testResults ?? []).filter((entry) => {
+            const name = resolve(entry.name ?? "").replaceAll("\\", "/");
+            return name === expectedFile;
+          });
+          if (represented.length !== 1) throw new Error(`expected one exact freeze file result, found ${represented.length}`);
+          const assertions = represented[0].assertionResults ?? [];
+          if (assertions.length !== 4 || assertions.length === 0) throw new Error(`expected exactly four protected cases, found ${assertions.length}`);
+          if (assertions.some((item) => item.status !== "passed")) throw new Error("a protected freeze case did not pass");
+          const names = assertions.map((item) => item.title).sort();
+          if (JSON.stringify(names) !== JSON.stringify(expectedNames)) {
+            throw new Error(`protected names differ: ${JSON.stringify(names)}`);
+          }
+          NODE
+
+      - name: Run P0-4 focused tests
+        id: p04
+        run: node node_modules/vitest/vitest.mjs run src/lib/planning/p0-4.test.ts --config vite.config.ts
+
+      - name: Run P0-2 focused tests
+        id: p02
+        run: node node_modules/vitest/vitest.mjs run src/lib/planning/p0-2.test.ts --config vite.config.ts
+
+      - name: Run P0-GATE focused tests
+        id: p0gate
+        run: node node_modules/vitest/vitest.mjs run src/lib/planning/p0-gate.test.tsx --config vite.config.ts
+
+      - name: Run full Vitest suite
+        id: full_vitest
+        # The Node audit self-test is executed above with node --test; it is not
+        # a Vitest application suite and must not be collected a second time.
+        run: >-
+          node node_modules/vitest/vitest.mjs run --config vite.config.ts
+          --exclude 'scripts/audit/**'
+
+      - name: Run TypeScript
+        id: typescript
+        run: node node_modules/typescript/bin/tsc --noEmit
+
+      - name: Run production build
+        id: build
+        run: node node_modules/vite/bin/vite.js build
+
+      - name: Check committed diff whitespace
+        id: diff_check
+        shell: bash
+        run: git diff --check "$BASE_SHA..$HEAD_SHA"
+
+      - name: Prove tracked repository bytes stayed unchanged
+        id: tracked_bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code
+          git diff --cached --exit-code
+          git status --short
+
+      - name: Assemble verification evidence
+        if: always()
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          STEP_RESULTS_JSON: ${{ toJSON(steps) }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+          if [[ -f "$FREEZE_JSON" ]]; then cp "$FREEZE_JSON" "$EVIDENCE_DIR/phase0-freeze.json"; fi
+          node --input-type=module <<'NODE'
+          import { spawnSync } from "node:child_process";
+          import { writeFileSync } from "node:fs";
+          import { join } from "node:path";
+          const git = (...args) => {
+            const result = spawnSync("git", args, { encoding: "utf8", shell: false });
+            return result.status === 0
+              ? result.stdout.trim()
+              : `<unavailable: git ${args.join(" ")} exited ${result.status}: ${result.stderr.trim()}>`;
+          };
+          const stepResults = JSON.parse(process.env.STEP_RESULTS_JSON ?? "{}");
+          const requiredSteps = [
+            "checkout", "identity", "node_setup", "bun_setup", "runtime", "install",
+            "audit", "freeze", "freeze_names", "p04", "p02", "p0gate", "full_vitest",
+            "typescript", "build", "diff_check", "tracked_bytes",
+          ];
+          const lines = [
+            `run_id=${process.env.RUN_ID}`,
+            `pr=${process.env.PR_NUMBER}`,
+            `event=${process.env.EVENT_NAME}`,
+            `repository=${process.env.REPOSITORY}`,
+            `base=${process.env.BASE_SHA}`,
+            `head=${process.env.HEAD_SHA}`,
+            `actual_checkout=${git("rev-parse", "HEAD")}`,
+            `parent=${git("rev-parse", "HEAD^")}`,
+            `tree=${git("rev-parse", "HEAD^{tree}")}`,
+            `head_branch=${process.env.HEAD_BRANCH}`,
+            `node=${process.version}`,
+            `boundary_begin`,
+            git("diff", "--name-status", `${process.env.BASE_SHA}..${process.env.HEAD_SHA}`),
+            `boundary_end`,
+            `final_status_begin`,
+            git("status", "--short"),
+            `final_status_end`,
+            `step_results_begin`,
+            ...requiredSteps.flatMap((id) => [
+              `step.${id}.outcome=${stepResults[id]?.outcome ?? "unavailable"}`,
+              `step.${id}.conclusion=${stepResults[id]?.conclusion ?? "unavailable"}`,
+            ]),
+            `step_results_end`,
+          ];
+          writeFileSync(join(process.env.EVIDENCE_DIR, "verification-evidence.txt"), `${lines.join("\n")}\n`);
+          NODE
+          if command -v bun >/dev/null 2>&1; then bun --version > "$EVIDENCE_DIR/bun-version.txt"; else printf 'unavailable\n' > "$EVIDENCE_DIR/bun-version.txt"; fi
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: phase0-verify-${{ github.run_id }}
+          path: ${{ runner.temp }}/phase0-evidence
+          if-no-files-found: error
+          retention-days: 30

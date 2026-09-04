@@ -1,16 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { goalProgress } from "./analysis";
 import { adviceGateFromStatuses } from "./advice-gate";
-import { ageFromDob, effectiveCurrentAge } from "./ages";
-import { lifetimeTax, runPlan } from "./engine";
-import {
-  accumulationGoldenFixturePlan,
-  coupleGoldenFixturePlan,
-  lockedInGoldenFixturePlan,
-  regressionFixturePlan,
-  survivorGoldenFixturePlan,
-} from "./fixtures";
+import { runPlan } from "./engine";
+import { regressionFixturePlan } from "./fixtures";
 import { projection } from "./projection";
 import { lifMaximumFor, rrifMinFactor } from "./registered";
 import { summarize } from "./summary";
@@ -115,114 +107,6 @@ function annualMaximum(
 
 function mandatoryMinimum(age = 65, balance = OPENING_BALANCE): number {
   return balance * (rrifMinFactor(age) / 100);
-}
-
-function retentionLossPlan(): PlanInputs {
-  const base = regressionFixturePlan();
-  return {
-    ...base,
-    planType: "single",
-    inflation: 0,
-    indexationRate: 0,
-    eqRet: -0.5,
-    fiRet: -0.5,
-    spendNeed: 0,
-    currentSpend: 0,
-    strategy: "nonreg_reg_tfsa",
-    endAge: 68,
-    people: [
-      {
-        ...base.people[0]!,
-        curAge: 66,
-        retAge: 66,
-        employ: 0,
-        cpp: { amt: 0, age: 65 },
-        oas: { amt: 0, age: 65 },
-        pen: { amt: 0, age: 65 },
-        bridge: { amt: 0, end: 65 },
-      },
-    ],
-    accounts: [
-      lifAccount("MB", {
-        bal: 400000,
-        acb: 0,
-        unlock: 100,
-        conv: 55,
-      }),
-    ],
-    expenses: [],
-    otherIncome: [],
-    lumpSums: [],
-    hardAssets: [],
-    liabilities: [],
-  };
-}
-
-function goalSolverDivergencePlan(): PlanInputs {
-  const base = regressionFixturePlan();
-  const accountBase = base.accounts[0]!;
-  return {
-    ...base,
-    planType: "single",
-    endAge: 60,
-    spendNeed: 25000,
-    currentSpend: 25000,
-    strategy: "auto",
-    people: [
-      {
-        ...base.people[0]!,
-        curAge: 60,
-        retAge: 60,
-        employ: 0,
-        deathAge: 0,
-        cpp: { amt: 0, age: 65 },
-        oas: { amt: 0, age: 65 },
-        pen: { amt: 0, age: 65 },
-        bridge: { amt: 0, end: 65 },
-      },
-    ],
-    accounts: [
-      {
-        ...accountBase,
-        id: "tfsa",
-        name: "TFSA",
-        type: "TFSA",
-        owner: "A",
-        bal: 10000,
-        acb: 10000,
-        juris: "ON",
-        conv: 0,
-        unlock: 0,
-        contrib: 0,
-        contribEnd: 0,
-        wd: 0,
-        wdStart: 0,
-        wdEnd: 0,
-      },
-      {
-        ...accountBase,
-        id: "rrsp",
-        name: "RRSP",
-        type: "RRSP",
-        owner: "A",
-        bal: 10000,
-        acb: 0,
-        juris: "ON",
-        conv: 0,
-        unlock: 0,
-        contrib: 0,
-        contribEnd: 0,
-        wd: 0,
-        wdStart: 0,
-        wdEnd: 0,
-      },
-    ],
-    expenses: [],
-    otherIncome: [],
-    lumpSums: [],
-    hardAssets: [],
-    liabilities: [],
-  };
 }
 
 describe("P0-4 — locked-in and LIF enforcement", () => {
@@ -426,81 +310,6 @@ describe("P0-4 — locked-in and LIF enforcement", () => {
     expect(unlockGate.adviceReasons.map((reason) => reason.code)).toContain(
       "LOCKED_IN_UNLOCK_ENTITLEMENT_NOT_VERIFIED",
     );
-  });
-
-  it("P04-11: E2-1 transfer retention and defensive status remain frozen", () => {
-    const locked = projection(lockedInGoldenFixturePlan(), { startYear: START_YEAR });
-    const openingAt65 = locked.rows.find((row) => row.age === 64)!.balances["acc_lira"]!;
-    const retainedMinimum = openingAt65 * (rrifMinFactor(65) / 100);
-    const transferredToPrrif = openingAt65 - retainedMinimum;
-    const defensive = projection(retentionLossPlan(), { startYear: START_YEAR });
-
-    expect(retainedMinimum).toBe(8398.825698224313);
-    expect(transferredToPrrif).toBe(201571.8167573835);
-    expect(component(defensive, "rrif.transferRetention").engaged).toBe(false);
-    expect(
-      defensive.validityReasons.some(
-        (reason) => reason.code === "RRIF_TRANSFER_RETENTION_NOT_ENFORCED",
-      ),
-    ).toBe(false);
-  });
-
-  it("P04-12: P0-2 current-age behavior remains frozen", () => {
-    const beforeBirthday = new Date(2026, 8, 14, 12);
-    const onBirthday = new Date(2026, 8, 15, 12);
-    const in2031 = new Date(2031, 8, 15, 12);
-
-    expect(effectiveCurrentAge("1966-09-15", 59, beforeBirthday)).toBe(59);
-    expect(effectiveCurrentAge("1966-09-15", 59, onBirthday)).toBe(60);
-    expect(effectiveCurrentAge("1966-09-15", 59, in2031)).toBe(65);
-    expect(effectiveCurrentAge(null, 59, in2031)).toBe(59);
-    expect(ageFromDob("2000-02-29", new Date(2025, 1, 28, 12))).toBe(24);
-    expect(ageFromDob("2000-02-29", new Date(2025, 2, 1, 12))).toBe(25);
-  });
-
-  it("P04-13: P0-GATE Goal divergence values and blocker remain frozen", () => {
-    const plan = goalSolverDivergencePlan();
-    const outer = runPlan(plan, { startYear: START_YEAR });
-    const output = summarize(outer);
-    const goal = goalProgress(plan, outer);
-
-    expect(output.adviceGate.adviceWithheld).toBe(false);
-    expect(goal.adviceGate.adviceWithheld).toBe(true);
-    expect(goal.adviceGate.adviceBlockers).toContain("estate.afterTaxHaircut");
-    expect(goal.requiredToday).toBe(23776);
-    expect(goal.requiredToday - 20000).toBe(3776);
-    expect(goal.fundedRatio).toBeCloseTo(0.8411843876177658, 12);
-  });
-
-  it("P04-14: all seven raw and rounded economic anchors remain frozen", () => {
-    const single = regressionFixturePlan();
-    const locked = projection(lockedInGoldenFixturePlan(), { startYear: START_YEAR });
-    const raw = [
-      lifetimeTax(runPlan(single, { startYear: START_YEAR })),
-      lifetimeTax(runPlan({ ...single, indexationRate: 0 }, { startYear: START_YEAR })),
-      lifetimeTax(projection(coupleGoldenFixturePlan(), { startYear: START_YEAR })),
-      lifetimeTax(runPlan(accumulationGoldenFixturePlan(), { startYear: START_YEAR })),
-      lifetimeTax(locked),
-      locked.rows[locked.rows.length - 1]!.totalPortfolio,
-      lifetimeTax(projection(survivorGoldenFixturePlan(), { startYear: START_YEAR })),
-    ];
-
-    expect(raw[0]).toBeCloseTo(202529.63101576085, 6);
-    expect(raw[1]).toBeCloseTo(281104.7871018497, 6);
-    expect(raw[2]).toBeCloseTo(406524.2587903573, 6);
-    expect(raw[3]).toBeCloseTo(1756006.388544313, 6);
-    expect(raw[4]).toBeCloseTo(113282.75217087875, 6);
-    expect(raw[5]).toBeCloseTo(131458.02973093285, 6);
-    expect(raw[6]).toBeCloseTo(274814.67627053545, 6);
-    expect(raw.map(Math.round)).toEqual([
-      202530,
-      281105,
-      406524,
-      1756006,
-      113283,
-      131458,
-      274815,
-    ]);
   });
 
   it.each([

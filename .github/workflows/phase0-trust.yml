@@ -1,0 +1,346 @@
+name: phase0-trust
+
+on:
+  workflow_run:
+    workflows: [phase0-verify]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Open infrastructure PR number
+        required: true
+        type: string
+      audited_head_sha:
+        description: Independently audited exact head SHA
+        required: true
+        type: string
+      audited_base_sha:
+        description: Independently audited exact base SHA
+        required: true
+        type: string
+      approval_phrase:
+        description: Type EXACT-SHA-AUDIT-PASS
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+# Any workflow already on main that references this Environment can reach its
+# secrets after its branch policy passes. Consequently every .github/** change
+# is infrastructure-classified, and only the two jobs below may reference it.
+jobs:
+  evaluate-verify:
+    if: github.event_name == 'workflow_run'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: phase0-trust
+    outputs:
+      should_post: ${{ steps.decision.outputs.should_post }}
+      target_sha: ${{ steps.decision.outputs.target_sha }}
+      state: ${{ steps.decision.outputs.state }}
+      description: ${{ steps.decision.outputs.description }}
+    steps:
+      - name: Re-fetch identity and classify the exact live pull request
+        id: decision
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const exactSha = /^[0-9a-f]{40}$/;
+            const acceptedStatuses = new Set(["added", "modified", "removed", "renamed", "copied", "changed"]);
+            const protectedExact = new Set([
+              "src/lib/planning/phase0-freeze.test.ts",
+              "src/lib/planning/phase0-freeze.fixtures.ts",
+              "docs/audit/exact-sha-audit-template.md",
+              "bun.lock", "bunfig.toml", "package.json", ".node-version", ".npmrc", ".env",
+            ]);
+            const rootExtensions = new Set([".json", ".toml", ".yml", ".yaml", ".ts", ".js", ".mjs", ".cjs", ".mts", ".cts"]);
+            function infrastructurePath(path) {
+              if (!path) return false;
+              if (path.startsWith(".github/") || path.startsWith("scripts/audit/")) return true;
+              if (protectedExact.has(path) || path.startsWith(".env.")) return true;
+              if (/^(vite|vitest)\.config\./.test(path) || /^vitest\.workspace\./.test(path)) return true;
+              if (/^vitest\..+\.(ts|js|mjs|cjs|mts|cts)$/.test(path) || /^tsconfig.*\.json$/.test(path)) return true;
+              if (!path.includes("/")) {
+                const dot = path.lastIndexOf(".");
+                if (dot >= 0 && rootExtensions.has(path.slice(dot))) return true;
+              }
+              return false;
+            }
+            async function allFiles(number) {
+              const files = [];
+              const seen = new Set();
+              for (let page = 1; page <= 100; page++) {
+                const response = await github.rest.pulls.listFiles({ owner, repo, pull_number: number, per_page: 100, page });
+                if (!Array.isArray(response.data)) throw new Error("malformed PR Files response");
+                if (response.data.length > 100) throw new Error("malformed PR Files page length");
+                if (response.data.length === 0) return files;
+                for (const file of response.data) {
+                  if (typeof file.filename !== "string" || file.filename.length === 0) throw new Error("malformed PR filename");
+                  if (file.previous_filename != null && typeof file.previous_filename !== "string") throw new Error("malformed previous filename");
+                  if ((file.status === "renamed" || file.status === "copied") && !file.previous_filename) throw new Error("missing previous filename");
+                  const key = `${file.status}\0${file.filename}\0${file.previous_filename ?? ""}`;
+                  if (seen.has(key)) throw new Error("inconsistent duplicate in PR Files pagination");
+                  seen.add(key);
+                  files.push(file);
+                }
+              }
+              throw new Error("PR Files pagination did not terminate");
+            }
+
+            core.setOutput("should_post", "false");
+            try {
+              const trusted = await github.request("GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}", {
+                owner, repo, workflow_id: "phase0-verify.yml",
+              });
+              const runId = context.payload.workflow_run?.id;
+              if (!Number.isSafeInteger(runId)) throw new Error("missing workflow_run id");
+              const runResponse = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: runId });
+              const run = runResponse.data;
+              const canonicalPath = String(run.path ?? "").replace(/@refs\/[^@]+$/, "");
+              if (run.workflow_id !== trusted.data.id) throw new Error("run workflow ID is not the trusted path workflow ID");
+              if (canonicalPath !== ".github/workflows/phase0-verify.yml") throw new Error(`unexpected workflow path: ${canonicalPath}`);
+              if (run.event !== "pull_request") throw new Error(`unexpected verify event: ${run.event}`);
+              if (run.head_repository?.full_name !== `${owner}/${repo}`) throw new Error("fork or wrong head repository");
+              if (!exactSha.test(run.head_sha ?? "")) throw new Error("invalid run head SHA");
+              if (run.head_branch === "main") throw new Error("candidate branch is main");
+              if (!Number.isInteger(run.run_attempt) || run.run_attempt < 1) throw new Error("invalid run attempt");
+
+              const associated = await github.request("GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls", {
+                owner, repo, commit_sha: run.head_sha,
+                headers: { accept: "application/vnd.github+json" },
+              });
+              const pulls = associated.data.filter((pull) =>
+                pull.state === "open" &&
+                pull.base?.ref === "main" &&
+                pull.head?.repo?.full_name === `${owner}/${repo}` &&
+                pull.head?.sha === run.head_sha
+              );
+              if (pulls.length !== 1) throw new Error(`expected one relevant open PR; found ${pulls.length}`);
+              const pullNumber = pulls[0].number;
+              if (!Number.isSafeInteger(pullNumber) || pullNumber < 1) throw new Error("invalid associated PR number");
+              const pull = (await github.rest.pulls.get({ owner, repo, pull_number: pullNumber })).data;
+              if (
+                pull.state !== "open" || pull.base?.ref !== "main" ||
+                pull.head?.repo?.full_name !== `${owner}/${repo}` || pull.head?.sha !== run.head_sha
+              ) throw new Error("complete live PR no longer matches the associated PR");
+              if (!Number.isSafeInteger(pull.changed_files) || pull.changed_files < 0) throw new Error("invalid live PR changed_files count");
+              if (pull.changed_files > 3000) throw new Error("live PR changes more than 3,000 files and must be split before approval");
+
+              const mainRef = await github.rest.git.getRef({ owner, repo, ref: "heads/main" });
+              const liveMain = mainRef.data.object.sha;
+              if (!exactSha.test(liveMain)) throw new Error("invalid live main SHA");
+              const candidate = await github.rest.repos.getCommit({ owner, repo, ref: run.head_sha });
+              const parents = candidate.data.parents ?? [];
+              if (parents.length !== 1 || parents[0].sha !== liveMain) throw new Error("candidate is not a one-parent child of live main");
+              const comparison = await github.rest.repos.compareCommitsWithBasehead({
+                owner, repo, basehead: `${liveMain}...${run.head_sha}`,
+              });
+              if (
+                comparison.data.merge_base_commit?.sha !== liveMain ||
+                comparison.data.ahead_by !== 1 || comparison.data.behind_by !== 0 ||
+                comparison.data.total_commits !== 1
+              ) throw new Error("candidate is not exactly one ahead and zero behind live main");
+
+              const files = await allFiles(pull.number);
+              if (files.length !== pull.changed_files) throw new Error(`incomplete PR Files result: received ${files.length}, expected ${pull.changed_files}`);
+              const infrastructure = files.some((file) => {
+                if (!acceptedStatuses.has(file.status)) return true;
+                return infrastructurePath(file.filename) || infrastructurePath(file.previous_filename);
+              });
+              const evidence = [
+                `trusted workflow id: ${trusted.data.id}`,
+                `run id/attempt/conclusion: ${run.id}/${run.run_attempt}/${run.conclusion}`,
+                `run path/event: ${canonicalPath}/${run.event}`,
+                `head/base authority: ${run.head_sha}/${liveMain}`,
+                `pull/base snapshot: #${pull.number}/${pull.base?.sha}`,
+                `classification: ${infrastructure ? "infrastructure" : "ordinary"}`,
+                `files: ${files.map((file) => `${file.status}:${file.previous_filename ? `${file.previous_filename}->` : ""}${file.filename}`).join(", ")}`,
+              ];
+              await core.summary.addHeading("Phase 0 trusted verify decision").addCodeBlock(evidence.join("\n")).write();
+
+              if (infrastructure) {
+                core.notice("Infrastructure-classified candidate: automatic path intentionally posts no phase0-gate status.");
+                return;
+              }
+              const state = run.conclusion === "success" ? "success" : "failure";
+              core.setOutput("should_post", "true");
+              core.setOutput("target_sha", run.head_sha);
+              core.setOutput("state", state);
+              core.setOutput(
+                "description",
+                state === "success"
+                  ? `Trusted Phase 0 verification passed (run ${run.id}, attempt ${run.run_attempt})`
+                  : `Trusted Phase 0 verification did not pass (run ${run.id}, attempt ${run.run_attempt})`,
+              );
+            } catch (error) {
+              await core.summary.addHeading("Phase 0 trusted verify decision").addCodeBlock(`FAIL CLOSED: ${error.message}`).write();
+              core.setFailed(error.message);
+            }
+
+      - name: Mint dedicated App token immediately before status posting
+        if: steps.decision.outputs.should_post == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
+        with:
+          app-id: ${{ secrets.PHASE0_APP_ID }}
+          private-key: ${{ secrets.PHASE0_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Post the App-authored ordinary-candidate decision
+        if: steps.decision.outputs.should_post == 'true'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        env:
+          TARGET_SHA: ${{ steps.decision.outputs.target_sha }}
+          STATUS_STATE: ${{ steps.decision.outputs.state }}
+          STATUS_DESCRIPTION: ${{ steps.decision.outputs.description }}
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            if (!/^[0-9a-f]{40}$/.test(process.env.TARGET_SHA)) throw new Error("invalid target SHA");
+            if (!["success", "failure"].includes(process.env.STATUS_STATE)) throw new Error("invalid status state");
+            await github.rest.repos.createCommitStatus({
+              ...context.repo,
+              sha: process.env.TARGET_SHA,
+              state: process.env.STATUS_STATE,
+              context: "phase0-gate",
+              description: process.env.STATUS_DESCRIPTION.slice(0, 140),
+            });
+
+  approve-audited-infrastructure:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: phase0-trust
+    outputs:
+      audited_head: ${{ steps.audit.outputs.audited_head }}
+    steps:
+      - name: Re-fetch and validate manual exact-SHA infrastructure approval
+        id: audit
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        env:
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          INPUT_HEAD_SHA: ${{ inputs.audited_head_sha }}
+          INPUT_BASE_SHA: ${{ inputs.audited_base_sha }}
+          INPUT_PHRASE: ${{ inputs.approval_phrase }}
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_ACTOR: ${{ github.actor }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const exactSha = /^[0-9a-f]{40}$/;
+            if (process.env.DISPATCH_REF !== "refs/heads/main") throw new Error("dispatch ref must be main");
+            if (process.env.DISPATCH_ACTOR !== "jefferycook") throw new Error("dispatch actor is not the owner");
+            if (process.env.INPUT_PHRASE !== "EXACT-SHA-AUDIT-PASS") throw new Error("approval phrase mismatch");
+            if (!/^[0-9]+$/.test(process.env.INPUT_PR_NUMBER ?? "")) throw new Error("invalid PR number");
+            if (!exactSha.test(process.env.INPUT_HEAD_SHA ?? "") || !exactSha.test(process.env.INPUT_BASE_SHA ?? "")) throw new Error("invalid audited SHA");
+            const pullNumber = Number(process.env.INPUT_PR_NUMBER);
+            if (!Number.isSafeInteger(pullNumber) || pullNumber < 1) throw new Error("invalid PR number range");
+
+            const acceptedStatuses = new Set(["added", "modified", "removed", "renamed", "copied", "changed"]);
+            const protectedExact = new Set([
+              "src/lib/planning/phase0-freeze.test.ts",
+              "src/lib/planning/phase0-freeze.fixtures.ts",
+              "docs/audit/exact-sha-audit-template.md",
+              "bun.lock", "bunfig.toml", "package.json", ".node-version", ".npmrc", ".env",
+            ]);
+            const rootExtensions = new Set([".json", ".toml", ".yml", ".yaml", ".ts", ".js", ".mjs", ".cjs", ".mts", ".cts"]);
+            function infrastructurePath(path) {
+              if (!path) return false;
+              if (path.startsWith(".github/") || path.startsWith("scripts/audit/")) return true;
+              if (protectedExact.has(path) || path.startsWith(".env.")) return true;
+              if (/^(vite|vitest)\.config\./.test(path) || /^vitest\.workspace\./.test(path)) return true;
+              if (/^vitest\..+\.(ts|js|mjs|cjs|mts|cts)$/.test(path) || /^tsconfig.*\.json$/.test(path)) return true;
+              if (!path.includes("/")) {
+                const dot = path.lastIndexOf(".");
+                if (dot >= 0 && rootExtensions.has(path.slice(dot))) return true;
+              }
+              return false;
+            }
+            async function allFiles() {
+              const files = [];
+              const seen = new Set();
+              for (let page = 1; page <= 100; page++) {
+                const response = await github.rest.pulls.listFiles({ owner, repo, pull_number: pullNumber, per_page: 100, page });
+                if (!Array.isArray(response.data)) throw new Error("malformed PR Files response");
+                if (response.data.length > 100) throw new Error("malformed PR Files page length");
+                if (response.data.length === 0) return files;
+                for (const file of response.data) {
+                  if (typeof file.filename !== "string" || file.filename.length === 0) throw new Error("malformed PR filename");
+                  if (file.previous_filename != null && typeof file.previous_filename !== "string") throw new Error("malformed previous filename");
+                  if ((file.status === "renamed" || file.status === "copied") && !file.previous_filename) throw new Error("missing previous filename");
+                  const key = `${file.status}\0${file.filename}\0${file.previous_filename ?? ""}`;
+                  if (seen.has(key)) throw new Error("inconsistent duplicate in PR Files pagination");
+                  seen.add(key);
+                  files.push(file);
+                }
+              }
+              throw new Error("PR Files pagination did not terminate");
+            }
+
+            const pull = (await github.rest.pulls.get({ owner, repo, pull_number: pullNumber })).data;
+            if (pull.state !== "open" || pull.base?.ref !== "main") throw new Error("PR is not open against main");
+            if (pull.head?.repo?.full_name !== `${owner}/${repo}`) throw new Error("PR head is not this repository");
+            if (pull.head?.sha !== process.env.INPUT_HEAD_SHA) throw new Error("live PR head differs from audited head");
+            if (!Number.isSafeInteger(pull.changed_files) || pull.changed_files < 0) throw new Error("invalid live PR changed_files count");
+            if (pull.changed_files > 3000) throw new Error("live PR changes more than 3,000 files and must be split before approval");
+            const liveMain = (await github.rest.git.getRef({ owner, repo, ref: "heads/main" })).data.object.sha;
+            if (liveMain !== process.env.INPUT_BASE_SHA) throw new Error("live main differs from audited base");
+            const candidate = (await github.rest.repos.getCommit({ owner, repo, ref: process.env.INPUT_HEAD_SHA })).data;
+            if (candidate.parents?.length !== 1 || candidate.parents[0].sha !== process.env.INPUT_BASE_SHA) throw new Error("candidate parent differs from audited base");
+            const comparison = (await github.rest.repos.compareCommitsWithBasehead({
+              owner, repo, basehead: `${process.env.INPUT_BASE_SHA}...${process.env.INPUT_HEAD_SHA}`,
+            })).data;
+            if (
+              comparison.merge_base_commit?.sha !== process.env.INPUT_BASE_SHA ||
+              comparison.ahead_by !== 1 || comparison.behind_by !== 0 || comparison.total_commits !== 1
+            ) throw new Error("candidate is not exactly one ahead and zero behind audited base");
+            const files = await allFiles();
+            if (files.length !== pull.changed_files) throw new Error(`incomplete PR Files result: received ${files.length}, expected ${pull.changed_files}`);
+            const infrastructure = files.some((file) => {
+              if (!acceptedStatuses.has(file.status)) return true;
+              return infrastructurePath(file.filename) || infrastructurePath(file.previous_filename);
+            });
+            if (!infrastructure) throw new Error("manual path is only for infrastructure-classified candidates");
+
+            core.setOutput("audited_head", process.env.INPUT_HEAD_SHA);
+            await core.summary.addHeading("Manual Phase 0 exact-SHA approval").addCodeBlock([
+              `actor: ${process.env.DISPATCH_ACTOR}`,
+              `PR: #${pullNumber}`,
+              `audited/live head: ${process.env.INPUT_HEAD_SHA}`,
+              `audited/live main: ${process.env.INPUT_BASE_SHA}`,
+              `pull base snapshot (not authority): ${pull.base?.sha}`,
+              `classification: infrastructure`,
+              `files: ${files.map((file) => `${file.status}:${file.previous_filename ? `${file.previous_filename}->` : ""}${file.filename}`).join(", ")}`,
+            ].join("\n")).write();
+
+      - name: Mint dedicated App token immediately before manual status posting
+        id: app-token
+        uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
+        with:
+          app-id: ${{ secrets.PHASE0_APP_ID }}
+          private-key: ${{ secrets.PHASE0_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Post manual exact-SHA App approval
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        env:
+          TARGET_SHA: ${{ steps.audit.outputs.audited_head }}
+          APPROVING_ACTOR: ${{ github.actor }}
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            if (!/^[0-9a-f]{40}$/.test(process.env.TARGET_SHA)) throw new Error("invalid target SHA");
+            if (process.env.APPROVING_ACTOR !== "jefferycook") throw new Error("unexpected approving actor");
+            await github.rest.repos.createCommitStatus({
+              ...context.repo,
+              sha: process.env.TARGET_SHA,
+              state: "success",
+              context: "phase0-gate",
+              description: `Manual exact-SHA infrastructure audit approved by ${process.env.APPROVING_ACTOR}`.slice(0, 140),
+            });
