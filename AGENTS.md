@@ -8,3 +8,7 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
+
+Repository policy: `main` is protected and accepts changes through the audited
+pull-request workflow. Do not rely on Lovable-side edits being able to push
+directly to `main`.
