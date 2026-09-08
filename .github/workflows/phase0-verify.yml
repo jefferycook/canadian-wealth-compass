@@ -19,8 +19,6 @@ jobs:
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
       HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
-      EVIDENCE_DIR: ${{ runner.temp }}/phase0-evidence
-      FREEZE_JSON: ${{ runner.temp }}/phase0-freeze.json
 
     steps:
       - name: Check out the exact candidate
@@ -91,6 +89,8 @@ jobs:
 
       - name: Run the protected Phase 0 freeze suite explicitly
         id: freeze
+        env:
+          FREEZE_JSON: ${{ runner.temp }}/phase0-freeze.json
         run: >-
           node node_modules/vitest/vitest.mjs run
           src/lib/planning/phase0-freeze.test.ts
@@ -101,6 +101,8 @@ jobs:
       - name: Validate the protected freeze report independently
         id: freeze_names
         shell: bash
+        env:
+          FREEZE_JSON: ${{ runner.temp }}/phase0-freeze.json
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
@@ -176,6 +178,8 @@ jobs:
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
+          EVIDENCE_DIR: ${{ runner.temp }}/phase0-evidence
+          FREEZE_JSON: ${{ runner.temp }}/phase0-freeze.json
           REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
           STEP_RESULTS_JSON: ${{ toJSON(steps) }}
