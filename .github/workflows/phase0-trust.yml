@@ -28,6 +28,10 @@ permissions:
   actions: read
   pull-requests: read
 
+concurrency:
+  group: phase0-gate-${{ github.event.workflow_run.head_sha || inputs.audited_head_sha }}
+  cancel-in-progress: false
+
 # Any workflow already on main that references this Environment can reach its
 # secrets after its branch policy passes. Consequently every .github/** change
 # is infrastructure-classified, and only the two jobs below may reference it.
@@ -42,10 +46,18 @@ jobs:
       target_sha: ${{ steps.decision.outputs.target_sha }}
       state: ${{ steps.decision.outputs.state }}
       description: ${{ steps.decision.outputs.description }}
+      verifier_workflow_id: ${{ steps.decision.outputs.verifier_workflow_id }}
+      verifier_run_id: ${{ steps.decision.outputs.verifier_run_id }}
+      verifier_run_attempt: ${{ steps.decision.outputs.verifier_run_attempt }}
+      pull_number: ${{ steps.decision.outputs.pull_number }}
+      base_sha: ${{ steps.decision.outputs.base_sha }}
+      details_url: ${{ steps.decision.outputs.details_url }}
     steps:
       - name: Re-fetch identity and classify the exact live pull request
         id: decision
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        env:
+          TRUSTED_WORKFLOW_SHA: ${{ github.sha }}
         with:
           script: |
             const { owner, repo } = context.repo;
@@ -133,6 +145,7 @@ jobs:
               const mainRef = await github.rest.git.getRef({ owner, repo, ref: "heads/main" });
               const liveMain = mainRef.data.object.sha;
               if (!exactSha.test(liveMain)) throw new Error("invalid live main SHA");
+              if (process.env.TRUSTED_WORKFLOW_SHA !== liveMain) throw new Error("trusted workflow revision is not live main");
               const candidate = await github.rest.repos.getCommit({ owner, repo, ref: run.head_sha });
               const parents = candidate.data.parents ?? [];
               if (parents.length !== 1 || parents[0].sha !== liveMain) throw new Error("candidate is not a one-parent child of live main");
@@ -170,6 +183,12 @@ jobs:
               core.setOutput("should_post", "true");
               core.setOutput("target_sha", run.head_sha);
               core.setOutput("state", state);
+              core.setOutput("verifier_workflow_id", String(run.workflow_id));
+              core.setOutput("verifier_run_id", String(run.id));
+              core.setOutput("verifier_run_attempt", String(run.run_attempt));
+              core.setOutput("pull_number", String(pull.number));
+              core.setOutput("base_sha", liveMain);
+              core.setOutput("details_url", run.html_url);
               core.setOutput(
                 "description",
                 state === "success"
@@ -181,7 +200,25 @@ jobs:
               core.setFailed(error.message);
             }
 
-      - name: Mint dedicated App token immediately before status posting
+      - name: Check out the exact trusted workflow revision
+        if: steps.decision.outputs.should_post == 'true'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          path: phase0-trusted-source
+
+      - name: Verify the trusted helper revision
+        if: steps.decision.outputs.should_post == 'true'
+        env:
+          EXPECTED_TRUSTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          actual="$(git -C phase0-trusted-source rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_TRUSTED_SHA"
+          test -f phase0-trusted-source/scripts/audit/phase0-gate-check.mjs
+
+      - name: Mint dedicated App token immediately before Check Run posting
         if: steps.decision.outputs.should_post == 'true'
         id: app-token
         uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
@@ -190,26 +227,50 @@ jobs:
           private-key: ${{ secrets.PHASE0_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-checks: write
 
-      - name: Post the App-authored ordinary-candidate decision
+      - name: Create or update the App-authored ordinary-candidate Check Run
         if: steps.decision.outputs.should_post == 'true'
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         env:
           TARGET_SHA: ${{ steps.decision.outputs.target_sha }}
           STATUS_STATE: ${{ steps.decision.outputs.state }}
           STATUS_DESCRIPTION: ${{ steps.decision.outputs.description }}
+          VERIFIER_WORKFLOW_ID: ${{ steps.decision.outputs.verifier_workflow_id }}
+          VERIFIER_RUN_ID: ${{ steps.decision.outputs.verifier_run_id }}
+          VERIFIER_RUN_ATTEMPT: ${{ steps.decision.outputs.verifier_run_attempt }}
+          PULL_NUMBER: ${{ steps.decision.outputs.pull_number }}
+          BASE_SHA: ${{ steps.decision.outputs.base_sha }}
+          DETAILS_URL: ${{ steps.decision.outputs.details_url }}
+          TRUSTED_HELPER_PATH: ${{ github.workspace }}/phase0-trusted-source/scripts/audit/phase0-gate-check.mjs
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
+            const { pathToFileURL } = require("node:url");
             if (!/^[0-9a-f]{40}$/.test(process.env.TARGET_SHA)) throw new Error("invalid target SHA");
             if (!["success", "failure"].includes(process.env.STATUS_STATE)) throw new Error("invalid status state");
-            await github.rest.repos.createCommitStatus({
+            const { upsertPhase0GateCheck } = await import(pathToFileURL(process.env.TRUSTED_HELPER_PATH).href);
+            const result = await upsertPhase0GateCheck({
+              github,
               ...context.repo,
-              sha: process.env.TARGET_SHA,
-              state: process.env.STATUS_STATE,
-              context: "phase0-gate",
-              description: process.env.STATUS_DESCRIPTION.slice(0, 140),
+              candidateSha: process.env.TARGET_SHA,
+              conclusion: process.env.STATUS_STATE,
+              detailsUrl: process.env.DETAILS_URL,
+              title: process.env.STATUS_STATE === "success" ? "Phase 0 verification passed" : "Phase 0 verification failed",
+              summary: [
+                process.env.STATUS_DESCRIPTION,
+                `Candidate: ${process.env.TARGET_SHA}`,
+                `Base: ${process.env.BASE_SHA}`,
+                `Pull request: #${process.env.PULL_NUMBER}`,
+              ].join("\n"),
+              source: {
+                kind: "verify",
+                workflowId: Number(process.env.VERIFIER_WORKFLOW_ID),
+                runId: Number(process.env.VERIFIER_RUN_ID),
+                runAttempt: Number(process.env.VERIFIER_RUN_ATTEMPT),
+              },
             });
+            core.notice(`${result.operation} authoritative phase0-gate Check Run ${result.checkRunId}`);
 
   approve-audited-infrastructure:
     if: github.event_name == 'workflow_dispatch'
@@ -218,6 +279,8 @@ jobs:
     environment: phase0-trust
     outputs:
       audited_head: ${{ steps.audit.outputs.audited_head }}
+      audited_base: ${{ steps.audit.outputs.audited_base }}
+      pull_number: ${{ steps.audit.outputs.pull_number }}
     steps:
       - name: Re-fetch and validate manual exact-SHA infrastructure approval
         id: audit
@@ -229,6 +292,7 @@ jobs:
           INPUT_PHRASE: ${{ inputs.approval_phrase }}
           DISPATCH_REF: ${{ github.ref }}
           DISPATCH_ACTOR: ${{ github.actor }}
+          TRUSTED_WORKFLOW_SHA: ${{ github.sha }}
         with:
           script: |
             const { owner, repo } = context.repo;
@@ -290,6 +354,7 @@ jobs:
             if (pull.changed_files > 3000) throw new Error("live PR changes more than 3,000 files and must be split before approval");
             const liveMain = (await github.rest.git.getRef({ owner, repo, ref: "heads/main" })).data.object.sha;
             if (liveMain !== process.env.INPUT_BASE_SHA) throw new Error("live main differs from audited base");
+            if (process.env.TRUSTED_WORKFLOW_SHA !== liveMain) throw new Error("trusted workflow revision is not live main");
             const candidate = (await github.rest.repos.getCommit({ owner, repo, ref: process.env.INPUT_HEAD_SHA })).data;
             if (candidate.parents?.length !== 1 || candidate.parents[0].sha !== process.env.INPUT_BASE_SHA) throw new Error("candidate parent differs from audited base");
             const comparison = (await github.rest.repos.compareCommitsWithBasehead({
@@ -308,6 +373,8 @@ jobs:
             if (!infrastructure) throw new Error("manual path is only for infrastructure-classified candidates");
 
             core.setOutput("audited_head", process.env.INPUT_HEAD_SHA);
+            core.setOutput("audited_base", process.env.INPUT_BASE_SHA);
+            core.setOutput("pull_number", String(pullNumber));
             await core.summary.addHeading("Manual Phase 0 exact-SHA approval").addCodeBlock([
               `actor: ${process.env.DISPATCH_ACTOR}`,
               `PR: #${pullNumber}`,
@@ -318,7 +385,23 @@ jobs:
               `files: ${files.map((file) => `${file.status}:${file.previous_filename ? `${file.previous_filename}->` : ""}${file.filename}`).join(", ")}`,
             ].join("\n")).write();
 
-      - name: Mint dedicated App token immediately before manual status posting
+      - name: Check out the exact trusted workflow revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          path: phase0-trusted-source
+
+      - name: Verify the trusted helper revision
+        env:
+          EXPECTED_TRUSTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          actual="$(git -C phase0-trusted-source rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_TRUSTED_SHA"
+          test -f phase0-trusted-source/scripts/audit/phase0-gate-check.mjs
+
+      - name: Mint dedicated App token immediately before manual Check Run posting
         id: app-token
         uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
         with:
@@ -326,21 +409,45 @@ jobs:
           private-key: ${{ secrets.PHASE0_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-checks: write
 
-      - name: Post manual exact-SHA App approval
+      - name: Create or update the manual exact-SHA App Check Run
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         env:
           TARGET_SHA: ${{ steps.audit.outputs.audited_head }}
+          AUDITED_BASE_SHA: ${{ steps.audit.outputs.audited_base }}
+          PULL_NUMBER: ${{ steps.audit.outputs.pull_number }}
           APPROVING_ACTOR: ${{ github.actor }}
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+          WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
+          TRUSTED_HELPER_PATH: ${{ github.workspace }}/phase0-trusted-source/scripts/audit/phase0-gate-check.mjs
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
+            const { pathToFileURL } = require("node:url");
             if (!/^[0-9a-f]{40}$/.test(process.env.TARGET_SHA)) throw new Error("invalid target SHA");
             if (process.env.APPROVING_ACTOR !== "jefferycook") throw new Error("unexpected approving actor");
-            await github.rest.repos.createCommitStatus({
+            const { upsertPhase0GateCheck } = await import(pathToFileURL(process.env.TRUSTED_HELPER_PATH).href);
+            const result = await upsertPhase0GateCheck({
+              github,
               ...context.repo,
-              sha: process.env.TARGET_SHA,
-              state: "success",
-              context: "phase0-gate",
-              description: `Manual exact-SHA infrastructure audit approved by ${process.env.APPROVING_ACTOR}`.slice(0, 140),
+              candidateSha: process.env.TARGET_SHA,
+              conclusion: "success",
+              detailsUrl: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${process.env.WORKFLOW_RUN_ID}`,
+              title: "Phase 0 infrastructure audit approved",
+              summary: [
+                `Manual exact-SHA infrastructure audit approved by ${process.env.APPROVING_ACTOR}`,
+                `Candidate: ${process.env.TARGET_SHA}`,
+                `Audited base: ${process.env.AUDITED_BASE_SHA}`,
+                `Pull request: #${process.env.PULL_NUMBER}`,
+              ].join("\n"),
+              source: {
+                kind: "manual",
+                workflowRunId: Number(process.env.WORKFLOW_RUN_ID),
+                workflowRunAttempt: Number(process.env.WORKFLOW_RUN_ATTEMPT),
+                actor: process.env.APPROVING_ACTOR,
+                pullNumber: Number(process.env.PULL_NUMBER),
+                auditedBaseSha: process.env.AUDITED_BASE_SHA,
+              },
             });
+            core.notice(`${result.operation} authoritative phase0-gate Check Run ${result.checkRunId}`);
