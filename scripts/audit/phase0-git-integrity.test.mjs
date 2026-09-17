@@ -1,989 +1,2064 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import test from "node:test";
+import { join } from "node:path";
+import { mkdtempSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import test from "node:test";
 import {
+  authorizeManualGate,
+  isCanonicalPhase0GateQ,
+  parsePhase0Gate,
   PHASE0_GATE_APP_ID,
   PHASE0_GATE_NAME,
+  serializePhase0Gate,
+  terminalizeAuthorizedGate,
+  terminalizeDuplicateGateChecks,
+  transitionPhase0Gate,
   upsertPhase0GateCheck,
 } from "./phase0-gate-check.mjs";
+import {
+  MERGER_APP_BOT_LOGIN,
+  finalizeBeforeMerge,
+  infrastructurePath,
+  isRulesetB,
+  mergeOnce,
+  prepareBeforeMerge,
+  validateBeforeMerge,
+  validateDispatch,
+  validateFileEnumeration,
+  validateLivePull,
+  validateRulesetA,
+  validateRulesets,
+} from "./phase0-merge.mjs";
 
-const scripts = dirname(fileURLToPath(import.meta.url));
-const bundleScript = join(scripts, "make-review-bundle.mjs");
-const verifyCommitScript = join(scripts, "verify-commit.mjs");
-const verifyMergeScript = join(scripts, "verify-merge.mjs");
-const candidateSha = "1111111111111111111111111111111111111111";
-const auditedBaseSha = "2222222222222222222222222222222222222222";
+const head = "1".repeat(40),
+  base = "2".repeat(40),
+  tree = "3".repeat(40);
+const completed = "2026-09-15T12:00:00Z";
+const v = (token = "success", attempt = 1) => ({
+  kind: "v",
+  token,
+  workflowId: 10,
+  runId: 20,
+  attempt,
+  pr: 7,
+  base,
+});
+const awaiting = (attempt = 2) => ({
+  kind: "a",
+  token: "awaiting",
+  workflowId: 10,
+  runId: 20,
+  attempt,
+  pr: 7,
+  base,
+});
+const run = (source, id = 1) => ({
+  id,
+  name: PHASE0_GATE_NAME,
+  head_sha: head,
+  app: { id: PHASE0_GATE_APP_ID },
+  status: "completed",
+  conclusion: source.token === "success" ? "success" : "failure",
+  completed_at: completed,
+  external_id: serializePhase0Gate(head, source),
+});
 
-function verifyDecision(runId, runAttempt, conclusion) {
-  return {
-    github: null,
-    owner: "jefferycook",
-    repo: "canadian-wealth-compass",
-    candidateSha,
-    conclusion,
-    detailsUrl: `https://github.com/jefferycook/canadian-wealth-compass/actions/runs/${runId}`,
-    title: conclusion === "success" ? "Phase 0 verification passed" : "Phase 0 verification failed",
-    summary: `Trusted verifier run ${runId}, attempt ${runAttempt}`,
-    source: { kind: "verify", workflowId: 1234, runId, runAttempt },
-  };
-}
-
-function manualDecision(workflowRunId, workflowRunAttempt) {
-  return {
-    github: null,
-    owner: "jefferycook",
-    repo: "canadian-wealth-compass",
-    candidateSha,
-    conclusion: "success",
-    detailsUrl: `https://github.com/jefferycook/canadian-wealth-compass/actions/runs/${workflowRunId}`,
-    title: "Phase 0 infrastructure audit approved",
-    summary: "Audited manual decision",
-    source: {
-      kind: "manual",
-      workflowRunId,
-      workflowRunAttempt,
-      actor: "jefferycook",
-      pullNumber: 12,
-      auditedBaseSha,
-    },
-  };
-}
-
-function assertIsoTimestamp(value) {
-  assert.equal(typeof value, "string");
-  assert.match(value, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/);
-  assert.equal(Number.isNaN(new Date(value).valueOf()), false);
-}
-
-function assertWholeSecondTimestamp(value) {
-  assertIsoTimestamp(value);
-  assert.doesNotMatch(value, /\./);
-}
-
-function checksApi(initialRuns = [], options = {}) {
-  const state = {
-    runs: structuredClone(initialRuns),
-    lists: [],
-    creates: [],
-    updates: [],
-    gets: [],
-    legacyStatusReads: 0,
-    nextId: 100,
-  };
-  const listForRef = async () => {
-    throw new Error("listForRef must be called through paginate");
-  };
+function api(initial = [], options = {}) {
+  const state = { runs: structuredClone(initial), creates: [], updates: [], gets: [], merges: [] };
+  const listForRef = async () => {};
   const github = {
-    paginate: async (method, parameters) => {
-      assert.equal(method, listForRef);
-      state.lists.push(structuredClone(parameters));
-      return structuredClone(state.runs);
-    },
+    paginate: async (method) => (method === listForRef ? structuredClone(state.runs) : []),
     rest: {
       checks: {
         listForRef,
-        create: async (payload) => {
-          state.creates.push(structuredClone(payload));
-          const run = {
-            id: state.nextId++,
-            name: payload.name,
-            head_sha: payload.head_sha,
-            status: payload.status,
-            conclusion: payload.conclusion,
-            completed_at: options.omitCreateCompletedAt
-              ? undefined
-              : (options.createCompletedAt ?? payload.completed_at),
-            details_url: payload.details_url,
-            external_id: payload.external_id,
-            output: structuredClone(payload.output),
-            app: { id: options.createAppId ?? PHASE0_GATE_APP_ID },
+        get: async ({ check_run_id }) => {
+          state.gets.push(check_run_id);
+          if (options.getThrowsAt?.includes(state.gets.length)) throw new Error("get transport");
+          return { data: structuredClone(state.runs.find((r) => r.id === check_run_id)) };
+        },
+        create: async (p) => {
+          state.creates.push(structuredClone(p));
+          const r = {
+            id: 100,
+            name: p.name,
+            head_sha: p.head_sha,
+            app: { id: PHASE0_GATE_APP_ID },
+            status: p.status,
+            conclusion: p.conclusion,
+            completed_at: p.completed_at,
+            external_id: p.external_id,
           };
-          state.runs.push(run);
-          return { data: structuredClone(run) };
+          state.runs.push(r);
+          return { data: structuredClone(r) };
         },
-        update: async (payload) => {
-          const behavior = options.updateBehaviors?.[state.updates.length] ?? {};
-          state.updates.push(structuredClone(payload));
-          if (behavior.throwBeforeApply) throw new Error(behavior.throwBeforeApply);
-          const run = state.runs.find((candidate) => candidate.id === payload.check_run_id);
-          if (!run) throw new Error("missing mocked Check Run");
-          Object.assign(run, {
-            name: payload.name,
-            status: payload.status,
-            conclusion: payload.conclusion,
-            completed_at:
-              (behavior.omitCompletedAt ?? options.omitUpdateCompletedAt)
-                ? undefined
-                : typeof behavior.completedAt === "function"
-                  ? behavior.completedAt(payload.completed_at)
-                  : (behavior.completedAt ?? options.updateCompletedAt ?? payload.completed_at),
-            details_url: payload.details_url,
-            external_id: payload.external_id,
-            output: structuredClone(payload.output),
+        update: async (p) => {
+          state.updates.push(structuredClone(p));
+          if (options.throwBeforeUpdate?.includes(state.updates.length))
+            throw new Error("transport");
+          const r = state.runs.find((x) => x.id === p.check_run_id);
+          Object.assign(r, {
+            name: p.name,
+            status: p.status,
+            conclusion: p.conclusion,
+            completed_at: p.completed_at,
+            external_id: p.external_id,
           });
-          if (behavior.throwAfterApply) throw new Error(behavior.throwAfterApply);
-          return { data: structuredClone(run) };
-        },
-        get: async (payload) => {
-          state.gets.push(structuredClone(payload));
-          if (options.getThrows) throw new Error("mocked Check Run fetch failure");
-          const run = state.runs.find((candidate) => candidate.id === payload.check_run_id);
-          if (!run) throw new Error("missing mocked Check Run");
-          return { data: structuredClone(run) };
+          if (options.throwAfterUpdate?.includes(state.updates.length))
+            throw new Error("transport");
+          if (options.invalidUpdateResponseAt?.includes(state.updates.length))
+            return { data: { ...structuredClone(r), external_id: "invalid-response" } };
+          return { data: structuredClone(r) };
         },
       },
-      repos: {
-        getCombinedStatusForRef: async () => {
-          state.legacyStatusReads += 1;
-          throw new Error("legacy statuses are not an authority");
+      pulls: {
+        merge: async (p) => {
+          state.merges.push(structuredClone(p));
+          if (options.mergeThrows) throw new Error("transport");
+          return { data: { merged: true, sha: "4".repeat(40) } };
         },
       },
     },
   };
   return { github, state };
 }
-
-function repository(label = "repo") {
-  const parent = mkdtempSync(join(tmpdir(), `phase0-git-test-${label}-`));
-  const root = join(parent, "repo");
-  const home = join(parent, "home");
-  const hooks = join(parent, "empty-hooks");
-  const globalConfig = join(parent, "empty-gitconfig");
-  mkdirSync(root);
-  mkdirSync(home);
-  mkdirSync(hooks);
-  writeFileSync(globalConfig, "");
-  const config = [
-    ["user.name", "Phase0 Test"],
-    ["user.email", "phase0@example.invalid"],
-    ["commit.gpgsign", "false"],
-    ["core.autocrlf", "false"],
-    ["core.hooksPath", hooks],
-  ];
-  const env = {
-    ...process.env,
-    GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: globalConfig,
-    HOME: home,
-    USERPROFILE: home,
-    GIT_CONFIG_COUNT: String(config.length),
-  };
-  config.forEach(([key, value], index) => {
-    env[`GIT_CONFIG_KEY_${index}`] = key;
-    env[`GIT_CONFIG_VALUE_${index}`] = value;
-  });
-
-  function git(args, options = {}) {
-    return execFileSync("git", args, {
-      cwd: root,
-      env,
-      encoding: "utf8",
-      stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
-    }).trim();
-  }
-  function script(file, args) {
-    return spawnSync(process.execPath, [file, ...args], {
-      cwd: root,
-      env,
-      encoding: "utf8",
-      shell: false,
-    });
-  }
-  function commit(message = "commit") {
-    git(["add", "-A"]);
-    git(["commit", "-m", message]);
-    return git(["rev-parse", "HEAD"]);
-  }
-
-  git(["init", "--initial-branch=main"]);
-  writeFileSync(join(root, "tracked.txt"), "base\n");
-  const base = commit("base");
-  return { parent, root, env, git, script, commit, base };
-}
-
-function makeBundle(repo, suffix = "bundle") {
-  const out = join(repo.parent, suffix);
-  const result = repo.script(bundleScript, ["--base", repo.base, "--out", out]);
-  assert.equal(result.status, 0, result.stderr);
-  return {
-    out,
-    diff: readFileSync(join(out, "review.diff"), "utf8"),
-    manifest: JSON.parse(readFileSync(join(out, "review-manifest.json"), "utf8")),
-  };
-}
-
-test("A: review bundle contains tracked, untracked, and deleted changes", () => {
-  const repo = repository("boundary");
-  writeFileSync(join(repo.root, "tracked.txt"), "modified\n");
-  writeFileSync(join(repo.root, "delete.txt"), "temporary\n");
-  repo.commit("add deletion target");
-  repo.base = repo.git(["rev-parse", "HEAD"]);
-  writeFileSync(join(repo.root, "tracked.txt"), "modified again\n");
-  writeFileSync(join(repo.root, "new.txt"), "new again\n");
-  // Node's unlink is used only inside this isolated temporary repository.
-  execFileSync(process.execPath, [
-    "-e",
-    "require('node:fs').unlinkSync(process.argv[1])",
-    join(repo.root, "delete.txt"),
-  ]);
-  const bundle = makeBundle(repo);
-  assert.match(bundle.diff, /diff --git a\/tracked\.txt b\/tracked\.txt/);
-  assert.match(bundle.diff, /diff --git a\/new\.txt b\/new\.txt/);
-  assert.match(bundle.diff, /deleted file mode/);
-  assert.deepEqual(bundle.manifest.changedFiles.map((line) => line.split("\t")[0]).sort(), [
-    "A",
-    "D",
-    "M",
-  ]);
+const decision = (conclusion, infrastructure = false, attempt = 1) => ({
+  owner: "o",
+  repo: "r",
+  candidateSha: head,
+  conclusion,
+  infrastructure,
+  detailsUrl: "https://github.com/o/r/actions/runs/20",
+  title: "title",
+  summary: "summary",
+  source: { workflowId: 10, runId: 20, runAttempt: attempt, pullNumber: 7, baseSha: base },
 });
 
-test("B: review bundle leaves the real index byte-identical and empty", () => {
-  const repo = repository("index");
-  writeFileSync(join(repo.root, "tracked.txt"), "working tree\n");
-  const bundle = makeBundle(repo);
-  assert.equal(bundle.manifest.realIndexUnchanged, true);
-  assert.equal(bundle.manifest.realIndexEmpty, true);
-  assert.equal(bundle.manifest.realIndexSha256Before, bundle.manifest.realIndexSha256After);
-  assert.equal(repo.git(["diff", "--cached", "--name-only"]), "");
-});
-
-test("C: committed tree equals the tree produced by the one temp-index snapshot", () => {
-  const repo = repository("identity");
-  writeFileSync(join(repo.root, "tracked.txt"), "reviewed\n");
-  writeFileSync(join(repo.root, "new.txt"), "reviewed new\n");
-  const bundle = makeBundle(repo);
-  repo.commit("candidate");
-  assert.equal(repo.git(["rev-parse", "HEAD^{tree}"]), bundle.manifest.reviewedTreeSha);
-});
-
-test("D: post-bundle working-tree drift invalidates the old reviewed tree", () => {
-  const repo = repository("drift");
-  writeFileSync(join(repo.root, "tracked.txt"), "reviewed\n");
-  const bundle = makeBundle(repo, "old-bundle");
-  writeFileSync(join(repo.root, "tracked.txt"), "changed after review\n");
-  const regenerated = makeBundle(repo, "new-bundle");
-  assert.notEqual(regenerated.manifest.reviewedTreeSha, bundle.manifest.reviewedTreeSha);
-  repo.commit("candidate drift");
-  assert.notEqual(repo.git(["rev-parse", "HEAD^{tree}"]), bundle.manifest.reviewedTreeSha);
-  const check = repo.script(verifyCommitScript, [
-    "--base",
-    repo.base,
-    "--tree",
-    bundle.manifest.reviewedTreeSha,
-  ]);
-  assert.notEqual(check.status, 0);
-});
-
-test("E: ignored files stay out while .gitignore policy changes remain visible", () => {
-  const repo = repository("ignore");
-  writeFileSync(join(repo.root, ".gitignore"), "ignored.txt\n");
-  repo.commit("ignore policy");
-  repo.base = repo.git(["rev-parse", "HEAD"]);
-  writeFileSync(join(repo.root, "ignored.txt"), "hidden\n");
-  const ignored = makeBundle(repo, "ignored-bundle");
-  assert.equal(ignored.manifest.reviewedTreeSha, repo.git(["rev-parse", "HEAD^{tree}"]));
-  assert.doesNotMatch(ignored.diff, /ignored\.txt/);
-
-  writeFileSync(join(repo.root, ".gitignore"), "ignored.txt\nother.tmp\n");
-  const policy = makeBundle(repo, "policy-bundle");
-  assert.deepEqual(policy.manifest.changedFiles, ["M\t.gitignore"]);
-  assert.match(policy.diff, /\+other\.tmp/);
-  assert.doesNotMatch(policy.diff, /hidden/);
-  // Audit implication: the visible .gitignore change must be reviewed for the
-  // hidden-file semantics that cannot appear in a Git tree.
-});
-
-function candidateRepository(label) {
-  const repo = repository(label);
-  writeFileSync(join(repo.root, "tracked.txt"), "candidate\n");
-  const bundle = makeBundle(repo);
-  repo.commit("candidate");
-  return { repo, bundle };
-}
-
-test("F: verify-commit accepts only the reviewed one-parent one-commit boundary", () => {
-  const correct = candidateRepository("commit-pass");
-  assert.equal(
-    correct.repo.script(verifyCommitScript, [
-      "--base",
-      correct.repo.base,
-      "--tree",
-      correct.bundle.manifest.reviewedTreeSha,
-    ]).status,
-    0,
-  );
-  assert.notEqual(
-    correct.repo.script(verifyCommitScript, [
-      "--base",
-      correct.repo.git(["rev-parse", "HEAD"]),
-      "--tree",
-      correct.bundle.manifest.reviewedTreeSha,
-    ]).status,
-    0,
-  );
-  assert.notEqual(
-    correct.repo.script(verifyCommitScript, [
-      "--base",
-      correct.repo.base,
-      "--tree",
-      correct.repo.git(["rev-parse", `${correct.repo.base}^{tree}`]),
-    ]).status,
-    0,
-  );
-
-  writeFileSync(join(correct.repo.root, "second.txt"), "second\n");
-  correct.repo.commit("extra commit");
-  assert.notEqual(
-    correct.repo.script(verifyCommitScript, [
-      "--base",
-      correct.repo.base,
-      "--tree",
-      correct.repo.git(["rev-parse", "HEAD^{tree}"]),
-    ]).status,
-    0,
-  );
-
-  const merge = repository("commit-merge");
-  merge.git(["switch", "-c", "candidate"]);
-  writeFileSync(join(merge.root, "candidate.txt"), "candidate\n");
-  merge.commit("candidate");
-  merge.git(["switch", "main"]);
-  writeFileSync(join(merge.root, "main.txt"), "main\n");
-  merge.commit("main advance");
-  merge.git(["merge", "--no-ff", "candidate", "-m", "merge"]);
-  assert.notEqual(
-    merge.script(verifyCommitScript, [
-      "--base",
-      merge.base,
-      "--tree",
-      merge.git(["rev-parse", "HEAD^{tree}"]),
-    ]).status,
-    0,
-  );
-});
-
-test("G: verify-merge pins parent order, audited head, tree, and merge shape", () => {
-  const repo = repository("merge");
-  repo.git(["switch", "-c", "candidate"]);
-  writeFileSync(join(repo.root, "candidate.txt"), "candidate\n");
-  const head = repo.commit("candidate");
-  const headTree = repo.git(["rev-parse", `${head}^{tree}`]);
-  repo.git(["switch", "main"]);
-  const merge = repo.git(["commit-tree", headTree, "-p", repo.base, "-p", head, "-m", "merge"]);
-
-  assert.equal(
-    repo.script(verifyMergeScript, ["--merge", merge, "--base", repo.base, "--head", head]).status,
-    0,
-  );
-  assert.notEqual(
-    repo.script(verifyMergeScript, ["--merge", merge, "--base", repo.base, "--head", repo.base])
-      .status,
-    0,
-  );
-  assert.notEqual(
-    repo.script(verifyMergeScript, ["--merge", merge, "--base", head, "--head", repo.base]).status,
-    0,
-  );
-
-  const drift = repo.git([
-    "commit-tree",
-    `${repo.base}^{tree}`,
-    "-p",
-    repo.base,
-    "-p",
-    head,
-    "-m",
-    "drift merge",
-  ]);
-  assert.notEqual(
-    repo.script(verifyMergeScript, ["--merge", drift, "--base", repo.base, "--head", head]).status,
-    0,
-  );
-
-  const squash = repo.git(["commit-tree", headTree, "-p", repo.base, "-m", "squash"]);
-  assert.notEqual(
-    repo.script(verifyMergeScript, ["--merge", squash, "--base", repo.base, "--head", head]).status,
-    0,
-  );
-});
-
-test("H: trusted classification requires complete live PR file enumeration", () => {
-  const workflowPath = resolve(scripts, "../../.github/workflows/phase0-trust.yml");
-  const workflow = readFileSync(workflowPath, "utf8");
-  const automaticStart = workflow.indexOf("  evaluate-verify:");
-  const manualStart = workflow.indexOf("  approve-audited-infrastructure:");
-  assert.ok(automaticStart >= 0 && manualStart > automaticStart);
-
-  const sections = {
-    automatic: workflow.slice(automaticStart, manualStart),
-    manual: workflow.slice(manualStart),
-  };
-  for (const [name, section] of Object.entries(sections)) {
-    assert.match(section, /github\.rest\.pulls\.get\(/, `${name} must fetch the complete live PR`);
-    assert.match(
-      section,
-      /Number\.isSafeInteger\(pull\.changed_files\)/,
-      `${name} must validate changed_files`,
-    );
-    assert.match(section, /pull\.changed_files < 0/, `${name} must reject negative counts`);
-    assert.match(
-      section,
-      /pull\.changed_files > 3000/,
-      `${name} must reject the REST 3,000-file cap`,
-    );
-    assert.match(
-      section,
-      /files\.length !== pull\.changed_files/,
-      `${name} must prove pagination completeness`,
-    );
-  }
-});
-
-test("I: review output uses component-safe outside paths and fresh directories", () => {
-  const repo = repository("outside-paths");
-  writeFileSync(join(repo.root, "tracked.txt"), "reviewed\n");
-
-  const dotPrefixedInside = repo.script(bundleScript, [
-    "--base",
-    repo.base,
-    "--out",
-    join(repo.root, "..review"),
-  ]);
-  assert.notEqual(dotPrefixedInside.status, 0);
-  assert.match(dotPrefixedInside.stderr, /outside the repository worktree/);
-
-  const nestedInside = repo.script(bundleScript, [
-    "--base",
-    repo.base,
-    "--out",
-    join(repo.root, "nested", "review"),
-  ]);
-  assert.notEqual(nestedInside.status, 0);
-  assert.match(nestedInside.stderr, /outside the repository worktree/);
-
-  const genuineOutside = join(repo.parent, "genuine-outside");
-  const outside = repo.script(bundleScript, ["--base", repo.base, "--out", genuineOutside]);
-  assert.equal(outside.status, 0, outside.stderr);
-  assert.ok(existsSync(join(genuineOutside, "review-manifest.json")));
-
-  const preExisting = join(repo.parent, "pre-existing-outside");
-  mkdirSync(preExisting);
-  writeFileSync(join(preExisting, "verification.log"), "stale evidence\n");
-  const stale = repo.script(bundleScript, ["--base", repo.base, "--out", preExisting]);
-  assert.notEqual(stale.status, 0);
-  assert.match(stale.stderr, /must not already exist/);
-  assert.equal(readFileSync(join(preExisting, "verification.log"), "utf8"), "stale evidence\n");
-});
-
-test("J: requested success creates failure first, then authorizes the same Check Run ID", async () => {
-  const { github, state } = checksApi();
-  const input = verifyDecision(7001, 1, "success");
-  input.github = github;
-  const result = await upsertPhase0GateCheck(input);
-
-  assert.deepEqual(result.operation, "created");
-  assert.equal(state.creates.length, 1);
-  assert.equal(state.updates.length, 1);
-  assert.equal(state.runs.length, 1);
-  assert.equal(state.runs[0].id, result.checkRunId);
-  assert.equal(state.runs[0].name, PHASE0_GATE_NAME);
-  assert.equal(state.runs[0].head_sha, candidateSha);
-  assert.equal(state.runs[0].app.id, PHASE0_GATE_APP_ID);
-  assert.equal(state.runs[0].conclusion, "success");
-  assert.equal(state.creates[0].conclusion, "failure");
-  assert.match(state.creates[0].external_id, /:failure:1234:7001:1$/);
-  assert.equal(state.updates[0].check_run_id, result.checkRunId);
-  assert.equal(state.updates[0].conclusion, "success");
-  assert.match(state.updates[0].external_id, /:success:1234:7001:1$/);
-  assertWholeSecondTimestamp(state.creates[0].completed_at);
-  assertWholeSecondTimestamp(state.updates[0].completed_at);
-  assert.deepEqual(state.lists, [
+test("canonical v/a/m and Q grammar round trips", () => {
+  for (const source of [
+    v("safe"),
+    v("failure"),
+    v("success"),
+    { ...v("awaiting"), kind: "a" },
     {
-      owner: input.owner,
-      repo: input.repo,
-      ref: candidateSha,
-      check_name: PHASE0_GATE_NAME,
-      app_id: PHASE0_GATE_APP_ID,
-      filter: "all",
-      per_page: 100,
+      kind: "m",
+      token: "safe",
+      dispatchRunId: 30,
+      dispatchAttempt: 1,
+      actor: "jefferycook",
+      pr: 7,
+      base,
+      verifierRunId: 20,
+      verifierAttempt: 1,
     },
-  ]);
-});
-
-test("K: same-SHA reruns update the same canonical Check Run in both directions", async () => {
-  const { github, state } = checksApi();
-  const success = verifyDecision(7100, 1, "success");
-  success.github = github;
-  const created = await upsertPhase0GateCheck(success);
-  const failure = verifyDecision(7100, 2, "failure");
-  failure.github = github;
-  const failed = await upsertPhase0GateCheck(failure);
-
-  assert.equal(failed.operation, "updated");
-  assert.equal(failed.checkRunId, created.checkRunId);
-  assert.equal(state.runs.length, 1);
-  assert.equal(state.runs[0].conclusion, "failure");
-  assert.equal(state.creates.length, 1);
-  assert.equal(state.updates.length, 3);
-  assert.equal(state.updates[0].conclusion, "success");
-  assert.equal(state.updates[1].conclusion, "failure");
-  assert.match(state.updates[1].external_id, new RegExp(`^p0g:v1:q:${candidateSha}$`));
-  assert.equal(state.updates[2].conclusion, "failure");
-  assert.equal(state.updates[2].check_run_id, created.checkRunId);
-  assertWholeSecondTimestamp(state.updates[2].completed_at);
-
-  const laterSuccess = verifyDecision(7100, 3, "success");
-  laterSuccess.github = github;
-  const passed = await upsertPhase0GateCheck(laterSuccess);
-  assert.equal(passed.operation, "updated");
-  assert.equal(passed.checkRunId, created.checkRunId);
-  assert.equal(state.runs.length, 1);
-  assert.equal(state.runs[0].conclusion, "success");
-  assert.equal(state.creates.length, 1);
-  assert.equal(state.updates.length, 5);
-  assert.deepEqual(
-    state.updates.slice(3).map((update) => update.conclusion),
-    ["failure", "success"],
+    {
+      kind: "m",
+      token: "success",
+      dispatchRunId: 30,
+      dispatchAttempt: 1,
+      actor: "jefferycook",
+      pr: 7,
+      base,
+      verifierRunId: 20,
+      verifierAttempt: 1,
+    },
+  ])
+    assert.equal(parsePhase0Gate(run(source), head).externalId, serializePhase0Gate(head, source));
+  assert.equal(
+    parsePhase0Gate({ ...run(v("failure")), external_id: `p0g:v1:q:${head}` }, head).state,
+    "Q",
   );
-  assert.ok(state.updates.every((update) => update.check_run_id === created.checkRunId));
-  assert.match(state.runs[0].external_id, /:success:1234:7100:3$/);
-  assert.ok(state.runs[0].external_id.length <= 255);
 });
-
-test("L: failure to success requires a new trusted decision and preserves identity", async () => {
-  const { github, state } = checksApi();
-  const failure = verifyDecision(7200, 1, "failure");
-  failure.github = github;
-  const created = await upsertPhase0GateCheck(failure);
-  assert.equal(state.runs[0].conclusion, "failure");
-
-  await assert.rejects(
-    upsertPhase0GateCheck({ ...verifyDecision(7200, 2, "success"), github, source: null }),
-    /missing trusted decision source/,
+test("noncanonical IDs and token mappings fail closed", () => {
+  assert.throws(() =>
+    parsePhase0Gate(
+      { ...run(v()), external_id: `p0g:v2:v:${head}:success:010:20:1:7:${base}` },
+      head,
+    ),
   );
-  assert.equal(state.runs[0].conclusion, "failure");
+  assert.throws(() => parsePhase0Gate({ ...run(v()), conclusion: "failure" }, head));
+  assert.throws(() =>
+    parsePhase0Gate({ ...run(v()), external_id: `p0g:v1:v:${head}:success:10:20:1` }, head),
+  );
+});
+test("ordinary success stages V-SAFE then V-SUCC", async () => {
+  const { github, state } = api();
+  await upsertPhase0GateCheck({ github, ...decision("success") });
+  assert.match(state.creates[0].external_id, /:safe:/);
+  assert.match(state.updates[0].external_id, /:success:/);
+});
+test("ordinary failure creates V-FAIL", async () => {
+  const { github, state } = api();
+  await upsertPhase0GateCheck({ github, ...decision("failure") });
+  assert.match(state.creates[0].external_id, /:failure:/);
   assert.equal(state.updates.length, 0);
-
-  const success = verifyDecision(7200, 2, "success");
-  success.github = github;
-  const updated = await upsertPhase0GateCheck(success);
-  assert.equal(updated.checkRunId, created.checkRunId);
-  assert.equal(state.runs[0].conclusion, "success");
 });
-
-test("M: duplicate authoritative successes are all quarantined before rejection", async () => {
-  const seed = checksApi();
-  const input = verifyDecision(7300, 1, "success");
-  input.github = seed.github;
-  await upsertPhase0GateCheck(input);
-  const duplicateRuns = [
-    structuredClone(seed.state.runs[0]),
-    { ...structuredClone(seed.state.runs[0]), id: seed.state.runs[0].id + 1 },
-  ];
-  const { github, state } = checksApi(duplicateRuns);
-
-  await assert.rejects(
-    upsertPhase0GateCheck({ ...verifyDecision(7300, 2, "failure"), github }),
-    /ambiguous authoritative phase0-gate Check Runs/,
-  );
-  assert.equal(state.creates.length, 0);
-  assert.deepEqual(
-    state.updates.map((update) => update.check_run_id),
-    duplicateRuns.map((run) => run.id),
-  );
-  assert.ok(state.updates.every((update) => update.conclusion === "failure"));
-  assert.ok(state.updates.every((update) => update.external_id === `p0g:v1:q:${candidateSha}`));
-  assert.ok(state.runs.every((run) => run.conclusion === "failure"));
-  assert.ok(state.runs.every((run) => run.external_id === `p0g:v1:q:${candidateSha}`));
+test("infrastructure success creates completed/failure A-WAIT", async () => {
+  const { github, state } = api();
+  await upsertPhase0GateCheck({ github, ...decision("success", true) });
+  assert.match(state.creates[0].external_id, /:a:.*:awaiting:/);
+  assert.equal(state.creates[0].conclusion, "failure");
 });
-
-test("M2: partial duplicate revocation attempts every ID and reports unresolved records", async () => {
-  const seed = checksApi();
-  await upsertPhase0GateCheck({ ...verifyDecision(7350, 1, "success"), github: seed.github });
-  const duplicateRuns = [
-    structuredClone(seed.state.runs[0]),
-    { ...structuredClone(seed.state.runs[0]), id: seed.state.runs[0].id + 1 },
-  ];
-  const { github, state } = checksApi(duplicateRuns, {
-    updateBehaviors: [{}, { throwBeforeApply: "duplicate quarantine unavailable" }],
-    getThrows: true,
-  });
-
-  await assert.rejects(
-    upsertPhase0GateCheck({ ...verifyDecision(7350, 2, "success"), github }),
-    (error) => {
-      assert.ok(error instanceof AggregateError);
-      assert.match(error.message, new RegExp(`IDs: ${duplicateRuns[1].id}$`));
-      return true;
-    },
-  );
-  assert.equal(state.creates.length, 0);
-  assert.deepEqual(
-    state.updates.map((update) => update.check_run_id),
-    duplicateRuns.map((run) => run.id),
-  );
-  assert.ok(state.updates.every((update) => update.conclusion === "failure"));
-  assert.equal(state.runs[0].conclusion, "failure");
-  assert.equal(state.runs[0].external_id, `p0g:v1:q:${candidateSha}`);
-  assert.equal(state.runs[1].conclusion, "success");
+test("infrastructure failure remains V-FAIL", async () => {
+  const { github, state } = api();
+  await upsertPhase0GateCheck({ github, ...decision("failure", true) });
+  assert.match(state.creates[0].external_id, /:v:.*:failure:/);
 });
-
-test("N: wrong-App checks and user legacy statuses never become authoritative", async () => {
-  const wrongApp = {
-    id: 91,
-    name: PHASE0_GATE_NAME,
-    head_sha: candidateSha,
-    status: "completed",
-    conclusion: "success",
-    external_id: "wrong-source",
-    app: { id: 999999 },
-  };
-  const { github, state } = checksApi([wrongApp]);
-  const input = verifyDecision(7400, 1, "success");
-  input.github = github;
-  const result = await upsertPhase0GateCheck(input);
-
-  assert.equal(result.operation, "created");
-  assert.notEqual(result.checkRunId, wrongApp.id);
-  assert.equal(state.runs.length, 2);
-  assert.equal(state.runs.filter((run) => run.app.id === PHASE0_GATE_APP_ID).length, 1);
-  assert.equal(state.legacyStatusReads, 0);
-});
-
-test("O: malformed provenance and source mismatches revoke prior success", async () => {
-  const malformed = {
-    id: 92,
-    name: PHASE0_GATE_NAME,
-    head_sha: candidateSha,
-    status: "completed",
-    conclusion: "success",
-    completed_at: "2026-09-10T12:00:00.000Z",
-    external_id: "not-json",
-    app: { id: PHASE0_GATE_APP_ID },
-  };
-  const existing = checksApi([malformed]);
-  await assert.rejects(
-    upsertPhase0GateCheck({ ...verifyDecision(7500, 1, "failure"), github: existing.github }),
-    /provenance/,
-  );
-  assert.equal(existing.state.updates.length, 1);
-  assert.equal(existing.state.runs[0].conclusion, "failure");
-  assert.match(existing.state.runs[0].external_id, new RegExp(`^p0g:v1:q:${candidateSha}$`));
-
-  const wrongMutation = checksApi([], { createAppId: 999999 });
-  await assert.rejects(
-    upsertPhase0GateCheck({ ...verifyDecision(7501, 1, "success"), github: wrongMutation.github }),
-    /failed authoritative identity validation/,
-  );
-  assert.equal(wrongMutation.state.runs[0].conclusion, "failure");
-  assert.equal(wrongMutation.state.updates.length, 0);
-
-  const sourceMismatch = checksApi();
-  await upsertPhase0GateCheck({
-    ...verifyDecision(7502, 1, "success"),
-    github: sourceMismatch.github,
-  });
-  const updatesBeforeMismatch = sourceMismatch.state.updates.length;
-  await assert.rejects(
-    upsertPhase0GateCheck({
-      github: sourceMismatch.github,
-      owner: "jefferycook",
-      repo: "canadian-wealth-compass",
-      candidateSha,
-      conclusion: "success",
-      detailsUrl: "https://github.com/jefferycook/canadian-wealth-compass/actions/runs/7503",
-      title: "Phase 0 infrastructure audit approved",
-      summary: "Audited manual decision",
-      source: {
-        kind: "manual",
-        workflowRunId: 7503,
-        workflowRunAttempt: 1,
-        actor: "jefferycook",
-        pullNumber: 12,
-        auditedBaseSha,
-      },
-    }),
-    /source kind differs/,
-  );
-  assert.equal(sourceMismatch.state.updates.length, updatesBeforeMismatch + 1);
-  assert.equal(sourceMismatch.state.runs[0].conclusion, "failure");
-  assert.match(sourceMismatch.state.runs[0].external_id, new RegExp(`^p0g:v1:q:${candidateSha}$`));
-});
-
-test("P: manual exact-SHA decisions use canonical compact provenance", async () => {
-  const { github, state } = checksApi();
-  const first = manualDecision(7600, 1);
-  first.github = github;
-  const created = await upsertPhase0GateCheck(first);
-  const second = manualDecision(7600, 2);
-  second.github = github;
-  const updated = await upsertPhase0GateCheck(second);
-
-  assert.equal(updated.checkRunId, created.checkRunId);
-  assert.equal(state.runs.length, 1);
-  assert.equal(state.creates.length, 1);
-  assert.equal(state.updates.length, 4);
-  assert.match(
-    state.runs[0].external_id,
-    new RegExp(`^p0g:v1:m:${candidateSha}:success:7600:2:jefferycook:12:${auditedBaseSha}$`),
-  );
-  assert.ok(state.runs[0].external_id.length <= 255);
-});
-
-test("Q: a stale verifier attempt revokes a canonical success before rejection", async () => {
-  const { github, state } = checksApi();
-  await upsertPhase0GateCheck({ ...verifyDecision(7700, 2, "success"), github });
-  assert.equal(state.runs[0].conclusion, "success");
-
-  await assert.rejects(
-    upsertPhase0GateCheck({ ...verifyDecision(7700, 1, "success"), github }),
-    /older than canonical attempt 2/,
-  );
-  assert.equal(state.updates.length, 2);
-  assert.equal(state.runs[0].conclusion, "failure");
-  assert.match(state.runs[0].external_id, new RegExp(`^p0g:v1:q:${candidateSha}$`));
-});
-
-test("R: a different verifier run ID revokes a canonical success before rejection", async () => {
-  const { github, state } = checksApi();
-  await upsertPhase0GateCheck({ ...verifyDecision(7800, 1, "success"), github });
-
-  await assert.rejects(
-    upsertPhase0GateCheck({ ...verifyDecision(7801, 2, "failure"), github }),
-    /run id differs/,
-  );
-  assert.equal(state.updates.length, 2);
-  assert.equal(state.runs[0].conclusion, "failure");
-  assert.match(state.runs[0].external_id, new RegExp(`^p0g:v1:q:${candidateSha}$`));
-});
-
-test("R2: ordinary and manual decisions cannot re-authorize a quarantined SHA", async () => {
-  const { github, state } = checksApi();
-  await upsertPhase0GateCheck({ ...verifyDecision(7850, 1, "success"), github });
-  await assert.rejects(
-    upsertPhase0GateCheck({ ...verifyDecision(7851, 1, "failure"), github }),
-    /run id differs/,
-  );
-  const updatesAfterQuarantine = state.updates.length;
-
-  for (const decision of [verifyDecision(7850, 2, "success"), manualDecision(7852, 1)]) {
-    await assert.rejects(
-      upsertPhase0GateCheck({ ...decision, github }),
-      /candidate SHA is quarantined and cannot be re-authorized; move the PR to a fresh head SHA/,
-    );
-  }
-
-  assert.equal(state.updates.length, updatesAfterQuarantine);
-  assert.equal(state.runs[0].conclusion, "failure");
-  assert.equal(state.runs[0].external_id, `p0g:v1:q:${candidateSha}`);
-  assert.equal(state.updates.filter((update) => update.conclusion === "success").length, 1);
-  assert.equal(state.updates.at(-1).conclusion, "failure");
-});
-
-test("S: an identical verifier decision is idempotent and cannot reverse conclusion", async () => {
-  const { github, state } = checksApi();
-  const decision = verifyDecision(7900, 1, "success");
-  const created = await upsertPhase0GateCheck({ ...decision, github });
-  const repeated = await upsertPhase0GateCheck({ ...decision, github });
-
-  assert.equal(repeated.operation, "updated");
-  assert.equal(repeated.checkRunId, created.checkRunId);
-  assert.equal(state.creates.length, 1);
-  assert.equal(state.updates.length, 4);
-  assert.equal(state.runs[0].conclusion, "success");
-
-  await assert.rejects(
-    upsertPhase0GateCheck({ ...verifyDecision(7900, 1, "failure"), github }),
-    /identical verifier run and attempt conflicts with canonical provenance or conclusion/,
-  );
-  assert.equal(state.updates.length, 5);
-  assert.equal(state.runs[0].conclusion, "failure");
-  assert.match(state.runs[0].external_id, new RegExp(`^p0g:v1:q:${candidateSha}$`));
-});
-
-test("T: manual updates cannot replace a different actor, pull, or audited base", async () => {
-  const variants = [
-    { actor: "another-auditor" },
-    { pullNumber: 13 },
-    { auditedBaseSha: "3333333333333333333333333333333333333333" },
-  ];
-
-  for (const variant of variants) {
-    const { github, state } = checksApi();
-    await upsertPhase0GateCheck({ ...manualDecision(8000, 1), github });
-    const incoming = manualDecision(8001, 1);
-    incoming.source = { ...incoming.source, ...variant };
-
-    await assert.rejects(
-      upsertPhase0GateCheck({ ...incoming, github }),
-      /(invalid manual approving actor|manual (pull number|audited base) differs)/,
-    );
-    assert.equal(state.updates.length, 2);
-    assert.equal(state.runs[0].conclusion, "failure");
-    assert.match(state.runs[0].external_id, new RegExp(`^p0g:v1:q:${candidateSha}$`));
-  }
-});
-
-test("U: malformed safe-stage completion responses cannot leave a successful gate", async () => {
-  for (const options of [
-    { omitCreateCompletedAt: true },
-    { createCompletedAt: "not-an-iso-timestamp" },
-  ]) {
-    const { github, state } = checksApi([], options);
-    await assert.rejects(
-      upsertPhase0GateCheck({ ...verifyDecision(8100, 1, "failure"), github }),
-      /completion timestamp validation/,
-    );
-    assertWholeSecondTimestamp(state.creates[0].completed_at);
-    assert.equal(state.creates[0].conclusion, "failure");
-    assert.equal(state.runs[0].conclusion, "failure");
+test("byte-identical terminal states are zero-write no-ops", async () => {
+  for (const source of [v("success"), v("failure"), { ...v("awaiting"), kind: "a" }]) {
+    const { github, state } = api([run(source)]);
+    const result = await upsertPhase0GateCheck({
+      github,
+      ...decision(source.token === "awaiting" ? "success" : source.token, source.kind === "a"),
+    });
+    assert.equal(result.operation, "unchanged");
     assert.equal(state.updates.length, 0);
   }
-
-  for (const behavior of [{ omitCompletedAt: true }, { completedAt: "not-an-iso-timestamp" }]) {
-    const { github, state } = checksApi([], { updateBehaviors: [behavior] });
-    await upsertPhase0GateCheck({ ...verifyDecision(8200, 1, "failure"), github });
-    await assert.rejects(
-      upsertPhase0GateCheck({ ...verifyDecision(8200, 2, "failure"), github }),
-      /completion timestamp validation/,
-    );
-    assertWholeSecondTimestamp(state.updates[0].completed_at);
-    assert.equal(state.updates[0].conclusion, "failure");
-    assert.equal(state.runs[0].conclusion, "failure");
-    assert.equal(state.updates.length, 2);
-    assert.equal(state.updates[1].conclusion, "failure");
+});
+test("Q has zero outgoing writes", async () => {
+  const q = { ...run(v("failure")), external_id: `p0g:v1:q:${head}` };
+  assert.equal(isCanonicalPhase0GateQ(q, head), true);
+  const { github, state } = api([q]);
+  await assert.rejects(upsertPhase0GateCheck({ github, ...decision("success") }), /Q_NO_WRITE/);
+  assert.equal(state.updates.length, 0);
+});
+test("q-shaped success is U3 terminalized to canonical Q", async () => {
+  const malformed = {
+    ...run(v("success")),
+    external_id: `p0g:v1:q:${head}`,
+  };
+  assert.equal(isCanonicalPhase0GateQ(malformed, head), false);
+  const { github, state } = api([malformed]);
+  await assert.rejects(
+    upsertPhase0GateCheck({ github, ...decision("success", false, 2) }),
+    (error) => error.outcome === "T2",
+  );
+  assert.equal(state.updates.length, 1);
+  assert.equal(state.runs[0].external_id, `p0g:v1:q:${head}`);
+  assert.equal(state.runs[0].conclusion, "failure");
+  assert.equal(isCanonicalPhase0GateQ(state.runs[0], head), true);
+});
+test("q-shaped malformed non-success follows U3 without accidental authorization", async () => {
+  for (const malformed of [
+    { ...run(v("failure")), status: "in_progress", external_id: `p0g:v1:q:${head}` },
+    { ...run(v("failure")), completed_at: "invalid", external_id: `p0g:v1:q:${head}` },
+  ]) {
+    assert.equal(isCanonicalPhase0GateQ(malformed, head), false);
+    const { github, state } = api([malformed]);
+    await assert.rejects(upsertPhase0GateCheck({ github, ...decision("success", false, 2) }));
+    assert.equal(state.updates.length, 0);
+    assert.notEqual(state.runs[0].conclusion, "success");
   }
 });
-
-test("V: harmless final-response timestamp normalization preserves successful authorization", async () => {
-  const { github, state } = checksApi([], {
-    updateBehaviors: [{ completedAt: (value) => new Date(value).toISOString() }],
+test("post-KC3 cleanup distinguishes canonical Q from q-shaped success", async () => {
+  const canonicalQ = { ...run(v("failure")), external_id: `p0g:v1:q:${head}` };
+  let a = api([canonicalQ]);
+  const noWrite = await terminalizeAuthorizedGate({
+    github: a.github,
+    owner: "o",
+    repo: "r",
+    candidateSha: head,
+    checkRunId: 1,
+    expectedExternalId: canonicalQ.external_id,
+    detailsUrl: "https://github.com/o/r",
+    reason: "test",
   });
-  const result = await upsertPhase0GateCheck({
-    ...verifyDecision(8300, 1, "success"),
-    github,
-  });
+  assert.equal(noWrite.operation, "Q_NO_WRITE");
+  assert.equal(a.state.updates.length, 0);
 
-  assert.equal(result.operation, "created");
-  assert.equal(state.runs[0].conclusion, "success");
-  assert.match(state.runs[0].completed_at, /\.000Z$/);
-  assert.equal(state.gets.length, 0);
+  const manualSuccess = {
+    kind: "m",
+    token: "success",
+    dispatchRunId: 30,
+    dispatchAttempt: 2,
+    actor: "jefferycook",
+    pr: 7,
+    base,
+    verifierRunId: 20,
+    verifierAttempt: 2,
+  };
+  const qShapedSuccess = {
+    ...run(manualSuccess),
+    external_id: `p0g:v1:q:${head}`,
+  };
+  a = api([qShapedSuccess]);
+  const terminalized = await terminalizeAuthorizedGate({
+    github: a.github,
+    owner: "o",
+    repo: "r",
+    candidateSha: head,
+    checkRunId: 1,
+    expectedExternalId: serializePhase0Gate(head, manualSuccess),
+    detailsUrl: "https://github.com/o/r",
+    reason: "test",
+  });
+  assert.equal(terminalized.operation, "TERMINALIZED");
+  assert.equal(a.state.updates.length, 1);
+  assert.equal(isCanonicalPhase0GateQ(a.state.runs[0], head), true);
 });
-
-test("W: an applied-but-throwing final PATCH recovers by exact-ID refetch", async () => {
-  const { github, state } = checksApi([], {
-    updateBehaviors: [{ throwAfterApply: "ambiguous final PATCH" }],
-  });
-  const result = await upsertPhase0GateCheck({
-    ...verifyDecision(8400, 1, "success"),
+test("duplicates terminalize non-Q and never write Q IDs", async () => {
+  const q = { ...run(v("failure"), 2), external_id: `p0g:v1:q:${head}` };
+  const { github, state } = api([run(v(), 1), q]);
+  await assert.rejects(upsertPhase0GateCheck({ github, ...decision("success") }), /duplicate/);
+  assert.deepEqual(
+    state.updates.map((x) => x.check_run_id),
+    [1],
+  );
+  assert.match(state.updates[0].external_id, /:q:/);
+});
+test("duplicates skip canonical Q but terminalize q-shaped success", async () => {
+  const canonicalQ = { ...run(v("failure"), 1), external_id: `p0g:v1:q:${head}` };
+  const qShapedSuccess = {
+    ...run(v("success"), 2),
+    external_id: `p0g:v1:q:${head}`,
+  };
+  const { github, state } = api([canonicalQ, qShapedSuccess]);
+  await assert.rejects(upsertPhase0GateCheck({ github, ...decision("success") }), /duplicate/);
+  assert.deepEqual(
+    state.updates.map((write) => write.check_run_id),
+    [2],
+  );
+  assert.equal(
+    isCanonicalPhase0GateQ(
+      state.runs.find((item) => item.id === 1),
+      head,
+    ),
+    true,
+  );
+  assert.equal(
+    isCanonicalPhase0GateQ(
+      state.runs.find((item) => item.id === 2),
+      head,
+    ),
+    true,
+  );
+});
+test("T1 duplicate cleanup attempts every non-Q ID and reports partial failures", async () => {
+  const q = { ...run(v("failure"), 3), external_id: `p0g:v1:q:${head}` };
+  const runs = [run(v("success"), 1), run(v("failure"), 2), q];
+  const { github, state } = api(runs, { throwBeforeUpdate: [1, 2] });
+  await assert.rejects(
+    terminalizeDuplicateGateChecks({
+      github,
+      owner: "o",
+      repo: "r",
+      candidateSha: head,
+      runs,
+      detailsUrl: "https://github.com/o/r/actions/runs/30",
+    }),
+    (error) =>
+      error instanceof AggregateError &&
+      error.outcome === "T1" &&
+      error.unresolved.length === 1 &&
+      error.unresolved[0].id === 1 &&
+      error.errors.length === 1 &&
+      /unresolved IDs 1/.test(error.message),
+  );
+  assert.deepEqual(
+    state.updates.map((write) => write.check_run_id),
+    [1, 1, 2],
+  );
+  assert.match(state.runs.find((item) => item.id === 2).external_id, /:q:/);
+  assert.equal(state.runs.find((item) => item.id === 3).external_id, q.external_id);
+});
+test("malformed success terminalizes; malformed failure is zero-write rejection", async () => {
+  for (const conclusion of ["success", "failure"]) {
+    const bad = { ...run(v()), conclusion, external_id: "bad" };
+    const { github, state } = api([bad]);
+    await assert.rejects(
+      upsertPhase0GateCheck({ github, ...decision("success", false, 2) }),
+      conclusion === "success" ? (error) => error.outcome === "T2" : undefined,
+    );
+    assert.equal(state.updates.length, conclusion === "success" ? 1 : 0);
+  }
+});
+test("newer successful evaluation safely revokes old success before advancing", async () => {
+  const { github, state } = api([run(v("success", 1))]);
+  await upsertPhase0GateCheck({ github, ...decision("success", false, 2) });
+  assert.match(state.updates[0].external_id, /:safe:/);
+  assert.match(state.updates.at(-1).external_id, /:success:/);
+});
+test("contradictory same attempt stages SAFE then terminal Q", async () => {
+  const { github, state } = api([run(v("success"))]);
+  await assert.rejects(upsertPhase0GateCheck({ github, ...decision("failure") }), /T5/);
+  assert.match(state.updates[0].external_id, /:safe:/);
+  assert.match(state.updates[1].external_id, /:q:/);
+});
+test("KC-1 and KC-2 are the only automatic kind changes", async () => {
+  let a = api([run(v("failure", 1))]);
+  await upsertPhase0GateCheck({ github: a.github, ...decision("success", true, 2) });
+  assert.match(a.state.updates.at(-1).external_id, /:a:.*:awaiting:/);
+  a = api([run({ ...v("awaiting", 2), kind: "a" })]);
+  await upsertPhase0GateCheck({ github: a.github, ...decision("failure", true, 3) });
+  assert.match(a.state.updates.at(-1).external_id, /:v:.*:failure:/);
+});
+test("KC-3 A-WAIT to M-SAFE to M-SUCC preserves ID and verifier", async () => {
+  const { github, state } = api([run({ ...v("awaiting"), kind: "a" })]);
+  await authorizeManualGate({
     github,
+    owner: "o",
+    repo: "r",
+    candidateSha: head,
+    detailsUrl: "https://github.com/o/r/actions/runs/30",
+    source: {
+      dispatchRunId: 30,
+      dispatchAttempt: 1,
+      actor: "jefferycook",
+      pullNumber: 7,
+      baseSha: base,
+    },
   });
-
-  assert.equal(result.operation, "created");
-  assert.equal(result.checkRunId, state.runs[0].id);
-  assert.equal(state.runs[0].conclusion, "success");
-  assert.equal(state.updates.length, 1);
-  assert.deepEqual(state.gets, [
+  assert.deepEqual(
+    state.updates.map((x) => x.check_run_id),
+    [1, 1],
+  );
+  assert.match(state.updates[0].external_id, /:m:.*:safe:/);
+  assert.match(state.updates[1].external_id, /:m:.*:success:/);
+});
+test("U4-X V-SUCC and V-SAFE are zero-write", async () => {
+  for (const token of ["success", "safe"]) {
+    const { github, state } = api([run(v(token))]);
+    await assert.rejects(
+      authorizeManualGate({
+        github,
+        owner: "o",
+        repo: "r",
+        candidateSha: head,
+        detailsUrl: "https://github.com/o/r",
+        source: {
+          dispatchRunId: 30,
+          dispatchAttempt: 1,
+          actor: "jefferycook",
+          pullNumber: 7,
+          baseSha: base,
+        },
+      }),
+      /U4-X/,
+    );
+    assert.equal(state.updates.length, 0);
+  }
+});
+test("T-6 supersedes former T-7 for verifier arriving on M-SUCC", async () => {
+  const m = {
+    kind: "m",
+    token: "success",
+    dispatchRunId: 30,
+    dispatchAttempt: 1,
+    actor: "jefferycook",
+    pr: 7,
+    base,
+    verifierRunId: 20,
+    verifierAttempt: 1,
+  };
+  const { github, state } = api([run(m)]);
+  await assert.rejects(
+    upsertPhase0GateCheck({ github, ...decision("success", false, 2) }),
+    (error) => error.outcome === "T6",
+  );
+  assert.match(state.updates[0].external_id, /:m:.*:safe:/);
+  assert.match(state.updates[1].external_id, /:q:/);
+});
+test("audited tree and dispatch identities validate exactly", () => {
+  assert.deepEqual(
+    validateDispatch({
+      ref: "refs/heads/main",
+      actor: "jefferycook",
+      approvalPhrase: "EXACT-SHA-AUDIT-PASS",
+      prNumber: "7",
+      head,
+      base,
+      tree,
+    }),
+    { prNumber: 7, head, base, tree },
+  );
+  for (const change of [
+    { tree: "x" },
+    { actor: "attacker" },
+    { approvalPhrase: "yes" },
+    { prNumber: "07" },
+  ])
+    assert.throws(() =>
+      validateDispatch({
+        ref: "refs/heads/main",
+        actor: "jefferycook",
+        approvalPhrase: "EXACT-SHA-AUDIT-PASS",
+        prNumber: "7",
+        head,
+        base,
+        tree,
+        ...change,
+      }),
+    );
+});
+test("refetched live PR is revalidated against every trusted observation", () => {
+  const pull = {
+    state: "open",
+    draft: false,
+    merged: false,
+    changed_files: 1,
+    base: { ref: "main", sha: base },
+    head: { sha: head, repo: { full_name: "o/r" } },
+  };
+  assert.equal(validateLivePull(pull, { owner: "o", repo: "r", head, base }), pull);
+  for (const mutate of [
+    (value) => (value.state = "closed"),
+    (value) => (value.draft = true),
+    (value) => (value.merged = true),
+    (value) => (value.base.ref = "dev"),
+    (value) => (value.base.sha = "8".repeat(40)),
+    (value) => (value.head.sha = "8".repeat(40)),
+    (value) => (value.head.repo.full_name = "attacker/r"),
+    (value) => (value.changed_files = 0),
+    (value) => (value.changed_files = 3001),
+    (value) => (value.changed_files = 1.5),
+  ]) {
+    const changed = structuredClone(pull);
+    mutate(changed);
+    assert.throws(
+      () => validateLivePull(changed, { owner: "o", repo: "r", head, base }),
+      /P4 pull request identity mismatch/,
+    );
+  }
+});
+test("P4 rejects zero-file and incomplete file enumeration", () => {
+  assert.deepEqual(validateFileEnumeration([{ filename: "a" }], 1), [{ filename: "a" }]);
+  for (const [files, expected] of [
+    [[], 0],
+    [[], 1],
+    [[{ filename: "a" }], 2],
+    [new Array(3001).fill({}), 3001],
+  ])
+    assert.throws(() => validateFileEnumeration(files, expected), /P4 incomplete/);
+});
+test("classification covers protected paths and renames", () => {
+  for (const path of [
+    ".github/workflows/x.yml",
+    "scripts/audit/x.mjs",
+    "package.json",
+    "vite.config.ts",
+    "root.yml",
+  ])
+    assert.equal(infrastructurePath(path), true);
+  assert.equal(infrastructurePath("src/ui.tsx"), false);
+});
+test("merge payload is exact and cannot select squash/rebase", async () => {
+  const mergeSha = "4".repeat(40);
+  const gate = run(v());
+  const { github: merger, state } = api();
+  const readGithub = {
+    paginate: async () => [gate],
+    request: async () => {
+      const error = new Error("rule-suite endpoint unavailable");
+      error.status = 404;
+      throw error;
+    },
+    rest: {
+      git: { getRef: async () => ({ data: { object: { sha: mergeSha } } }) },
+      pulls: {
+        get: async () => ({ data: { merged: true, state: "closed", merge_commit_sha: mergeSha } }),
+      },
+      repos: {
+        getCommit: async () => ({
+          data: {
+            parents: [{ sha: base }, { sha: head }],
+            commit: { tree: { sha: tree } },
+            author: { login: MERGER_APP_BOT_LOGIN },
+            committer: { login: "web-flow" },
+          },
+        }),
+      },
+      checks: { listForRef: async () => {} },
+    },
+  };
+  await mergeOnce({
+    mergerGithub: merger,
+    readGithub,
+    owner: "o",
+    repo: "r",
+    validated: {
+      audit: { prNumber: 7, head, base, tree },
+      gateId: 1,
+      gateExternalId: gate.external_id,
+      gateCompletedAt: completed,
+      dispatchIdentity: { runId: 30, attempt: 2 },
+    },
+    confirmationDelayMs: 0,
+  });
+  assert.deepEqual(state.merges, [
     {
-      owner: "jefferycook",
-      repo: "canadian-wealth-compass",
-      check_run_id: result.checkRunId,
+      owner: "o",
+      repo: "r",
+      pull_number: 7,
+      sha: head,
+      merge_method: "merge",
+      commit_title: `Merge pull request #7 (Phase 0 audited head ${head})`,
+      commit_message: `base ${base}\nhead ${head}\ngate 1 ${gate.external_id}\ndispatch 30/2`,
     },
   ]);
 });
-
-test("X: a final PATCH that was not applied restores and confirms failure before throwing", async () => {
-  const { github, state } = checksApi([], {
-    updateBehaviors: [{ throwBeforeApply: "final PATCH unavailable" }],
-  });
-
-  await assert.rejects(
-    upsertPhase0GateCheck({ ...verifyDecision(8500, 1, "success"), github }),
-    /final PATCH unavailable/,
-  );
-  assert.equal(state.runs[0].conclusion, "failure");
-  assert.match(state.runs[0].external_id, /:failure:1234:8500:1$/);
-  assert.deepEqual(
-    state.updates.map((update) => update.conclusion),
-    ["success"],
-  );
-  assert.equal(state.gets.length, 1);
-});
-
-test("Y: higher-attempt success validates its safe failure update before authorization", async () => {
-  const { github, state } = checksApi([], {
-    updateBehaviors: [{ completedAt: "not-an-iso-timestamp" }],
-  });
-  await upsertPhase0GateCheck({ ...verifyDecision(8600, 1, "failure"), github });
-
-  await assert.rejects(
-    upsertPhase0GateCheck({ ...verifyDecision(8600, 2, "success"), github }),
-    /completion timestamp validation/,
-  );
-  assert.equal(state.runs[0].conclusion, "failure");
-  assert.match(state.runs[0].external_id, /:failure:1234:8600:2$/);
-  assert.equal(state.updates.length, 2);
-  assert.equal(state.updates[0].conclusion, "failure");
-  assert.equal(state.updates[1].conclusion, "failure");
-});
-
-test("Z: a pre-success transport failure cannot leave an older successful gate in place", async () => {
-  const { github, state } = checksApi([], {
-    updateBehaviors: [{}, { throwBeforeApply: "safe-stage PATCH unavailable" }, {}],
-  });
-  await upsertPhase0GateCheck({ ...verifyDecision(8700, 1, "success"), github });
-
-  await assert.rejects(
-    upsertPhase0GateCheck({ ...verifyDecision(8700, 2, "success"), github }),
-    /safe-stage PATCH unavailable/,
-  );
-  assert.equal(state.runs[0].conclusion, "failure");
-  assert.match(state.runs[0].external_id, new RegExp(`^p0g:v1:q:${candidateSha}$`));
-  assert.deepEqual(
-    state.updates.map((update) => update.conclusion),
-    ["success", "failure", "failure"],
-  );
-});
-
-test("AA: trust workflow loads the helper only from an immutable trusted revision", () => {
-  const workflow = readFileSync(
-    resolve(scripts, "../../.github/workflows/phase0-trust.yml"),
+test("workflow serializes Gate and merge authority and orders least-privilege tokens", () => {
+  const yml = readFileSync(
+    new URL("../../.github/workflows/phase0-trust.yml", import.meta.url),
     "utf8",
   );
-  const occurrences = (pattern) => workflow.match(pattern)?.length ?? 0;
+  assert.match(yml, /merge-audited-candidate:/);
+  assert.doesNotMatch(yml, /approve-audited-infrastructure:/);
+  assert.match(yml, /audited_tree_sha:/);
+  assert.equal((yml.match(/group: phase0-trust-\$\{\{ github\.repository \}\}/g) ?? []).length, 1);
+  assert.doesNotMatch(yml, /group: phase0-gate-|group: phase0-merge-main/);
+  assert.match(yml, /cancel-in-progress: false/);
+  assert.match(yml, /PHASE0_MERGER_APP_PRIVATE_KEY/);
+  assert.equal((yml.match(/permission-contents: write/g) ?? []).length, 1);
+  assert.equal((yml.match(/mergerGithub\.rest\.pulls\.merge|pulls\.merge/g) ?? []).length, 0);
+  assert.match(yml, /mergeOnce/);
+  const prepare = yml.indexOf("Prepare P1 through P11 with read-only token");
+  const gateToken = yml.indexOf("Mint Gate App token only for P7 cleanup or infrastructure P9");
+  const finalize = yml.indexOf("Finalize P9 through P13");
+  const mergerToken = yml.indexOf("Mint single-purpose Merger App token");
+  assert.ok(prepare < gateToken && gateToken < finalize && finalize < mergerToken);
+  assert.match(yml, /if: steps\.prepare\.outputs\.needs_gate_token == 'true'/);
+  assert.match(yml, /const gateGithub = process\.env\.GATE_TOKEN \? getOctokit/);
+  assert.ok(yml.indexOf("github.rest.pulls.get") < yml.indexOf("validateLivePull(pull"));
+  assert.match(yml, /validateFileEnumeration\(files, pull\.changed_files\)/);
+  for (const field of [
+    "auditedTree",
+    "mergeSha",
+    "mergeTree",
+    "gateId",
+    "gateProvenance",
+    "gateCompletedAt",
+    "rulesetA",
+    "rulesetB",
+    "ruleSuite",
+  ])
+    assert.match(yml, new RegExp(`${field}:`));
+  const helper = readFileSync(new URL("./phase0-merge.mjs", import.meta.url), "utf8");
+  assert.equal((helper.match(/mergerGithub\./g) ?? []).length, 1);
+  assert.match(helper, /mergerGithub\.rest\.pulls\.merge/);
+  assert.match(helper, /confirmationDelayMs = 5000/);
+});
 
-  assert.equal(occurrences(/actions\/checkout@11bd71901bbe5b1630ceea73d27597364c9af683/g), 2);
-  assert.equal(occurrences(/ref: \$\{\{ github\.sha \}\}/g), 2);
-  assert.equal(occurrences(/persist-credentials: false/g), 2);
-  assert.equal(occurrences(/TRUSTED_WORKFLOW_SHA: \$\{\{ github\.sha \}\}/g), 2);
-  assert.equal(occurrences(/process\.env\.TRUSTED_WORKFLOW_SHA !== liveMain/g), 2);
-  assert.equal(occurrences(/git -C phase0-trusted-source rev-parse HEAD/g), 2);
-  assert.equal(
-    occurrences(
-      /TRUSTED_HELPER_PATH: \$\{\{ github\.workspace \}\}\/phase0-trusted-source\/scripts\/audit\/phase0-gate-check\.mjs/g,
-    ),
-    2,
+// Delta 4 X-42. These 336 outcomes are literal test-owned oracle data, ordered by:
+// incoming [V_SUCCESS,V_FAILURE,M], relation [SAME,OLDER,NEWER,DIFFERENT],
+// classification [ORDINARY,INFRASTRUCTURE], subcase [MATCH,MISMATCH].
+const literal = (value) => value.trim().split(/\s+/);
+const X42 = {
+  "V-FAIL": literal(`
+    T5 T4  T5 T4  T4 T4  T4 T4  V_FAIL_TO_V_SUCC T4  KC1 T4  T4 T4  T4 T4
+    NOOP T4  NOOP T4  T4 T4  T4 T4  V_FAIL_UPDATE T4  V_FAIL_UPDATE T4  T4 T4  T4 T4
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  REJECT_NO_MUTATION REJECT_NO_MUTATION
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  REJECT_NO_MUTATION REJECT_NO_MUTATION
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  REJECT_NO_MUTATION REJECT_NO_MUTATION
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  REJECT_NO_MUTATION REJECT_NO_MUTATION
+  `),
+  "V-SAFE": literal(`
+    V_SAFE_TO_V_SUCC T4  T6 T6  T4 T4  T6 T6  V_SAFE_ADVANCE_TO_V_SUCC T4  T6 T6  T4 T4  T6 T6
+    T5 T4  T6 T6  T4 T4  T6 T6  V_SAFE_ADVANCE_TO_V_FAIL T4  T6 T6  T4 T4  T6 T6
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  REJECT_NO_MUTATION REJECT_NO_MUTATION
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  REJECT_NO_MUTATION REJECT_NO_MUTATION
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  REJECT_NO_MUTATION REJECT_NO_MUTATION
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  REJECT_NO_MUTATION REJECT_NO_MUTATION
+  `),
+  "V-SUCC": literal(`
+    NOOP T4  T6 T6  T4 T4  T6 T6  V_SUCC_ADVANCE_TO_V_SUCC T4  T6 T6  T4 T4  T6 T6
+    T5 T4  T6 T6  T4 T4  T6 T6  V_SUCC_TO_V_FAIL T4  T6 T6  T4 T4  T6 T6
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  REJECT_NO_MUTATION REJECT_NO_MUTATION
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  REJECT_NO_MUTATION REJECT_NO_MUTATION
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  REJECT_NO_MUTATION REJECT_NO_MUTATION
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  REJECT_NO_MUTATION REJECT_NO_MUTATION
+  `),
+  "A-WAIT": literal(`
+    T6 T6  NOOP T4  T6 T6  T4 T4  T6 T6  A_WAIT_UPDATE T4  T6 T6  T4 T4
+    T6 T6  T5 T4  T6 T6  T4 T4  T6 T6  KC2 T4  T6 T6  T4 T4
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  KC3 REJECT_NO_MUTATION
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  KC3 REJECT_NO_MUTATION
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  KC3 REJECT_NO_MUTATION
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  KC3 REJECT_NO_MUTATION
+  `),
+  "M-SAFE": literal(`
+    T6 T6  T6 T6  T6 T6  T6 T6  T6 T6  T6 T6  T6 T6  T6 T6
+    T6 T6  T6 T6  T6 T6  T6 T6  T6 T6  T6 T6  T6 T6  T6 T6
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  M_SAFE_TO_M_SUCC T6
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  T4 T6
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  M_SAFE_TO_M_SUCC T6
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  M_SAFE_TO_M_SUCC T6
+  `),
+  "M-SUCC": literal(`
+    T6 T6  T6 T6  T6 T6  T6 T6  T6 T6  T6 T6  T6 T6  T6 T6
+    T6 T6  T6 T6  T6 T6  T6 T6  T6 T6  T6 T6  T6 T6  T6 T6
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  NOOP T6
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  T4 T6
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  M_SUCC_REESTABLISH T6
+    REJECT_NO_MUTATION REJECT_NO_MUTATION  M_SUCC_REESTABLISH T6
+  `),
+  Q: literal(`
+    Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE
+    Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE
+    Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE
+    Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE
+    Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE
+    Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE Q_NO_WRITE
+  `),
+};
+
+const xStates = Object.keys(X42);
+const xIncoming = ["V_SUCCESS", "V_FAILURE", "M"];
+const xRelations = ["SAME", "OLDER", "NEWER", "DIFFERENT_RUN_OR_WORKFLOW"];
+const xClasses = ["ORDINARY", "INFRASTRUCTURE"];
+const xMatches = [true, false];
+const manualBase = (token) => ({
+  kind: "m",
+  token,
+  dispatchRunId: 30,
+  dispatchAttempt: 2,
+  actor: "jefferycook",
+  pr: 7,
+  base,
+  verifierRunId: 20,
+  verifierAttempt: 2,
+});
+function xExisting(state) {
+  if (state === "Q") return { ...run(v("failure", 2)), external_id: `p0g:v1:q:${head}` };
+  if (state === "A-WAIT") return run({ ...v("awaiting", 2), kind: "a" });
+  if (state === "M-SAFE") return run(manualBase("safe"));
+  if (state === "M-SUCC") return run(manualBase("success"));
+  return run(v({ "V-FAIL": "failure", "V-SAFE": "safe", "V-SUCC": "success" }[state], 2));
+}
+function xSource(incoming, relation, matches) {
+  if (incoming !== "M") {
+    return {
+      workflowId: relation === "DIFFERENT_RUN_OR_WORKFLOW" ? 11 : 10,
+      runId: 20,
+      runAttempt: relation === "OLDER" ? 1 : relation === "NEWER" ? 3 : 2,
+      pullNumber: matches ? 7 : 8,
+      baseSha: matches ? base : "9".repeat(40),
+    };
+  }
+  return {
+    dispatchRunId: relation === "DIFFERENT_RUN_OR_WORKFLOW" ? 31 : 30,
+    dispatchAttempt: relation === "OLDER" ? 1 : relation === "NEWER" ? 3 : 2,
+    actor: "jefferycook",
+    pullNumber: matches ? 7 : 8,
+    baseSha: matches ? base : "9".repeat(40),
+    verifierRunId: matches ? 20 : 21,
+    verifierAttempt: 2,
+  };
+}
+function xFinalSource(incoming, classification, source) {
+  if (incoming === "M")
+    return {
+      kind: "m",
+      token: "success",
+      dispatchRunId: source.dispatchRunId,
+      dispatchAttempt: source.dispatchAttempt,
+      actor: source.actor,
+      pr: source.pullNumber,
+      base: source.baseSha,
+      verifierRunId: source.verifierRunId,
+      verifierAttempt: source.verifierAttempt,
+    };
+  const common = {
+    kind: classification === "INFRASTRUCTURE" && incoming === "V_SUCCESS" ? "a" : "v",
+    workflowId: source.workflowId,
+    runId: source.runId,
+    attempt: source.runAttempt,
+    pr: source.pullNumber,
+    base: source.baseSha,
+  };
+  return {
+    ...common,
+    token: common.kind === "a" ? "awaiting" : incoming === "V_SUCCESS" ? "success" : "failure",
+  };
+}
+function xExpectedWrites(outcome, state, incoming, classification, source, existing) {
+  const q = `p0g:v1:q:${head}`;
+  const old = state === "Q" ? null : parsePhase0Gate(existing, head);
+  const final = xFinalSource(incoming, classification, source);
+  const id = (s) => serializePhase0Gate(head, s);
+  const safePrev = old && id({ ...old, token: "safe" });
+  const safeFinal = id({ ...final, token: "safe" });
+  if (["T4", "T5", "T6"].includes(outcome))
+    return ["V-SUCC", "M-SUCC"].includes(state) ? [safePrev, q] : [q];
+  if (["NOOP", "REJECT_NO_MUTATION", "Q_NO_WRITE"].includes(outcome)) return [];
+  if (
+    [
+      "V_SAFE_TO_V_SUCC",
+      "V_SAFE_ADVANCE_TO_V_SUCC",
+      "V_FAIL_TO_V_SUCC",
+      "M_SAFE_TO_M_SUCC",
+      "KC3",
+    ].includes(outcome)
+  )
+    return [safeFinal, id(final)];
+  if (outcome === "V_SUCC_ADVANCE_TO_V_SUCC" || outcome === "M_SUCC_REESTABLISH")
+    return [safePrev, safeFinal, id(final)];
+  if (outcome === "V_SUCC_TO_V_FAIL") return [safePrev, id(final)];
+  return [id(final)];
+}
+
+test("X-42 literal 336-cell Delta 4 oracle", async (t) => {
+  const actualTotals = {};
+  let cells = 0;
+  for (const stateName of xStates) {
+    assert.equal(X42[stateName].length, 48, `${stateName} literal row count`);
+    let index = 0;
+    for (const incoming of xIncoming)
+      for (const relation of xRelations)
+        for (const classification of xClasses)
+          for (const matchesIdentity of xMatches) {
+            const expectedOutcome = X42[stateName][index++];
+            actualTotals[expectedOutcome] = (actualTotals[expectedOutcome] ?? 0) + 1;
+            cells++;
+            await t.test(
+              `${stateName}/${incoming}/${relation}/${classification}/${matchesIdentity ? "MATCH" : "MISMATCH"} => ${expectedOutcome}`,
+              async () => {
+                const existing = xExisting(stateName);
+                const source = xSource(incoming, relation, matchesIdentity);
+                const { github, state } = api([existing]);
+                let result;
+                let thrown;
+                try {
+                  result = await transitionPhase0Gate({
+                    github,
+                    owner: "o",
+                    repo: "r",
+                    candidateSha: head,
+                    existing,
+                    incomingType: incoming === "M" ? "m" : "v",
+                    classification: classification.toLowerCase(),
+                    conclusion: incoming === "V_FAILURE" ? "failure" : "success",
+                    detailsUrl: "https://github.com/o/r/actions/runs/30",
+                    title: "title",
+                    summary: "summary",
+                    source,
+                  });
+                } catch (error) {
+                  thrown = error;
+                }
+                const expectedWrites = xExpectedWrites(
+                  expectedOutcome,
+                  stateName,
+                  incoming,
+                  classification,
+                  source,
+                  existing,
+                );
+                assert.equal(state.creates.length, 0);
+                assert.deepEqual(
+                  state.updates.map((p) => p.check_run_id),
+                  expectedWrites.map(() => 1),
+                );
+                assert.deepEqual(
+                  state.updates.map((p) => p.external_id),
+                  expectedWrites,
+                );
+                assert.deepEqual(
+                  state.updates.map((p) => p.conclusion),
+                  expectedWrites.map((id) => (id.includes(":success:") ? "success" : "failure")),
+                );
+                assert.equal(
+                  state.gets.length,
+                  state.updates.length,
+                  "exact-ID I-Q refetch per update",
+                );
+                const shouldThrow = ["T4", "T5", "T6", "REJECT_NO_MUTATION", "Q_NO_WRITE"].includes(
+                  expectedOutcome,
+                );
+                assert.equal(Boolean(thrown), shouldThrow, thrown?.stack);
+                if (shouldThrow) assert.equal(thrown.outcome, expectedOutcome);
+                else assert.equal(result.outcome, expectedOutcome);
+                if (expectedOutcome === "NOOP") assert.equal(result.operation, "unchanged");
+                if (expectedWrites.length)
+                  assert.equal(state.runs[0].external_id, expectedWrites.at(-1));
+                else assert.equal(state.runs[0].external_id, existing.external_id);
+                if (expectedOutcome === "Q_NO_WRITE") assert.equal(state.gets.length, 0);
+              },
+            );
+          }
+  }
+  assert.equal(cells, 336);
+  assert.deepEqual(actualTotals, {
+    T5: 5,
+    T4: 62,
+    V_FAIL_TO_V_SUCC: 1,
+    KC1: 1,
+    NOOP: 5,
+    V_FAIL_UPDATE: 2,
+    REJECT_NO_MUTATION: 76,
+    T6: 120,
+    V_SAFE_TO_V_SUCC: 1,
+    V_SAFE_ADVANCE_TO_V_SUCC: 1,
+    V_SAFE_ADVANCE_TO_V_FAIL: 1,
+    V_SUCC_ADVANCE_TO_V_SUCC: 1,
+    V_SUCC_TO_V_FAIL: 1,
+    A_WAIT_UPDATE: 1,
+    KC2: 1,
+    KC3: 4,
+    M_SAFE_TO_M_SUCC: 3,
+    M_SUCC_REESTABLISH: 2,
+    Q_NO_WRITE: 48,
+  });
+});
+
+test("T-3 invalid manual actor stages M-SUCC safe then terminalizes", async () => {
+  const existing = run(manualBase("success"));
+  const { github, state } = api([existing]);
+  await assert.rejects(
+    transitionPhase0Gate({
+      github,
+      owner: "o",
+      repo: "r",
+      candidateSha: head,
+      existing,
+      incomingType: "m",
+      classification: "infrastructure",
+      conclusion: "success",
+      detailsUrl: "https://github.com/o/r",
+      title: "x",
+      summary: "x",
+      source: { ...xSource("M", "NEWER", true), actor: "attacker" },
+    }),
+    (error) => error.outcome === "T3",
   );
-  assert.equal(occurrences(/permission-checks: write/g), 2);
-  assert.equal(occurrences(/upsertPhase0GateCheck/g), 4);
-  assert.match(
-    workflow,
-    /group: phase0-gate-\$\{\{ github\.event\.workflow_run\.head_sha \|\| inputs\.audited_head_sha \}\}/,
+  assert.equal(state.updates.length, 2);
+  assert.match(state.updates[0].external_id, /:m:.*:safe:/);
+  assert.equal(state.updates[1].external_id, `p0g:v1:q:${head}`);
+});
+test("manual path never creates a missing Gate record", async () => {
+  const a = api([]);
+  await assert.rejects(
+    authorizeManualGate({
+      github: a.github,
+      owner: "o",
+      repo: "r",
+      candidateSha: head,
+      detailsUrl: "https://github.com/o/r",
+      source: xSource("M", "SAME", true),
+    }),
+    /exactly one canonical Gate/,
   );
-  assert.doesNotMatch(workflow, /ref: \$\{\{ github\.event\.workflow_run\.head_sha \}\}/);
-  assert.doesNotMatch(workflow, /ref: \$\{\{ inputs\.audited_head_sha \}\}/);
-  assert.doesNotMatch(workflow, /createCommitStatus/);
-  assert.doesNotMatch(workflow, /permission-statuses:/);
-  assert.match(
-    workflow,
-    /Infrastructure-classified candidate: automatic path intentionally posts no phase0-gate status/,
+  assert.equal(a.state.creates.length, 0);
+  assert.equal(a.state.updates.length, 0);
+});
+
+test("U4-X precedes invalid manual source normalization", async () => {
+  const existing = run(v("success", 2));
+  const { github, state } = api([existing]);
+  await assert.rejects(
+    transitionPhase0Gate({
+      github,
+      owner: "o",
+      repo: "r",
+      candidateSha: head,
+      existing,
+      incomingType: "m",
+      classification: "infrastructure",
+      conclusion: "success",
+      detailsUrl: "https://github.com/o/r",
+      title: "x",
+      summary: "x",
+      source: { actor: "attacker" },
+    }),
+    (error) => error.outcome === "REJECT_NO_MUTATION",
+  );
+  assert.equal(state.updates.length, 0);
+});
+test("U4-Y precedes staging and invalid manual source normalization", async () => {
+  for (const stateName of ["V-FAIL", "V-SAFE", "V-SUCC", "A-WAIT", "M-SAFE", "M-SUCC"]) {
+    const existing = xExisting(stateName);
+    const a = api([existing]);
+    await assert.rejects(
+      transitionPhase0Gate({
+        github: a.github,
+        owner: "o",
+        repo: "r",
+        candidateSha: head,
+        existing,
+        incomingType: "m",
+        classification: "ordinary",
+        conclusion: "success",
+        detailsUrl: "https://github.com/o/r",
+        title: "x",
+        summary: "x",
+        source: { actor: "attacker" },
+      }),
+      (error) => error.outcome === "REJECT_NO_MUTATION",
+    );
+    assert.equal(a.state.updates.length, 0);
+  }
+});
+test("Check mutation transport ambiguity recovers only a proven applied write", async () => {
+  let existing = xExisting("V-SAFE");
+  let a = api([existing], { throwAfterUpdate: [1] });
+  const recovered = await transitionPhase0Gate({
+    github: a.github,
+    owner: "o",
+    repo: "r",
+    candidateSha: head,
+    existing,
+    incomingType: "v",
+    classification: "ordinary",
+    conclusion: "success",
+    detailsUrl: "https://github.com/o/r",
+    title: "x",
+    summary: "x",
+    source: xSource("V_SUCCESS", "SAME", true),
+  });
+  assert.equal(recovered.outcome, "V_SAFE_TO_V_SUCC");
+  existing = xExisting("V-SAFE");
+  a = api([existing], { throwBeforeUpdate: [1] });
+  await assert.rejects(
+    transitionPhase0Gate({
+      github: a.github,
+      owner: "o",
+      repo: "r",
+      candidateSha: head,
+      existing,
+      incomingType: "v",
+      classification: "ordinary",
+      conclusion: "success",
+      detailsUrl: "https://github.com/o/r",
+      title: "x",
+      summary: "x",
+      source: xSource("V_SUCCESS", "SAME", true),
+    }),
+    /ambiguous Check Run update/,
+  );
+  assert.equal(a.state.runs[0].external_id, existing.external_id);
+});
+test("U4 throw-before-apply recovery revokes V-SUCC and rejects the evaluation", async () => {
+  const existing = run(v("success", 1));
+  const a = api([existing], { throwBeforeUpdate: [1] });
+  await assert.rejects(
+    upsertPhase0GateCheck({ github: a.github, ...decision("success", false, 2) }),
+    (error) =>
+      error instanceof AggregateError &&
+      error.nonAuthorizingGateProven === true &&
+      /evaluation rejected/.test(error.message),
+  );
+  assert.equal(a.state.updates.length, 2);
+  assert.equal(parsePhase0Gate(a.state.runs[0], head).state, "V-SAFE");
+  assert.equal(a.state.runs[0].conclusion, "failure");
+});
+test("U4 throw-before-apply recovery revokes M-SUCC and rejects redispatch", async () => {
+  const existing = xExisting("M-SUCC");
+  const a = api([existing], { throwBeforeUpdate: [1] });
+  await assert.rejects(
+    transitionPhase0Gate({
+      github: a.github,
+      owner: "o",
+      repo: "r",
+      candidateSha: head,
+      existing,
+      incomingType: "m",
+      classification: "infrastructure",
+      conclusion: "success",
+      detailsUrl: "https://github.com/o/r",
+      title: "x",
+      summary: "x",
+      source: xSource("M", "NEWER", true),
+    }),
+    (error) =>
+      error instanceof AggregateError &&
+      error.nonAuthorizingGateProven === true &&
+      /evaluation rejected/.test(error.message),
+  );
+  assert.equal(a.state.updates.length, 2);
+  assert.equal(parsePhase0Gate(a.state.runs[0], head).state, "M-SAFE");
+  assert.equal(a.state.runs[0].conclusion, "failure");
+});
+test("U4 throw-after-apply recovery rejects V-SUCC advancement after proving V-SAFE", async (t) => {
+  for (const [conclusion, sourceKind] of [
+    ["success", "V_SUCCESS"],
+    ["failure", "V_FAILURE"],
+  ])
+    await t.test(conclusion, async () => {
+      const existing = xExisting("V-SUCC");
+      const a = api([existing], { throwAfterUpdate: [1] });
+      await assert.rejects(
+        transitionPhase0Gate({
+          github: a.github,
+          owner: "o",
+          repo: "r",
+          candidateSha: head,
+          existing,
+          incomingType: "v",
+          classification: "ordinary",
+          conclusion,
+          detailsUrl: "https://github.com/o/r",
+          title: "x",
+          summary: "x",
+          source: xSource(sourceKind, "NEWER", true),
+        }),
+        (error) =>
+          error instanceof AggregateError &&
+          error.nonAuthorizingGateProven === true &&
+          parsePhase0Gate(error.recovered, head).state === "V-SAFE" &&
+          /current evaluation rejected/.test(error.message),
+      );
+      assert.equal(a.state.updates.length, 1);
+      assert.equal(parsePhase0Gate(a.state.runs[0], head).state, "V-SAFE");
+      assert.equal(a.state.runs[0].conclusion, "failure");
+    });
+});
+test("U4 throw-after-apply recovery rejects M-SUCC redispatch after proving M-SAFE", async () => {
+  const existing = xExisting("M-SUCC");
+  const a = api([existing], { throwAfterUpdate: [1] });
+  await assert.rejects(
+    transitionPhase0Gate({
+      github: a.github,
+      owner: "o",
+      repo: "r",
+      candidateSha: head,
+      existing,
+      incomingType: "m",
+      classification: "infrastructure",
+      conclusion: "success",
+      detailsUrl: "https://github.com/o/r",
+      title: "x",
+      summary: "x",
+      source: xSource("M", "NEWER", true),
+    }),
+    (error) =>
+      error instanceof AggregateError &&
+      error.nonAuthorizingGateProven === true &&
+      parsePhase0Gate(error.recovered, head).state === "M-SAFE" &&
+      /current evaluation rejected/.test(error.message),
+  );
+  assert.equal(a.state.updates.length, 1);
+  assert.equal(parsePhase0Gate(a.state.runs[0], head).state, "M-SAFE");
+  assert.equal(a.state.runs[0].conclusion, "failure");
+});
+test("U4 invalid applied PATCH response rejects after proving V-SAFE", async () => {
+  const existing = xExisting("V-SUCC");
+  const a = api([existing], { invalidUpdateResponseAt: [1] });
+  await assert.rejects(
+    transitionPhase0Gate({
+      github: a.github,
+      owner: "o",
+      repo: "r",
+      candidateSha: head,
+      existing,
+      incomingType: "v",
+      classification: "ordinary",
+      conclusion: "success",
+      detailsUrl: "https://github.com/o/r",
+      title: "x",
+      summary: "x",
+      source: xSource("V_SUCCESS", "NEWER", true),
+    }),
+    (error) =>
+      error instanceof AggregateError &&
+      error.nonAuthorizingGateProven === true &&
+      parsePhase0Gate(error.recovered, head).state === "V-SAFE" &&
+      /current evaluation rejected/.test(error.message),
+  );
+  assert.equal(a.state.updates.length, 1);
+  assert.equal(parsePhase0Gate(a.state.runs[0], head).state, "V-SAFE");
+  assert.equal(a.state.runs[0].conclusion, "failure");
+});
+test("failed U4 recovery explicitly reports that non-authorizing state is unproven", async () => {
+  const existing = run(v("success", 1));
+  const a = api([existing], { throwBeforeUpdate: [1, 2] });
+  await assert.rejects(
+    upsertPhase0GateCheck({ github: a.github, ...decision("success", false, 2) }),
+    (error) =>
+      error instanceof AggregateError &&
+      /non-authorizing Gate state could not be proven/.test(error.message),
+  );
+  assert.equal(a.state.runs[0].conclusion, "success");
+});
+
+const rulesetA = {
+  id: 22812673,
+  name: "Phase 0 main protection",
+  target: "branch",
+  enforcement: "active",
+  conditions: { ref_name: { include: ["refs/heads/main"], exclude: [] } },
+  bypass_actors: [],
+  rules: [
+    { type: "deletion" },
+    { type: "non_fast_forward" },
+    {
+      type: "pull_request",
+      parameters: {
+        required_approving_review_count: 0,
+        dismiss_stale_reviews_on_push: false,
+        required_reviewers: [],
+        require_code_owner_review: false,
+        require_last_push_approval: false,
+        required_review_thread_resolution: false,
+        require_extra_approval_for_unattributed_changes: false,
+        allowed_merge_methods: ["merge"],
+      },
+    },
+    {
+      type: "required_status_checks",
+      parameters: {
+        strict_required_status_checks_policy: true,
+        do_not_enforce_on_create: false,
+        required_status_checks: [{ context: "phase0-gate", integration_id: 4876044 }],
+      },
+    },
+  ],
+};
+const rulesetB = {
+  id: 991,
+  name: "Phase 0 main update restriction",
+  target: "branch",
+  enforcement: "active",
+  conditions: { ref_name: { include: ["refs/heads/main"], exclude: [] } },
+  bypass_actors: [{ actor_type: "Integration", actor_id: 4915565, bypass_mode: "pull_request" }],
+  rules: [{ type: "update" }],
+};
+function rulesClient(a = rulesetA, bs = [rulesetB]) {
+  const all = [a, ...bs];
+  return {
+    request: async (route, parameters) => {
+      if (route.includes("rules/branches")) return { data: all.map((r) => ({ ruleset_id: r.id })) };
+      return { data: structuredClone(all.find((r) => r.id === parameters.ruleset_id)) };
+    },
+  };
+}
+test("Ruleset A exact normative configuration and drift rejection", () => {
+  assert.doesNotThrow(() => validateRulesetA(structuredClone(rulesetA)));
+  for (const mutate of [
+    (r) => (r.target = "tag"),
+    (r) => (r.enforcement = "disabled"),
+    (r) => (r.conditions.ref_name.include = ["refs/heads/dev"]),
+    (r) => (r.conditions.ref_name.include = ["~DEFAULT_BRANCH"]),
+    (r) => r.conditions.ref_name.exclude.push("refs/heads/dev"),
+    (r) => r.bypass_actors.push({ actor_type: "RepositoryRole", actor_id: 5 }),
+    (r) => r.rules.splice(0, 1),
+    (r) => r.rules.push({ type: "update" }),
+    (r) => r.rules.push({ type: "deletion" }),
+    (r) =>
+      (r.rules.find((x) => x.type === "pull_request").parameters.allowed_merge_methods = [
+        "squash",
+      ]),
+    (r) =>
+      (r.rules.find(
+        (x) => x.type === "required_status_checks",
+      ).parameters.strict_required_status_checks_policy = false),
+    (r) =>
+      (r.rules.find(
+        (x) => x.type === "required_status_checks",
+      ).parameters.required_status_checks[0].integration_id = 1),
+    (r) =>
+      (r.rules.find(
+        (x) => x.type === "required_status_checks",
+      ).parameters.do_not_enforce_on_create = true),
+  ]) {
+    const changed = structuredClone(rulesetA);
+    mutate(changed);
+    assert.throws(() => validateRulesetA(changed), /Ruleset A drift/);
+  }
+});
+test("Ruleset B exact actor/ref/rule configuration", () => {
+  assert.equal(isRulesetB(structuredClone(rulesetB)), true);
+  for (const mutate of [
+    (r) => (r.target = "tag"),
+    (r) => (r.enforcement = "disabled"),
+    (r) => (r.conditions.ref_name.include = ["refs/heads/dev"]),
+    (r) => (r.conditions.ref_name.include = ["~DEFAULT_BRANCH"]),
+    (r) => r.rules.push({ type: "deletion" }),
+    (r) => (r.rules = []),
+    (r) => (r.bypass_actors[0].actor_type = "RepositoryRole"),
+    (r) => (r.bypass_actors[0].actor_id = 4915564),
+    (r) => (r.bypass_actors[0].bypass_mode = "always"),
+    (r) =>
+      r.bypass_actors.push({ actor_type: "Integration", actor_id: 2, bypass_mode: "pull_request" }),
+  ]) {
+    const changed = structuredClone(rulesetB);
+    mutate(changed);
+    assert.equal(isRulesetB(changed), false);
+  }
+});
+test("Ruleset B missing and duplicate matches fail closed", async () => {
+  await assert.rejects(validateRulesets(rulesClient(rulesetA, []), "o", "r"), /found 0/);
+  await assert.rejects(
+    validateRulesets(rulesClient(rulesetA, [rulesetB, { ...rulesetB, id: 992 }]), "o", "r"),
+    /found 2/,
   );
 });
 
-assert.ok(
-  existsSync(bundleScript) && existsSync(verifyCommitScript) && existsSync(verifyMergeScript),
-);
+function preflightClient(change = {}) {
+  const gate = Object.hasOwn(change, "gate") ? change.gate : run(v("success", 2));
+  const gates = change.gates ?? (gate ? [gate] : []);
+  const wrongApp = change.wrongApp ? [{ ...run(v("success", 2), 88), app: { id: 999 } }] : [];
+  const files = change.files ?? [{ filename: "src/ui.tsx", status: "modified" }];
+  const rules = rulesClient(change.rulesetA ?? rulesetA, change.rulesets ?? [rulesetB]);
+  let mainReads = 0;
+  let pullReads = 0;
+  let commitReads = 0;
+  let checkLists = 0;
+  let checkUpdates = 0;
+  const client = {
+    paginate: async (method) => {
+      if (method === client.rest.pulls.listFiles) return files;
+      if (method === client.rest.repos.listCommitStatusesForRef)
+        return change.legacy ? [{ context: "phase0-gate" }] : [];
+      if (method === client.rest.checks.listForRef) {
+        checkLists += 1;
+        if (change.p13GateChange && checkLists >= 5 && gates[0])
+          Object.assign(gates[0], {
+            external_id: serializePhase0Gate(head, {
+              kind: "m",
+              token: "success",
+              dispatchRunId: 31,
+              dispatchAttempt: 1,
+              actor: "jefferycook",
+              pr: 7,
+              base,
+              verifierRunId: 20,
+              verifierAttempt: 2,
+            }),
+            conclusion: "success",
+            completed_at: "2026-09-15T12:00:09Z",
+          });
+        return [...gates, ...wrongApp];
+      }
+      throw new Error("unexpected paginate method");
+    },
+    request: async (route, parameters) => {
+      if (route.includes("actions/workflows")) return { data: { id: 10 } };
+      return rules.request(route, parameters);
+    },
+    rest: {
+      pulls: {
+        listFiles: async () => {},
+        get: async () => {
+          pullReads += 1;
+          return {
+            data: {
+              state: change.pullState ?? "open",
+              draft: change.pullDraft ?? false,
+              merged: change.pullMerged ?? false,
+              changed_files: change.changedFiles ?? files.length,
+              base: {
+                ref: change.pullBaseRef ?? "main",
+                sha: change.p13Base && pullReads > 1 ? "8".repeat(40) : (change.pullBase ?? base),
+              },
+              head: {
+                sha: change.p13Head && pullReads > 1 ? "8".repeat(40) : (change.pullHead ?? head),
+                repo: { full_name: change.pullRepo ?? "o/r" },
+              },
+            },
+          };
+        },
+      },
+      git: {
+        getRef: async () => {
+          mainReads += 1;
+          return {
+            data: {
+              object: {
+                sha: change.p13Main && mainReads > 1 ? "8".repeat(40) : (change.main ?? base),
+              },
+            },
+          };
+        },
+      },
+      repos: {
+        listCommitStatusesForRef: async () => {},
+        getCommit: async ({ ref }) => {
+          if (ref !== head) return { data: {} };
+          commitReads += 1;
+          return {
+            data: {
+              parents: [{ sha: base }],
+              commit: {
+                tree: {
+                  sha: change.p13Tree && commitReads > 1 ? "8".repeat(40) : (change.tree ?? tree),
+                },
+              },
+            },
+          };
+        },
+        compareCommitsWithBasehead: async () => ({
+          data: { merge_base_commit: { sha: base }, ahead_by: 1, behind_by: 0, total_commits: 1 },
+        }),
+      },
+      checks: {
+        listForRef: async () => {},
+        get: async ({ check_run_id }) => ({
+          data: structuredClone(gates.find((item) => item.id === check_run_id)),
+        }),
+        update: async (payload) => {
+          checkUpdates += 1;
+          if (change.throwBeforeUpdate?.includes(checkUpdates)) throw new Error("transport");
+          const item = gates.find((candidate) => candidate.id === payload.check_run_id);
+          Object.assign(item, {
+            name: payload.name,
+            status: payload.status,
+            conclusion: payload.conclusion,
+            completed_at: payload.completed_at,
+            external_id: payload.external_id,
+          });
+          return { data: structuredClone(item) };
+        },
+      },
+      actions: {
+        getWorkflowRun: async () => {
+          if (change.verifierThrows) throw new Error("verifier transport");
+          return {
+            data: {
+              id: 20,
+              workflow_id: change.workflowId ?? 10,
+              run_attempt: 2,
+              head_sha: head,
+              conclusion: "success",
+              event: "pull_request",
+              path: ".github/workflows/phase0-verify.yml",
+              head_repository: { full_name: "o/r" },
+            },
+          };
+        },
+      },
+    },
+  };
+  return client;
+}
+const dispatch = {
+  ref: "refs/heads/main",
+  actor: "jefferycook",
+  approvalPhrase: "EXACT-SHA-AUDIT-PASS",
+  prNumber: "7",
+  head,
+  base,
+  tree,
+};
+async function preflight(change = {}, dispatchChange = {}) {
+  const github = preflightClient(change);
+  return validateBeforeMerge({
+    github,
+    gateGithub: github,
+    owner: "o",
+    repo: "r",
+    dispatch: { ...dispatch, ...dispatchChange },
+    trustedSha: base,
+    helperSha: base,
+    dispatchRunId: 30,
+    dispatchAttempt: 1,
+  });
+}
+test("P7/P8/P9 merge preflight accepts one exact ordinary V-SUCC", async () => {
+  const result = await preflight();
+  assert.equal(result.gateId, 1);
+  assert.equal(result.infrastructure, false);
+});
+test("merge preflight required rejection matrix", async (t) => {
+  const malformed = { ...run(v("success", 2)), external_id: "bad" };
+  const q = { ...run(v("failure", 2)), external_id: `p0g:v1:q:${head}` };
+  const failed = run(v("failure", 2));
+  const cases = [
+    ["missing Gate", { gate: null }, {}, /exactly one canonical Gate/],
+    ["failed Gate", { gate: failed }, {}, /lacks V-SUCC/],
+    ["Q Gate", { gate: q }, {}, /Gate audit identity mismatch/],
+    ["malformed provenance", { gate: malformed }, {}, /invalid v2 provenance/],
+    ["duplicate Gate", { gates: [run(v("success", 2)), run(v("success", 2), 2)] }, {}, /T1/],
+    ["legacy poison", { legacy: true }, {}, /legacy phase0-gate/],
+    ["wrong-App same-name", { wrongApp: true }, {}, /wrong-App/],
+    ["wrong PR", {}, { prNumber: "8" }, /Gate audit identity mismatch/],
+    ["wrong actor", {}, { actor: "attacker" }, /dispatch authority/],
+    ["wrong phrase", {}, { approvalPhrase: "yes" }, /dispatch authority/],
+    ["moved head", { pullHead: "8".repeat(40) }, {}, /pull request identity/],
+    ["moved base", { main: "8".repeat(40) }, {}, /live main moved/],
+    ["zero-file candidate", { files: [], changedFiles: 0 }, {}, /pull request identity/],
+    ["audited tree mismatch", { tree: "8".repeat(40) }, {}, /parent\/tree mismatch/],
+    ["wrong verifier workflow ID", { workflowId: 11 }, {}, /verifier provenance/],
+    ["verifier transport ambiguity", { verifierThrows: true }, {}, /verifier transport/],
+  ];
+  for (const [name, change, dispatchChange, pattern] of cases)
+    await t.test(name, async () => assert.rejects(preflight(change, dispatchChange), pattern));
+});
+
+test("every post-KC3 pre-P14 failure leaves the Gate non-authorizing", async (t) => {
+  const driftedA = structuredClone(rulesetA);
+  driftedA.enforcement = "disabled";
+  const driftedB = structuredClone(rulesetB);
+  driftedB.conditions.ref_name.include = ["~DEFAULT_BRANCH"];
+  const cases = [
+    ["Ruleset A drift", { rulesetA: driftedA }],
+    ["Ruleset B missing", { rulesets: [] }],
+    ["Ruleset B drift", { rulesets: [driftedB] }],
+    ["P13 main changed", { p13Main: true }],
+    ["P13 head changed", { p13Head: true }],
+    ["P13 tree changed", { p13Tree: true }],
+    ["P13 Gate changed", { p13GateChange: true }],
+  ];
+  for (const [name, change] of cases)
+    await t.test(name, async () => {
+      const gate = run(awaiting());
+      const github = preflightClient({
+        gate,
+        files: [{ filename: ".github/workflows/candidate.yml", status: "modified" }],
+        ...change,
+      });
+      await assert.rejects(
+        validateBeforeMerge({
+          github,
+          gateGithub: github,
+          owner: "o",
+          repo: "r",
+          dispatch,
+          trustedSha: base,
+          helperSha: base,
+          dispatchRunId: 30,
+          dispatchAttempt: 1,
+        }),
+      );
+      assert.equal(gate.conclusion, "failure");
+      assert.equal(gate.external_id, `p0g:v1:q:${head}`);
+    });
+});
+test("post-KC3 P12/P13 cleanup recovers Q after a throw-before-apply", async (t) => {
+  const driftedA = structuredClone(rulesetA);
+  driftedA.enforcement = "disabled";
+  for (const [name, change] of [
+    ["P12 Ruleset A failure", { rulesetA: driftedA }],
+    ["P13 main failure", { p13Main: true }],
+  ])
+    await t.test(name, async () => {
+      const gate = run(awaiting());
+      const github = preflightClient({
+        gate,
+        files: [{ filename: ".github/workflows/candidate.yml", status: "modified" }],
+        throwBeforeUpdate: [3],
+        ...change,
+      });
+      await assert.rejects(
+        validateBeforeMerge({
+          github,
+          gateGithub: github,
+          owner: "o",
+          repo: "r",
+          dispatch,
+          trustedSha: base,
+          helperSha: base,
+          dispatchRunId: 30,
+          dispatchAttempt: 1,
+        }),
+      );
+      assert.equal(gate.external_id, `p0g:v1:q:${head}`);
+      assert.equal(gate.conclusion, "failure");
+      assert.equal(isCanonicalPhase0GateQ(gate, head), true);
+    });
+});
+
+test("read-only preparation identifies whether a Gate token is actually required", async () => {
+  const ordinary = preflightClient();
+  const ordinaryPrepared = await prepareBeforeMerge({
+    github: ordinary,
+    owner: "o",
+    repo: "r",
+    dispatch,
+    trustedSha: base,
+    helperSha: base,
+    dispatchRunId: 30,
+    dispatchAttempt: 1,
+  });
+  assert.equal(ordinaryPrepared.requiresGateToken, false);
+  const infrastructure = preflightClient({
+    gate: run(awaiting()),
+    files: [{ filename: ".github/workflows/candidate.yml", status: "modified" }],
+  });
+  const infrastructurePrepared = await prepareBeforeMerge({
+    github: infrastructure,
+    owner: "o",
+    repo: "r",
+    dispatch,
+    trustedSha: base,
+    helperSha: base,
+    dispatchRunId: 30,
+    dispatchAttempt: 1,
+  });
+  assert.equal(infrastructurePrepared.requiresGateToken, true);
+  await assert.rejects(
+    finalizeBeforeMerge({
+      github: infrastructure,
+      owner: "o",
+      repo: "r",
+      prepared: infrastructurePrepared,
+      trustedSha: base,
+    }),
+    /Gate token required/,
+  );
+});
+
+function postMergeFixture(change = {}) {
+  const mergeSha = "4".repeat(40);
+  const gate = change.gate ?? run(v("success", 2));
+  const writes = [];
+  const ruleSuiteRequests = [];
+  const mergerGithub = {
+    rest: {
+      pulls: {
+        merge: async (payload) => {
+          writes.push(payload);
+          if (change.httpStatus) {
+            const error = new Error("HTTP refusal");
+            error.status = change.httpStatus;
+            throw error;
+          }
+          if (change.transport) throw new Error("transport");
+          return {
+            data: {
+              merged: change.responseMerged ?? true,
+              sha: change.responseSha ?? mergeSha,
+            },
+          };
+        },
+      },
+    },
+  };
+  const readGithub = {
+    paginate: async () => [gate],
+    request: async (route, parameters) => {
+      ruleSuiteRequests.push({ route, parameters });
+      if (route.endsWith("/rule-suites")) {
+        const mode = change.ruleSuiteMode ?? "unavailable";
+        if (mode === "unavailable") {
+          const error = new Error("rule-suite endpoint unavailable");
+          error.status = 404;
+          throw error;
+        }
+        if (mode === "no-exact") return { data: [] };
+        return {
+          data: [
+            {
+              id: 71,
+              head_sha: mergeSha,
+              result: mode === "wrong-result" ? "fail" : "pass",
+              actor: {
+                login: mode === "wrong-actor" ? "attacker" : MERGER_APP_BOT_LOGIN,
+              },
+            },
+          ],
+        };
+      }
+      if (route.includes("rule-suites/{rule_suite_id}"))
+        return { data: { id: 71, rule_evaluations: [{ rule_source: "Repository" }] } };
+      throw new Error(`unexpected route ${route}`);
+    },
+    rest: {
+      checks: { listForRef: async () => {} },
+      git: {
+        getRef: async () => ({ data: { object: { sha: change.main ?? mergeSha } } }),
+      },
+      pulls: {
+        get: async () => ({
+          data: {
+            merged: change.merged ?? true,
+            state: change.state ?? "closed",
+            merge_commit_sha: change.prMergeSha ?? mergeSha,
+          },
+        }),
+      },
+      repos: {
+        getCommit: async () => ({
+          data: {
+            parents: change.parents ?? [
+              { sha: change.parent1 ?? base },
+              { sha: change.parent2 ?? head },
+            ],
+            commit: { tree: { sha: change.mergeTree ?? tree } },
+            author: { login: change.author ?? MERGER_APP_BOT_LOGIN },
+            committer: { login: change.committer ?? "web-flow" },
+          },
+        }),
+      },
+    },
+  };
+  const validated = {
+    audit: { prNumber: 7, head, base, tree },
+    gateId: 1,
+    gateExternalId: run(v("success", 2)).external_id,
+    gateCompletedAt: completed,
+    dispatchIdentity: { runId: 30, attempt: 2 },
+  };
+  return { mergerGithub, readGithub, validated, writes, mergeSha, ruleSuiteRequests };
+}
+test("merge ambiguity never retries and recovered merge runs invariants", async () => {
+  const f = postMergeFixture({ transport: true });
+  const result = await mergeOnce({
+    ...f,
+    owner: "o",
+    repo: "r",
+    confirmationDelayMs: 0,
+    ruleSuiteAttempts: 1,
+    ruleSuiteDelayMs: 0,
+  });
+  assert.equal(result.mergeSha, f.mergeSha);
+  assert.equal(f.writes.length, 1);
+});
+test("definitive merge refusals never enter ambiguity recovery", async () => {
+  for (const change of [{ responseMerged: false }, { httpStatus: 422 }]) {
+    const f = postMergeFixture(change);
+    await assert.rejects(
+      mergeOnce({
+        ...f,
+        owner: "o",
+        repo: "r",
+        confirmationDelayMs: 0,
+        ruleSuiteAttempts: 1,
+        ruleSuiteDelayMs: 0,
+      }),
+      /definitive merge refusal/,
+    );
+    assert.equal(f.writes.length, 1);
+  }
+});
+test("merge ambiguity non-merged and indeterminate cases fail closed without retry", async () => {
+  for (const change of [
+    { transport: true, merged: false, state: "open" },
+    { transport: true, merged: true, prMergeSha: "8".repeat(40) },
+  ]) {
+    const f = postMergeFixture(change);
+    await assert.rejects(
+      mergeOnce({
+        ...f,
+        owner: "o",
+        repo: "r",
+        confirmationDelayMs: 0,
+        ruleSuiteAttempts: 1,
+        ruleSuiteDelayMs: 0,
+      }),
+      /not proven/,
+    );
+    assert.equal(f.writes.length, 1);
+  }
+});
+test("post-merge invariant rejection matrix", async (t) => {
+  const changedGate = { ...run(v("success", 2)), completed_at: "2026-09-15T12:00:01Z" };
+  const changedGateId = { ...run(v("success", 2)), id: 9 };
+  const changedGateProvenance = run(v("success", 3));
+  const changedGateConclusion = run(v("failure", 2));
+  const cases = [
+    ["wrong parent count", { parents: [{ sha: base }] }, /graph\/tree\/author\/committer/],
+    ["wrong parent1", { parent1: "8".repeat(40) }, /graph\/tree\/author\/committer/],
+    ["wrong parent2", { parent2: "8".repeat(40) }, /graph\/tree\/author\/committer/],
+    ["wrong tree", { mergeTree: "8".repeat(40) }, /graph\/tree\/author\/committer/],
+    ["wrong author", { author: "attacker" }, /graph\/tree\/author\/committer/],
+    ["wrong committer", { committer: "attacker" }, /graph\/tree\/author\/committer/],
+    ["wrong main ref", { main: "8".repeat(40) }, /main does not equal/],
+    ["PR not merged", { merged: false }, /PR merge state/],
+    ["merge SHA mismatch", { prMergeSha: "8".repeat(40) }, /PR merge state/],
+    ["Gate changed", { gate: changedGate }, /Gate changed/],
+    ["Gate ID changed", { gate: changedGateId }, /Gate changed/],
+    ["Gate provenance changed", { gate: changedGateProvenance }, /Gate changed/],
+    ["Gate conclusion changed", { gate: changedGateConclusion }, /Gate changed/],
+  ];
+  for (const [name, change, pattern] of cases)
+    await t.test(name, async () => {
+      const f = postMergeFixture(change);
+      await assert.rejects(
+        mergeOnce({
+          ...f,
+          owner: "o",
+          repo: "r",
+          confirmationDelayMs: 0,
+          ruleSuiteAttempts: 1,
+          ruleSuiteDelayMs: 0,
+        }),
+        pattern,
+      );
+      assert.equal(f.writes.length, 1);
+    });
+});
+
+test("I6 rule-suite evidence distinguishes endpoint availability and exact evidence", async () => {
+  const unavailable = postMergeFixture({ ruleSuiteMode: "unavailable" });
+  const unavailableResult = await mergeOnce({
+    ...unavailable,
+    owner: "o",
+    repo: "r",
+    confirmationDelayMs: 0,
+    ruleSuiteAttempts: 1,
+    ruleSuiteDelayMs: 0,
+  });
+  assert.equal(unavailableResult.ruleSuite.available, false);
+  assert.match(unavailableResult.ruleSuite.reason, /endpoint unavailable/);
+  assert.equal(unavailable.writes.length, 1);
+
+  const valid = postMergeFixture({ ruleSuiteMode: "valid" });
+  const validResult = await mergeOnce({
+    ...valid,
+    owner: "o",
+    repo: "r",
+    confirmationDelayMs: 0,
+    ruleSuiteAttempts: 1,
+    ruleSuiteDelayMs: 0,
+  });
+  assert.deepEqual(
+    {
+      available: validResult.ruleSuite.available,
+      id: validResult.ruleSuite.id,
+      result: validResult.ruleSuite.result,
+      actor: validResult.ruleSuite.actor,
+    },
+    { available: true, id: 71, result: "pass", actor: MERGER_APP_BOT_LOGIN },
+  );
+  assert.equal(validResult.ruleSuite.detail.rule_evaluations.length, 1);
+  assert.equal(valid.ruleSuiteRequests[0].parameters.time_period, "hour");
+  assert.equal(valid.writes.length, 1);
+
+  for (const [mode, attempts] of [
+    ["no-exact", 2],
+    ["wrong-actor", 1],
+    ["wrong-result", 1],
+  ]) {
+    const fixture = postMergeFixture({ ruleSuiteMode: mode });
+    await assert.rejects(
+      mergeOnce({
+        ...fixture,
+        owner: "o",
+        repo: "r",
+        confirmationDelayMs: 0,
+        ruleSuiteAttempts: attempts,
+        ruleSuiteDelayMs: 0,
+      }),
+      /I6/,
+    );
+    assert.equal(fixture.writes.length, 1);
+    if (mode === "no-exact")
+      assert.equal(
+        fixture.ruleSuiteRequests.filter(({ route }) => route.endsWith("/rule-suites")).length,
+        2,
+      );
+  }
+});
+
+test("crash recovery covers every Delta 4 multi-write outcome", async (t) => {
+  const cases = [
+    [
+      "V_SAFE_TO_V_SUCC",
+      xExisting("V-SAFE"),
+      "v",
+      "ordinary",
+      "success",
+      xSource("V_SUCCESS", "SAME", true),
+      2,
+    ],
+    [
+      "V_SAFE_ADVANCE_TO_V_SUCC",
+      xExisting("V-SAFE"),
+      "v",
+      "ordinary",
+      "success",
+      xSource("V_SUCCESS", "NEWER", true),
+      2,
+    ],
+    [
+      "V_FAIL_TO_V_SUCC",
+      xExisting("V-FAIL"),
+      "v",
+      "ordinary",
+      "success",
+      xSource("V_SUCCESS", "NEWER", true),
+      2,
+    ],
+    [
+      "V_SUCC_ADVANCE_TO_V_SUCC",
+      xExisting("V-SUCC"),
+      "v",
+      "ordinary",
+      "success",
+      xSource("V_SUCCESS", "NEWER", true),
+      3,
+    ],
+    [
+      "V_SUCC_TO_V_FAIL",
+      xExisting("V-SUCC"),
+      "v",
+      "ordinary",
+      "failure",
+      xSource("V_FAILURE", "NEWER", true),
+      2,
+    ],
+    ["KC3", xExisting("A-WAIT"), "m", "infrastructure", "success", xSource("M", "SAME", true), 2],
+    [
+      "M_SAFE_TO_M_SUCC",
+      xExisting("M-SAFE"),
+      "m",
+      "infrastructure",
+      "success",
+      xSource("M", "NEWER", true),
+      2,
+    ],
+    [
+      "M_SUCC_REESTABLISH",
+      xExisting("M-SUCC"),
+      "m",
+      "infrastructure",
+      "success",
+      xSource("M", "NEWER", true),
+      3,
+    ],
+  ];
+  for (const [outcome, existing, incomingType, classification, conclusion, source, writes] of cases)
+    for (let crashAt = 1; crashAt <= writes; crashAt++)
+      await t.test(`${outcome} transport crash after write ${crashAt}`, async () => {
+        const a = api([existing], { throwAfterUpdate: [crashAt] });
+        const invoke = () =>
+          transitionPhase0Gate({
+            github: a.github,
+            owner: "o",
+            repo: "r",
+            candidateSha: head,
+            existing,
+            incomingType,
+            classification,
+            conclusion,
+            detailsUrl: "https://github.com/o/r",
+            title: "x",
+            summary: "x",
+            source,
+          });
+        const startingState = parsePhase0Gate(existing, head).state;
+        if (crashAt === 1 && ["V-SUCC", "M-SUCC"].includes(startingState)) {
+          await assert.rejects(
+            invoke(),
+            (error) =>
+              error instanceof AggregateError &&
+              error.nonAuthorizingGateProven === true &&
+              /current evaluation rejected/.test(error.message),
+          );
+          assert.equal(
+            parsePhase0Gate(a.state.runs[0], head).state,
+            startingState === "V-SUCC" ? "V-SAFE" : "M-SAFE",
+          );
+          assert.equal(a.state.runs[0].conclusion, "failure");
+          assert.equal(a.state.updates.length, 1);
+        } else {
+          const result = await invoke();
+          assert.equal(result.outcome, outcome);
+          assert.equal(
+            a.state.runs[0].conclusion,
+            outcome === "V_SUCC_TO_V_FAIL" ? "failure" : "success",
+          );
+        }
+      });
+});
+
+test("T4/T5/T6 reject after an applied U4 SAFE and preserve later SAFE-to-Q recovery", async (t) => {
+  const cases = [
+    ["T4", "ordinary", "success", xSource("V_SUCCESS", "OLDER", true)],
+    ["T5", "ordinary", "failure", xSource("V_FAILURE", "SAME", true)],
+    ["T6", "infrastructure", "success", xSource("V_SUCCESS", "SAME", true)],
+  ];
+  for (const [rule, classification, conclusion, source] of cases)
+    for (const crashAt of [1, 2])
+      await t.test(`${rule} transport crash after write ${crashAt}`, async () => {
+        const existing = xExisting("V-SUCC");
+        const a = api([existing], { throwAfterUpdate: [crashAt] });
+        const invoke = () =>
+          transitionPhase0Gate({
+            github: a.github,
+            owner: "o",
+            repo: "r",
+            candidateSha: head,
+            existing,
+            incomingType: "v",
+            classification,
+            conclusion,
+            detailsUrl: "https://github.com/o/r",
+            title: "x",
+            summary: "x",
+            source,
+          });
+        if (crashAt === 1) {
+          await assert.rejects(
+            invoke(),
+            (error) =>
+              error instanceof AggregateError &&
+              error.nonAuthorizingGateProven === true &&
+              /current evaluation rejected/.test(error.message),
+          );
+          assert.equal(parsePhase0Gate(a.state.runs[0], head).state, "V-SAFE");
+          assert.equal(a.state.runs[0].conclusion, "failure");
+          assert.equal(a.state.updates.length, 1);
+        } else {
+          await assert.rejects(invoke(), (error) => error.outcome === rule);
+          assert.equal(a.state.runs[0].external_id, `p0g:v1:q:${head}`);
+        }
+      });
+});
+test("T4/T5/T6 terminal Q recovers after a throw-before-apply", async (t) => {
+  const cases = [
+    ["T4", "ordinary", "success", xSource("V_SUCCESS", "OLDER", true)],
+    ["T5", "ordinary", "failure", xSource("V_FAILURE", "SAME", true)],
+    ["T6", "infrastructure", "success", xSource("V_SUCCESS", "SAME", true)],
+  ];
+  for (const [rule, classification, conclusion, source] of cases)
+    await t.test(rule, async () => {
+      const existing = xExisting("V-SUCC");
+      const a = api([existing], { throwBeforeUpdate: [2] });
+      await assert.rejects(
+        transitionPhase0Gate({
+          github: a.github,
+          owner: "o",
+          repo: "r",
+          candidateSha: head,
+          existing,
+          incomingType: "v",
+          classification,
+          conclusion,
+          detailsUrl: "https://github.com/o/r",
+          title: "x",
+          summary: "x",
+          source,
+        }),
+        (error) => error.outcome === rule,
+      );
+      assert.deepEqual(
+        a.state.updates.map((write) => write.check_run_id),
+        [1, 1, 1],
+      );
+      assert.equal(isCanonicalPhase0GateQ(a.state.runs[0], head), true);
+      assert.equal(a.state.runs[0].conclusion, "failure");
+    });
+});
+
+test("independent verify-merge helper preserves Git graph and tree invariants", () => {
+  const root = mkdtempSync(join(tmpdir(), "phase0-verify-merge-"));
+  const git = (args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+  git(["init", "--initial-branch=main"]);
+  git(["config", "user.name", "Phase0 Test"]);
+  git(["config", "user.email", "phase0@example.invalid"]);
+  writeFileSync(join(root, "a.txt"), "base\n");
+  git(["add", "a.txt"]);
+  git(["commit", "-m", "base"]);
+  const gitBase = git(["rev-parse", "HEAD"]);
+  git(["switch", "-c", "candidate"]);
+  writeFileSync(join(root, "a.txt"), "candidate\n");
+  git(["commit", "-am", "candidate"]);
+  const gitHead = git(["rev-parse", "HEAD"]);
+  git(["switch", "main"]);
+  git(["merge", "--no-ff", "candidate", "-m", "merge"]);
+  const merge = git(["rev-parse", "HEAD"]);
+  const script = fileURLToPath(new URL("./verify-merge.mjs", import.meta.url));
+  const good = spawnSync(
+    process.execPath,
+    [script, "--merge", merge, "--base", gitBase, "--head", gitHead],
+    { cwd: root, encoding: "utf8" },
+  );
+  assert.equal(good.status, 0, good.stderr);
+  assert.match(good.stdout, /PASS/);
+  const wrongParent = spawnSync(
+    process.execPath,
+    [script, "--merge", gitHead, "--base", gitBase, "--head", gitHead],
+    { cwd: root, encoding: "utf8" },
+  );
+  assert.notEqual(wrongParent.status, 0);
+  assert.match(wrongParent.stderr, /exactly two parents/);
+  const wrongHead = spawnSync(
+    process.execPath,
+    [script, "--merge", merge, "--base", gitBase, "--head", gitBase],
+    { cwd: root, encoding: "utf8" },
+  );
+  assert.notEqual(wrongHead.status, 0);
+  assert.match(wrongHead.stderr, /second parent/);
+});

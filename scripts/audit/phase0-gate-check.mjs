@@ -1,431 +1,478 @@
-const EXACT_SHA = /^[0-9a-f]{40}$/;
-const ISO_8601_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
+const SHA = /^[0-9a-f]{40}$/;
+const UINT = /^[1-9][0-9]*$/;
+const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
 
 export const PHASE0_GATE_NAME = "phase0-gate";
 export const PHASE0_GATE_APP_ID = 4876044;
-
-function positiveInteger(value, label) {
+const now = () => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+const nextCompletedAt = (previous) => {
+  const current = Date.parse(now());
+  const prior = Date.parse(previous ?? "");
+  return new Date(Number.isNaN(prior) ? current : Math.max(current, prior + 1000))
+    .toISOString()
+    .replace(/\.\d{3}Z$/, "Z");
+};
+const qid = (value) => `p0g:v1:q:${value}`;
+const hasAuthoritativeIdentity = (run, candidateSha) =>
+  run?.name === PHASE0_GATE_NAME &&
+  run?.head_sha === candidateSha &&
+  run?.app?.id === PHASE0_GATE_APP_ID;
+const hasCanonicalCompletedState = (run) =>
+  run?.status === "completed" &&
+  ISO.test(run?.completed_at ?? "") &&
+  !Number.isNaN(Date.parse(run.completed_at));
+export const isCanonicalPhase0GateQ = (run, candidateSha) =>
+  hasAuthoritativeIdentity(run, candidateSha) &&
+  hasCanonicalCompletedState(run) &&
+  run.conclusion === "failure" &&
+  run.external_id === qid(candidateSha);
+const isAuthorizingSuccess = (run, candidateSha) =>
+  hasAuthoritativeIdentity(run, candidateSha) &&
+  hasCanonicalCompletedState(run) &&
+  run.conclusion === "success";
+const sameExactCheckState = (left, right) =>
+  left?.id === right?.id &&
+  left?.name === right?.name &&
+  left?.head_sha === right?.head_sha &&
+  left?.app?.id === right?.app?.id &&
+  left?.status === right?.status &&
+  left?.conclusion === right?.conclusion &&
+  left?.completed_at === right?.completed_at &&
+  left?.external_id === right?.external_id;
+const isProvenRecovery = (error) => error?.nonAuthorizingGateProven === true;
+const integer = (value, label) => {
   if (!Number.isSafeInteger(value) || value < 1) throw new Error(`invalid ${label}`);
   return value;
-}
-
-function exactSha(value, label) {
-  if (!EXACT_SHA.test(value ?? "")) throw new Error(`invalid ${label}`);
+};
+const sha = (value, label) => {
+  if (!SHA.test(value ?? "")) throw new Error(`invalid ${label}`);
   return value;
-}
+};
+const canonicalNumber = (value, label) => {
+  if (!UINT.test(value)) throw new Error(`invalid ${label}`);
+  return integer(Number(value), label);
+};
+const fail = (outcome, message) => {
+  const error = new Error(`${outcome}: ${message}`);
+  error.outcome = outcome;
+  throw error;
+};
 
-function normalizeSource(source) {
-  if (!source || typeof source !== "object") throw new Error("missing trusted decision source");
-  if (source.kind === "verify") {
-    return {
-      kind: "verify",
-      workflowId: positiveInteger(source.workflowId, "verifier workflow id"),
-      runId: positiveInteger(source.runId, "verifier run id"),
-      runAttempt: positiveInteger(source.runAttempt, "verifier run attempt"),
-    };
-  }
-  if (source.kind === "manual") {
-    if (source.actor !== "jefferycook") throw new Error("invalid manual approving actor");
-    return {
-      kind: "manual",
-      workflowRunId: positiveInteger(source.workflowRunId, "manual workflow run id"),
-      workflowRunAttempt: positiveInteger(source.workflowRunAttempt, "manual workflow run attempt"),
-      actor: source.actor,
-      pullNumber: positiveInteger(source.pullNumber, "manual pull request number"),
-      auditedBaseSha: exactSha(source.auditedBaseSha, "manual audited base SHA"),
-    };
-  }
-  throw new Error("invalid trusted decision source kind");
-}
-
-function provenanceFor(candidateSha, conclusion, source) {
-  const normalized = normalizeSource(source);
-  const fields =
-    normalized.kind === "verify"
-      ? [
-          "p0g",
-          "v1",
-          "v",
-          candidateSha,
-          conclusion,
-          normalized.workflowId,
-          normalized.runId,
-          normalized.runAttempt,
-        ]
-      : [
-          "p0g",
-          "v1",
-          "m",
-          candidateSha,
-          conclusion,
-          normalized.workflowRunId,
-          normalized.workflowRunAttempt,
-          normalized.actor,
-          normalized.pullNumber,
-          normalized.auditedBaseSha,
-        ];
-  const serialized = fields.join(":");
-  if (serialized.length > 255) throw new Error("trusted decision provenance is too long");
-  return serialized;
-}
-
-function quarantineProvenanceFor(candidateSha) {
-  return `p0g:v1:q:${candidateSha}`;
-}
-
-function quarantinePayloadFor(owner, repo, candidateSha, detailsUrl) {
+function normalizeVerify(source) {
   return {
-    owner,
-    repo,
-    name: PHASE0_GATE_NAME,
-    status: "completed",
-    conclusion: "failure",
-    details_url: detailsUrl,
-    external_id: quarantineProvenanceFor(candidateSha),
-    output: {
-      title: "Phase 0 authorization revoked",
-      summary: "A trusted evaluation was rejected; this candidate SHA is permanently quarantined.",
-    },
+    kind: "v",
+    workflowId: integer(source?.workflowId, "workflow id"),
+    runId: integer(source?.runId, "run id"),
+    attempt: integer(source?.runAttempt, "attempt"),
+    pr: integer(source?.pullNumber, "PR"),
+    base: sha(source?.baseSha, "base SHA"),
   };
 }
 
-function validIsoTimestamp(value) {
-  return (
-    typeof value === "string" &&
-    ISO_8601_UTC.test(value) &&
-    !Number.isNaN(new Date(value).valueOf())
-  );
+function normalizeManual(source, old) {
+  if (source?.actor !== "jefferycook") throw new Error("invalid manual actor");
+  return {
+    kind: "m",
+    dispatchRunId: integer(source?.dispatchRunId, "dispatch run id"),
+    dispatchAttempt: integer(source?.dispatchAttempt, "dispatch attempt"),
+    actor: source.actor,
+    pr: integer(source?.pullNumber, "PR"),
+    base: sha(source?.baseSha, "base SHA"),
+    verifierRunId: integer(
+      source?.verifierRunId ?? (old.kind === "a" ? old.runId : old.verifierRunId),
+      "verifier run id",
+    ),
+    verifierAttempt: integer(
+      source?.verifierAttempt ?? (old.kind === "a" ? old.attempt : old.verifierAttempt),
+      "verifier attempt",
+    ),
+  };
 }
 
-function completedAtNow() {
-  return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+export function serializePhase0Gate(candidateSha, source) {
+  sha(candidateSha, "candidate SHA");
+  let fields;
+  if (source.kind === "v" || source.kind === "a")
+    fields = [
+      "p0g",
+      "v2",
+      source.kind,
+      candidateSha,
+      source.token,
+      integer(source.workflowId, "workflow id"),
+      integer(source.runId, "run id"),
+      integer(source.attempt, "attempt"),
+      integer(source.pr, "PR"),
+      sha(source.base, "base SHA"),
+    ];
+  else if (source.kind === "m")
+    fields = [
+      "p0g",
+      "v2",
+      "m",
+      candidateSha,
+      source.token,
+      integer(source.dispatchRunId, "dispatch run id"),
+      integer(source.dispatchAttempt, "dispatch attempt"),
+      source.actor,
+      integer(source.pr, "PR"),
+      sha(source.base, "base SHA"),
+      integer(source.verifierRunId, "verifier run id"),
+      integer(source.verifierAttempt, "verifier attempt"),
+    ];
+  else throw new Error("invalid source kind");
+  const value = fields.join(":");
+  if (Buffer.byteLength(value) > 255) throw new Error("provenance exceeds 255 bytes");
+  return value;
 }
 
-function validateExistingProvenance(checkRun, candidateSha) {
-  if (
-    checkRun.status !== "completed" ||
-    !["success", "failure"].includes(checkRun.conclusion) ||
-    !validIsoTimestamp(checkRun.completed_at)
-  ) {
-    throw new Error(`authoritative Check Run ${checkRun.id} has invalid state`);
+export function parsePhase0Gate(run, candidateSha) {
+  sha(candidateSha, "candidate SHA");
+  if (!hasAuthoritativeIdentity(run, candidateSha))
+    throw new Error("invalid authoritative Check Run identity");
+  if (!hasCanonicalCompletedState(run)) throw new Error("invalid completed Check Run state");
+  const raw = String(run.external_id ?? "");
+  if (raw === qid(candidateSha)) {
+    if (!isCanonicalPhase0GateQ(run, candidateSha)) throw new Error("Q must be canonical");
+    return { state: "Q", kind: "q", token: "q", externalId: raw };
   }
-  const fields = String(checkRun.external_id ?? "").split(":");
-  if (
-    fields[0] !== "p0g" ||
-    fields[1] !== "v1" ||
-    fields[3] !== candidateSha ||
-    fields[4] !== checkRun.conclusion
-  ) {
-    throw new Error(`authoritative Check Run ${checkRun.id} has mismatched provenance`);
-  }
-  let source;
-  if (fields[2] === "v" && fields.length === 8) {
-    source = {
-      kind: "verify",
-      workflowId: Number(fields[5]),
-      runId: Number(fields[6]),
-      runAttempt: Number(fields[7]),
+  const f = raw.split(":");
+  if (f[0] !== "p0g" || f[1] !== "v2" || f[3] !== candidateSha)
+    throw new Error("invalid v2 provenance");
+  let parsed;
+  if (f[2] === "v" && f.length === 10)
+    parsed = {
+      kind: "v",
+      token: f[4],
+      workflowId: canonicalNumber(f[5], "workflow id"),
+      runId: canonicalNumber(f[6], "run id"),
+      attempt: canonicalNumber(f[7], "attempt"),
+      pr: canonicalNumber(f[8], "PR"),
+      base: sha(f[9], "base SHA"),
     };
-  } else if (fields[2] === "m" && fields.length === 10) {
-    source = {
-      kind: "manual",
-      workflowRunId: Number(fields[5]),
-      workflowRunAttempt: Number(fields[6]),
-      actor: fields[7],
-      pullNumber: Number(fields[8]),
-      auditedBaseSha: fields[9],
+  else if (f[2] === "a" && f.length === 10 && f[4] === "awaiting")
+    parsed = {
+      kind: "a",
+      token: f[4],
+      workflowId: canonicalNumber(f[5], "workflow id"),
+      runId: canonicalNumber(f[6], "run id"),
+      attempt: canonicalNumber(f[7], "attempt"),
+      pr: canonicalNumber(f[8], "PR"),
+      base: sha(f[9], "base SHA"),
     };
-  } else {
-    throw new Error(`authoritative Check Run ${checkRun.id} has invalid provenance`);
-  }
-  if (provenanceFor(candidateSha, checkRun.conclusion, source) !== checkRun.external_id) {
-    throw new Error(`authoritative Check Run ${checkRun.id} has noncanonical provenance`);
-  }
-  return source;
+  else if (f[2] === "m" && f.length === 12) {
+    parsed = {
+      kind: "m",
+      token: f[4],
+      dispatchRunId: canonicalNumber(f[5], "dispatch run id"),
+      dispatchAttempt: canonicalNumber(f[6], "dispatch attempt"),
+      actor: f[7],
+      pr: canonicalNumber(f[8], "PR"),
+      base: sha(f[9], "base SHA"),
+      verifierRunId: canonicalNumber(f[10], "verifier run id"),
+      verifierAttempt: canonicalNumber(f[11], "verifier attempt"),
+    };
+    if (parsed.actor !== "jefferycook") throw new Error("invalid manual actor");
+  } else throw new Error("invalid v2 provenance grammar");
+  const state =
+    parsed.kind === "v"
+      ? { safe: "V-SAFE", failure: "V-FAIL", success: "V-SUCC" }[parsed.token]
+      : parsed.kind === "a"
+        ? "A-WAIT"
+        : { safe: "M-SAFE", success: "M-SUCC" }[parsed.token];
+  if (!state) throw new Error("invalid provenance token");
+  const conclusion = ["V-SUCC", "M-SUCC"].includes(state) ? "success" : "failure";
+  if (run.conclusion !== conclusion) throw new Error("token/conclusion mismatch");
+  if (serializePhase0Gate(candidateSha, parsed) !== raw || Buffer.byteLength(raw) > 255)
+    throw new Error("noncanonical provenance");
+  return { ...parsed, state, externalId: raw };
 }
 
-function matchesCanonicalState(checkRun, expected) {
-  return Boolean(
-    checkRun &&
-    Number.isSafeInteger(checkRun.id) &&
-    checkRun.id > 0 &&
-    (expected.checkRunId === undefined || checkRun.id === expected.checkRunId) &&
-    checkRun.name === PHASE0_GATE_NAME &&
-    checkRun.head_sha === expected.candidateSha &&
-    checkRun.app?.id === PHASE0_GATE_APP_ID &&
-    checkRun.status === "completed" &&
-    checkRun.conclusion === expected.conclusion &&
-    validIsoTimestamp(checkRun.completed_at) &&
-    checkRun.external_id === expected.externalId,
+const expected = (candidateSha, externalId, completedAt) => ({
+  name: PHASE0_GATE_NAME,
+  head_sha: candidateSha,
+  status: "completed",
+  conclusion: externalId.includes(":success:") ? "success" : "failure",
+  external_id: externalId,
+  completed_at: completedAt,
+});
+const matches = (run, e) =>
+  run &&
+  run.id > 0 &&
+  run.name === e.name &&
+  run.head_sha === e.head_sha &&
+  run.app?.id === PHASE0_GATE_APP_ID &&
+  run.status === e.status &&
+  run.conclusion === e.conclusion &&
+  run.external_id === e.external_id &&
+  ISO.test(run.completed_at ?? "") &&
+  (!e.completed_at || Date.parse(run.completed_at) === Date.parse(e.completed_at));
+async function get(github, owner, repo, id) {
+  return (await github.rest.checks.get({ owner, repo, check_run_id: id })).data;
+}
+function provedNonAuthorizingRecovery(errors, id, recovered) {
+  const error = new AggregateError(
+    errors,
+    `Check Run ${id} uncertain mutation proved a non-authorizing Gate state; current evaluation rejected`,
   );
+  error.nonAuthorizingGateProven = true;
+  error.recovered = recovered;
+  return error;
 }
-
-function isCanonicalQuarantine(checkRun, candidateSha, checkRunId) {
-  return matchesCanonicalState(checkRun, {
-    checkRunId,
-    candidateSha,
-    conclusion: "failure",
-    externalId: quarantineProvenanceFor(candidateSha),
-  });
-}
-
-function validateSafeMutation(response, expected) {
-  const checkRun = response?.data;
-  if (
-    !validIsoTimestamp(checkRun?.completed_at) ||
-    new Date(checkRun.completed_at).valueOf() !== new Date(expected.completedAt).valueOf()
-  ) {
-    throw new Error("Check Run mutation response failed completion timestamp validation");
-  }
-  if (!matchesCanonicalState(checkRun, expected)) {
-    throw new Error("Check Run mutation response failed authoritative identity validation");
-  }
-  return checkRun;
-}
-
-async function fetchCheckRun(github, owner, repo, checkRunId) {
-  const response = await github.rest.checks.get({ owner, repo, check_run_id: checkRunId });
-  return response?.data;
-}
-
-async function quarantineDuplicateCheckRun({
+async function recoverRequiredNonAuthorizingState({
   github,
   owner,
   repo,
-  candidateSha,
-  detailsUrl,
-  checkRunId,
+  id,
+  current,
+  expectedState,
+  payload,
+  initialError,
 }) {
-  positiveInteger(checkRunId, "authoritative Check Run id");
-  const payload = quarantinePayloadFor(owner, repo, candidateSha, detailsUrl);
-  const completedAt = completedAtNow();
-  let response;
+  const errors = [initialError];
+  let observed;
   try {
-    response = await github.rest.checks.update({
-      ...payload,
-      check_run_id: checkRunId,
-      completed_at: completedAt,
-    });
-    return validateSafeMutation(response, {
-      checkRunId,
-      candidateSha,
-      conclusion: "failure",
-      externalId: payload.external_id,
-      completedAt,
-    });
-  } catch (cause) {
-    try {
-      const fetched = await fetchCheckRun(github, owner, repo, checkRunId);
-      if (isCanonicalQuarantine(fetched, candidateSha, checkRunId)) return fetched;
-    } catch (confirmationError) {
-      throw new AggregateError(
-        [cause, confirmationError],
-        `unable to confirm authoritative Check Run ${checkRunId} in quarantine`,
-      );
-    }
+    observed = await get(github, owner, repo, id);
+  } catch (error) {
+    errors.push(error);
     throw new AggregateError(
-      [cause],
-      `unable to confirm authoritative Check Run ${checkRunId} in quarantine`,
+      errors,
+      `non-authorizing Gate state could not be proven for Check Run ${id}`,
     );
   }
-}
+  if (matches(observed, expectedState)) throw provedNonAuthorizingRecovery(errors, id, observed);
+  if (!sameExactCheckState(observed, current))
+    throw new AggregateError(
+      errors,
+      `non-authorizing Gate state could not be proven for Check Run ${id}`,
+    );
 
-async function confirmFinalSuccess(github, owner, repo, checkRunId, expected, response) {
-  if (matchesCanonicalState(response?.data, { ...expected, checkRunId })) {
-    return response.data;
+  try {
+    await github.rest.checks.update(payload);
+  } catch (error) {
+    errors.push(error);
   }
-  const fetched = await fetchCheckRun(github, owner, repo, checkRunId);
-  return matchesCanonicalState(fetched, { ...expected, checkRunId }) ? fetched : null;
+  let recovered;
+  try {
+    recovered = await get(github, owner, repo, id);
+  } catch (error) {
+    errors.push(error);
+  }
+  if (!matches(recovered, expectedState))
+    throw new AggregateError(
+      errors,
+      `non-authorizing Gate state could not be proven for Check Run ${id}`,
+    );
+  throw provedNonAuthorizingRecovery(errors, id, recovered);
 }
-
-async function ensureFailureBeforeThrow({
+async function update(
   github,
   owner,
   repo,
-  checkRunId,
-  safePayload,
+  id,
   candidateSha,
-  safeExternalId,
-  cause,
-}) {
-  const completedAt = completedAtNow();
-  try {
-    const response = await github.rest.checks.update({
-      ...safePayload,
-      check_run_id: checkRunId,
-      completed_at: completedAt,
-    });
-    validateSafeMutation(response, {
-      checkRunId,
-      candidateSha,
-      conclusion: "failure",
-      externalId: safeExternalId,
-      completedAt,
-    });
-    throw cause;
-  } catch (failureError) {
-    if (failureError === cause) throw cause;
-    try {
-      const fetched = await fetchCheckRun(github, owner, repo, checkRunId);
-      if (
-        matchesCanonicalState(fetched, {
-          checkRunId,
-          candidateSha,
-          conclusion: "failure",
-          externalId: safeExternalId,
-        })
-      ) {
-        throw cause;
-      }
-    } catch (confirmationError) {
-      if (confirmationError === cause) throw cause;
-    }
-    throw new AggregateError(
-      [cause, failureError],
-      `unable to restore authoritative Check Run ${checkRunId} to failure`,
-    );
-  }
-}
-
-async function restoreFailureOrRecoverSuccess({
-  github,
-  owner,
-  repo,
-  checkRunId,
-  safePayload,
-  candidateSha,
-  safeExternalId,
-  finalExpected,
-  cause,
-}) {
-  try {
-    const fetched = await fetchCheckRun(github, owner, repo, checkRunId);
-    if (matchesCanonicalState(fetched, { ...finalExpected, checkRunId })) return fetched;
-    if (
-      matchesCanonicalState(fetched, {
-        checkRunId,
-        candidateSha,
-        conclusion: "failure",
-        externalId: safeExternalId,
-      })
-    ) {
-      throw cause;
-    }
-  } catch (confirmationError) {
-    if (confirmationError === cause) throw cause;
-    // The final PATCH outcome remains ambiguous; force the known ID back to failure below.
-  }
-
-  const completedAt = completedAtNow();
-  try {
-    const response = await github.rest.checks.update({
-      ...safePayload,
-      check_run_id: checkRunId,
-      completed_at: completedAt,
-    });
-    validateSafeMutation(response, {
-      checkRunId,
-      candidateSha,
-      conclusion: "failure",
-      externalId: safeExternalId,
-      completedAt,
-    });
-    throw cause;
-  } catch (restoreError) {
-    if (restoreError === cause) throw cause;
-    try {
-      const fetched = await fetchCheckRun(github, owner, repo, checkRunId);
-      if (matchesCanonicalState(fetched, { ...finalExpected, checkRunId })) return fetched;
-      if (
-        matchesCanonicalState(fetched, {
-          checkRunId,
-          candidateSha,
-          conclusion: "failure",
-          externalId: safeExternalId,
-        })
-      ) {
-        throw cause;
-      }
-    } catch (confirmationError) {
-      if (confirmationError === cause) throw cause;
-    }
-    throw new AggregateError(
-      [cause, restoreError],
-      `unable to confirm success or restore authoritative Check Run ${checkRunId} to failure`,
-    );
-  }
-}
-
-function verifyUpdateCompatibility(existing, incoming, existingExternalId, incomingExternalId) {
-  if (existing.workflowId !== incoming.workflowId) {
-    throw new Error("verifier workflow id differs from canonical Check Run provenance");
-  }
-  if (existing.runId !== incoming.runId) {
-    throw new Error("verifier run id differs from canonical Check Run provenance");
-  }
-  if (incoming.runAttempt < existing.runAttempt) {
-    throw new Error(
-      `verifier run attempt ${incoming.runAttempt} is older than canonical attempt ${existing.runAttempt}`,
-    );
-  }
-  if (incoming.runAttempt === existing.runAttempt) {
-    if (incomingExternalId !== existingExternalId) {
-      throw new Error(
-        "identical verifier run and attempt conflicts with canonical provenance or conclusion",
-      );
-    }
-    return "unchanged";
-  }
-  return "update";
-}
-
-function manualUpdateCompatibility(existing, incoming, existingExternalId, incomingExternalId) {
-  if (existing.actor !== incoming.actor) {
-    throw new Error("manual actor differs from canonical Check Run provenance");
-  }
-  if (existing.pullNumber !== incoming.pullNumber) {
-    throw new Error("manual pull number differs from canonical Check Run provenance");
-  }
-  if (existing.auditedBaseSha !== incoming.auditedBaseSha) {
-    throw new Error("manual audited base differs from canonical Check Run provenance");
-  }
-  return incomingExternalId === existingExternalId ? "unchanged" : "update";
-}
-
-export async function upsertPhase0GateCheck({
-  github,
-  owner,
-  repo,
-  candidateSha,
-  conclusion,
+  externalId,
   detailsUrl,
   title,
   summary,
-  source,
-}) {
+  expectedCurrentExternalId,
+  requireNonAuthorizingRecovery = false,
+) {
+  const current = await get(github, owner, repo, id); // I-Q before every update.
+  if (isCanonicalPhase0GateQ(current, candidateSha)) fail("Q_NO_WRITE", "Q is terminal");
   if (
-    !github?.rest?.checks ||
-    typeof github.rest.checks.create !== "function" ||
-    typeof github.rest.checks.update !== "function" ||
-    typeof github.rest.checks.get !== "function" ||
-    typeof github.paginate !== "function"
-  ) {
-    throw new Error("missing Checks API client");
+    current.id !== id ||
+    current.name !== PHASE0_GATE_NAME ||
+    current.head_sha !== candidateSha ||
+    current.app?.id !== PHASE0_GATE_APP_ID
+  )
+    throw new Error(`invalid authoritative Check Run identity ${id}`);
+  if (expectedCurrentExternalId !== undefined) {
+    if (current.external_id !== expectedCurrentExternalId)
+      throw new Error(`Check Run ${id} provenance changed before cleanup`);
+    try {
+      parsePhase0Gate(current, candidateSha);
+    } catch (error) {
+      if (!(requireNonAuthorizingRecovery && isAuthorizingSuccess(current, candidateSha)))
+        throw error;
+    }
   }
-  if (typeof owner !== "string" || owner.length === 0) throw new Error("invalid repository owner");
-  if (typeof repo !== "string" || repo.length === 0) throw new Error("invalid repository name");
-  exactSha(candidateSha, "candidate SHA");
-  if (!["success", "failure"].includes(conclusion)) throw new Error("invalid gate conclusion");
-  if (typeof detailsUrl !== "string" || !detailsUrl.startsWith("https://github.com/")) {
-    throw new Error("invalid gate details URL");
+  const completedAt = nextCompletedAt(current.completed_at);
+  const e = expected(candidateSha, externalId, completedAt);
+  const payload = {
+    owner,
+    repo,
+    check_run_id: id,
+    name: PHASE0_GATE_NAME,
+    status: "completed",
+    conclusion: e.conclusion,
+    completed_at: completedAt,
+    details_url: detailsUrl,
+    external_id: externalId,
+    output: { title, summary },
+  };
+  const recoveryRequired =
+    e.conclusion === "failure" &&
+    (requireNonAuthorizingRecovery || isAuthorizingSuccess(current, candidateSha));
+  let response;
+  try {
+    response = await github.rest.checks.update(payload);
+  } catch (cause) {
+    if (recoveryRequired)
+      return recoverRequiredNonAuthorizingState({
+        github,
+        owner,
+        repo,
+        id,
+        current,
+        expectedState: e,
+        payload,
+        initialError: cause,
+      });
+    const recovered = await get(github, owner, repo, id).catch(() => null);
+    if (matches(recovered, e)) return recovered;
+    throw new AggregateError([cause], `ambiguous Check Run update ${id}`);
   }
-  if (typeof title !== "string" || title.length === 0 || title.length > 255) {
-    throw new Error("invalid gate title");
+  if (!matches(response?.data, e)) {
+    const cause = new Error(`invalid Check Run update response ${id}`);
+    if (recoveryRequired)
+      return recoverRequiredNonAuthorizingState({
+        github,
+        owner,
+        repo,
+        id,
+        current,
+        expectedState: e,
+        payload,
+        initialError: cause,
+      });
+    throw cause;
   }
-  if (typeof summary !== "string" || summary.length === 0 || summary.length > 65535) {
-    throw new Error("invalid gate summary");
+  return response.data;
+}
+async function terminalize(github, owner, repo, run, candidateSha, detailsUrl, rule) {
+  if (isCanonicalPhase0GateQ(run, candidateSha)) return false;
+  try {
+    await update(
+      github,
+      owner,
+      repo,
+      run.id,
+      candidateSha,
+      qid(candidateSha),
+      detailsUrl,
+      "Phase 0 candidate SHA burned",
+      `${rule} terminalization`,
+      undefined,
+      true,
+    );
+  } catch (error) {
+    if (error?.outcome === "Q_NO_WRITE") return false;
+    if (isProvenRecovery(error)) return true;
+    throw error;
   }
+  return true;
+}
+export async function terminalizeDuplicateGateChecks({
+  github,
+  owner,
+  repo,
+  candidateSha,
+  runs,
+  detailsUrl,
+}) {
+  const unresolved = [];
+  for (const run of runs) {
+    if (isCanonicalPhase0GateQ(run, candidateSha)) continue;
+    try {
+      await terminalize(github, owner, repo, run, candidateSha, detailsUrl, "T1");
+    } catch (error) {
+      unresolved.push({ id: run.id, error });
+    }
+  }
+  const suffix = unresolved.length
+    ? `; unresolved IDs ${unresolved.map(({ id }) => id).join(",")}`
+    : "";
+  const message = `T1: duplicate authoritative Gate records rejected${suffix}`;
+  const error = unresolved.length
+    ? new AggregateError(
+        unresolved.map((item) => item.error),
+        message,
+      )
+    : new Error(message);
+  error.outcome = "T1";
+  error.unresolved = unresolved;
+  throw error;
+}
 
+export async function terminalizeAuthorizedGate({
+  github,
+  owner,
+  repo,
+  candidateSha,
+  checkRunId,
+  expectedExternalId,
+  detailsUrl,
+  reason,
+}) {
+  const current = await get(github, owner, repo, checkRunId);
+  if (current.id !== checkRunId) throw new Error(`cleanup Gate ${checkRunId} identity changed`);
+  if (!hasAuthoritativeIdentity(current, candidateSha))
+    throw new Error(`cleanup Gate ${checkRunId} identity changed`);
+  if (isCanonicalPhase0GateQ(current, candidateSha)) return { operation: "Q_NO_WRITE", checkRunId };
+  let parsed;
+  try {
+    parsed = parsePhase0Gate(current, candidateSha);
+  } catch (error) {
+    if (!isAuthorizingSuccess(current, candidateSha))
+      return {
+        operation: "NON_AUTHORIZING_NO_WRITE",
+        checkRunId,
+        externalId: String(current.external_id ?? ""),
+      };
+  }
+  if (current.conclusion !== "success")
+    return {
+      operation: "NON_AUTHORIZING_NO_WRITE",
+      checkRunId,
+      externalId: parsed?.externalId ?? String(current.external_id ?? ""),
+    };
+  let updated;
+  try {
+    updated = await update(
+      github,
+      owner,
+      repo,
+      checkRunId,
+      candidateSha,
+      qid(candidateSha),
+      detailsUrl,
+      "Phase 0 candidate SHA burned",
+      `pre-P14 fail-closed cleanup: ${reason}; expected ${expectedExternalId}`,
+      current.external_id,
+      true,
+    );
+  } catch (error) {
+    if (error?.outcome === "Q_NO_WRITE") return { operation: "Q_NO_WRITE", checkRunId };
+    if (isProvenRecovery(error)) return { operation: "TERMINALIZED_RECOVERY", checkRunId };
+    throw error;
+  }
+  return { operation: "TERMINALIZED", checkRunId: updated.id };
+}
+async function terminalFailure(args, run, rule) {
+  await terminalize(
+    args.github,
+    args.owner,
+    args.repo,
+    run,
+    args.candidateSha,
+    args.detailsUrl,
+    rule,
+  );
+  fail(rule, "candidate SHA terminalized");
+}
+
+export async function listAuthoritativeGateChecks(github, owner, repo, candidateSha) {
   const listed = await github.paginate(github.rest.checks.listForRef, {
     owner,
     repo,
@@ -436,234 +483,342 @@ export async function upsertPhase0GateCheck({
     per_page: 100,
   });
   if (!Array.isArray(listed)) throw new Error("malformed Check Runs response");
-  const authoritative = listed.filter(
-    (run) =>
-      run?.name === PHASE0_GATE_NAME &&
-      run?.head_sha === candidateSha &&
-      run?.app?.id === PHASE0_GATE_APP_ID,
+  return listed.filter(
+    (r) =>
+      r?.name === PHASE0_GATE_NAME &&
+      r?.head_sha === candidateSha &&
+      r?.app?.id === PHASE0_GATE_APP_ID,
   );
-  if (authoritative.length > 1) {
-    const unresolved = [];
-    for (const run of authoritative) {
-      try {
-        await quarantineDuplicateCheckRun({
-          github,
-          owner,
-          repo,
-          candidateSha,
-          detailsUrl,
-          checkRunId: run.id,
-        });
-      } catch (error) {
-        unresolved.push({ id: run.id, error });
-      }
-    }
-    if (unresolved.length > 0) {
-      throw new AggregateError(
-        unresolved.map(({ error }) => error),
-        `unable to quarantine duplicate authoritative Check Run IDs: ${unresolved.map(({ id }) => id).join(", ")}`,
-      );
-    }
-    throw new Error(
-      `ambiguous authoritative ${PHASE0_GATE_NAME} Check Runs for ${candidateSha}: ${authoritative.map((run) => run.id).join(", ")}`,
+}
+
+function verifyFinalSource(normalized, conclusion, infrastructure) {
+  if (infrastructure && conclusion === "success")
+    return { ...normalized, kind: "a", token: "awaiting" };
+  return { ...normalized, kind: "v", token: conclusion };
+}
+function safeOf(source) {
+  return { ...source, token: "safe" };
+}
+function sameVerifyIdentity(old, incoming) {
+  return old.workflowId === incoming.workflowId && old.runId === incoming.runId;
+}
+function samePrBase(old, incoming) {
+  return old.pr === incoming.pr && old.base === incoming.base;
+}
+function sameManualIdentity(old, incoming) {
+  return (
+    samePrBase(old, incoming) &&
+    old.verifierRunId === incoming.verifierRunId &&
+    old.verifierAttempt === incoming.verifierAttempt
+  );
+}
+
+export async function transitionPhase0Gate(args) {
+  const {
+    github,
+    owner,
+    repo,
+    candidateSha,
+    existing,
+    incomingType,
+    classification,
+    conclusion,
+    source,
+    detailsUrl,
+    title,
+    summary,
+  } = args;
+  if (!existing) throw new Error("existing canonical Gate required");
+  if (!["v", "m"].includes(incomingType)) throw new Error("invalid incoming type");
+  if (!["ordinary", "infrastructure"].includes(classification))
+    throw new Error("invalid classification");
+  if (incomingType === "v" && !["success", "failure"].includes(conclusion))
+    throw new Error("invalid verifier conclusion");
+
+  // U2 precedes parsing/normalisation and performs no get/update write path.
+  if (isCanonicalPhase0GateQ(existing, candidateSha)) fail("Q_NO_WRITE", "Q is terminal");
+  let old;
+  try {
+    old = parsePhase0Gate(existing, candidateSha);
+  } catch (cause) {
+    if (existing.conclusion === "success") await terminalFailure(args, existing, "T2");
+    throw cause;
+  }
+
+  // U4-Y and U4-X precede source normalisation and staging.
+  if (incomingType === "m" && classification === "ordinary")
+    fail("REJECT_NO_MUTATION", "U4-Y manual input on ordinary classification");
+  if (incomingType === "m" && old.kind === "v")
+    fail("REJECT_NO_MUTATION", "U4-X manual input against verifier record");
+
+  let normalized;
+  let normalizeError;
+  try {
+    normalized = incomingType === "v" ? normalizeVerify(source) : normalizeManual(source, old);
+  } catch (error) {
+    normalizeError = error;
+  }
+  let finalSource;
+  let finalId;
+  if (normalized) {
+    finalSource =
+      incomingType === "v"
+        ? verifyFinalSource(normalized, conclusion, classification === "infrastructure")
+        : { ...normalized, token: "success" };
+    finalId = serializePhase0Gate(candidateSha, finalSource);
+    if (finalId === existing.external_id)
+      return {
+        operation: "unchanged",
+        outcome: "NOOP",
+        checkRunId: existing.id,
+        externalId: finalId,
+      };
+  }
+
+  // U4: all non-exempt successful records are staged before later fallible checks.
+  let current = existing;
+  if (["V-SUCC", "M-SUCC"].includes(old.state)) {
+    current = await update(
+      github,
+      owner,
+      repo,
+      existing.id,
+      candidateSha,
+      serializePhase0Gate(candidateSha, safeOf(old)),
+      detailsUrl,
+      "Phase 0 authorization pending",
+      summary,
     );
   }
+  if (normalizeError) {
+    if (current !== existing) await terminalFailure(args, current, "T3");
+    fail("REJECT_NO_MUTATION", normalizeError.message);
+  }
 
-  const existing = authoritative[0];
-  if (existing && isCanonicalQuarantine(existing, candidateSha)) {
-    throw new Error(
-      "candidate SHA is quarantined and cannot be re-authorized; move the PR to a fresh head SHA",
+  // T-6: classification/kind compatibility.
+  if (incomingType === "v") {
+    if (
+      (["V-SAFE", "V-SUCC"].includes(old.state) && classification === "infrastructure") ||
+      (old.state === "A-WAIT" && classification === "ordinary") ||
+      old.kind === "m"
+    )
+      await terminalFailure(args, current, "T6");
+  } else if (old.kind === "m" && !sameManualIdentity(old, normalized)) {
+    await terminalFailure(args, current, "T6");
+  }
+
+  // T-4: verifier/manual identity and ordering.
+  if (incomingType === "v") {
+    if (
+      !sameVerifyIdentity(old, normalized) ||
+      normalized.attempt < old.attempt ||
+      !samePrBase(old, normalized)
+    )
+      await terminalFailure(args, current, "T4");
+  } else if (
+    old.kind === "m" &&
+    normalized.dispatchRunId === old.dispatchRunId &&
+    normalized.dispatchAttempt < old.dispatchAttempt
+  ) {
+    await terminalFailure(args, current, "T4");
+  }
+
+  // T-5: immutable same-attempt conclusions.
+  if (incomingType === "v" && normalized.attempt === old.attempt) {
+    const contradiction =
+      (old.state === "V-FAIL" && conclusion === "success") ||
+      (old.state === "V-SAFE" && conclusion === "failure") ||
+      (old.state === "V-SUCC" && conclusion === "failure") ||
+      (old.state === "A-WAIT" && conclusion === "failure");
+    if (contradiction) await terminalFailure(args, current, "T5");
+  }
+
+  const write = async (sourceValue, outcomeTitle = title) => {
+    current = await update(
+      github,
+      owner,
+      repo,
+      existing.id,
+      candidateSha,
+      serializePhase0Gate(candidateSha, sourceValue),
+      detailsUrl,
+      outcomeTitle,
+      summary,
     );
-  }
-  let quarantined = false;
-  if (existing?.conclusion === "success") {
-    const quarantineExternalId = quarantineProvenanceFor(candidateSha);
-    const quarantinePayload = quarantinePayloadFor(owner, repo, candidateSha, detailsUrl);
-    const completedAt = completedAtNow();
-    try {
-      const response = await github.rest.checks.update({
-        ...quarantinePayload,
-        check_run_id: existing.id,
-        completed_at: completedAt,
-      });
-      validateSafeMutation(response, {
-        checkRunId: existing.id,
-        candidateSha,
-        conclusion: "failure",
-        externalId: quarantineExternalId,
-        completedAt,
-      });
-    } catch (cause) {
-      await ensureFailureBeforeThrow({
-        github,
-        owner,
-        repo,
-        checkRunId: existing.id,
-        safePayload: quarantinePayload,
-        candidateSha,
-        safeExternalId: quarantineExternalId,
-        cause,
-      });
+  };
+  let outcome;
+  if (incomingType === "m") {
+    if (old.state === "A-WAIT") {
+      if (
+        !samePrBase(old, normalized) ||
+        old.runId !== normalized.verifierRunId ||
+        old.attempt !== normalized.verifierAttempt
+      )
+        fail("REJECT_NO_MUTATION", "KC3 audit identity mismatch");
+      outcome = "KC3";
+    } else if (old.state === "M-SAFE") outcome = "M_SAFE_TO_M_SUCC";
+    else if (old.state === "M-SUCC") outcome = "M_SUCC_REESTABLISH";
+    else fail("REJECT_NO_MUTATION", "manual authorization state rejected");
+    await write({ ...normalized, token: "safe" }, "Phase 0 merge authorization pending");
+    await write({ ...normalized, token: "success" }, "Phase 0 exact-SHA merge authorized");
+  } else if (old.state === "V-SAFE") {
+    if (conclusion === "success") {
+      outcome =
+        normalized.attempt === old.attempt ? "V_SAFE_TO_V_SUCC" : "V_SAFE_ADVANCE_TO_V_SUCC";
+      await write(safeOf(finalSource), "Phase 0 authorization pending");
+      await write(finalSource);
+    } else {
+      outcome = "V_SAFE_ADVANCE_TO_V_FAIL";
+      await write(finalSource);
     }
-    quarantined = true;
-  }
+  } else if (old.state === "V-FAIL") {
+    if (conclusion === "success" && classification === "infrastructure") {
+      outcome = "KC1";
+      await write(finalSource, "Manual exact-SHA infrastructure audit required");
+    } else if (conclusion === "success") {
+      outcome = "V_FAIL_TO_V_SUCC";
+      await write(safeOf(finalSource), "Phase 0 authorization pending");
+      await write(finalSource);
+    } else {
+      outcome = "V_FAIL_UPDATE";
+      await write(finalSource);
+    }
+  } else if (old.state === "V-SUCC") {
+    if (conclusion === "success") {
+      outcome = "V_SUCC_ADVANCE_TO_V_SUCC";
+      await write(safeOf(finalSource), "Phase 0 authorization pending");
+      await write(finalSource);
+    } else {
+      outcome = "V_SUCC_TO_V_FAIL";
+      await write(finalSource);
+    }
+  } else if (old.state === "A-WAIT") {
+    if (conclusion === "success") {
+      outcome = "A_WAIT_UPDATE";
+      await write(finalSource, "Manual exact-SHA infrastructure audit required");
+    } else {
+      outcome = "KC2";
+      await write(finalSource);
+    }
+  } else fail("REJECT_NO_MUTATION", "unsupported transition");
+  return {
+    operation: "updated",
+    outcome,
+    checkRunId: existing.id,
+    externalId: current.external_id,
+  };
+}
 
-  const normalizedSource = normalizeSource(source);
-  const finalExternalId = provenanceFor(candidateSha, conclusion, normalizedSource);
-  const safeExternalId = provenanceFor(candidateSha, "failure", normalizedSource);
+export async function upsertPhase0GateCheck(args) {
+  const {
+    github,
+    owner,
+    repo,
+    candidateSha,
+    conclusion,
+    infrastructure = false,
+    detailsUrl,
+    title,
+    summary,
+    source,
+  } = args;
+  sha(candidateSha, "candidate SHA");
+  if (
+    !github?.rest?.checks?.get ||
+    !github?.rest?.checks?.create ||
+    !github?.rest?.checks?.update ||
+    !github?.paginate
+  )
+    throw new Error("missing Checks API client");
+  const runs = await listAuthoritativeGateChecks(github, owner, repo, candidateSha);
+  if (runs.length > 1)
+    await terminalizeDuplicateGateChecks({
+      github,
+      owner,
+      repo,
+      candidateSha,
+      runs,
+      detailsUrl,
+    });
+  const existing = runs[0];
+  if (existing)
+    return transitionPhase0Gate({
+      ...args,
+      existing,
+      incomingType: "v",
+      classification: infrastructure ? "infrastructure" : "ordinary",
+    });
 
-  const finalPayload = {
+  const normalized = normalizeVerify(source);
+  const finalSource = verifyFinalSource(normalized, conclusion, infrastructure);
+  const safeSource =
+    finalSource.kind === "a"
+      ? finalSource
+      : finalSource.token === "success"
+        ? safeOf(finalSource)
+        : finalSource;
+  const safeId = serializePhase0Gate(candidateSha, safeSource);
+  const payload = {
     owner,
     repo,
     name: PHASE0_GATE_NAME,
+    head_sha: candidateSha,
     status: "completed",
-    conclusion,
-    details_url: detailsUrl,
-    external_id: finalExternalId,
-    output: { title, summary },
-  };
-  const safePayload = {
-    ...finalPayload,
     conclusion: "failure",
-    external_id: safeExternalId,
+    completed_at: now(),
+    details_url: detailsUrl,
+    external_id: safeId,
     output: {
-      title: conclusion === "failure" ? title : "Phase 0 authorization pending",
-      summary:
-        conclusion === "failure"
-          ? summary
-          : `Safe failure state established before final authorization.\n${summary}`,
+      title:
+        safeSource.kind === "a"
+          ? "Manual exact-SHA infrastructure audit required"
+          : safeSource.token === "safe"
+            ? "Phase 0 authorization pending"
+            : title,
+      summary,
     },
   };
-
-  let checkRunId;
-  let operation;
-  if (authoritative.length === 0) {
-    const completedAt = completedAtNow();
-    const response = await github.rest.checks.create({
-      ...safePayload,
-      head_sha: candidateSha,
-      completed_at: completedAt,
-    });
-    const checkRun = validateSafeMutation(response, {
-      candidateSha,
-      conclusion: "failure",
-      externalId: safeExternalId,
-      completedAt,
-    });
-    checkRunId = checkRun.id;
-    operation = "created";
-  } else {
-    const existingSource = validateExistingProvenance(existing, candidateSha);
-    if (existingSource.kind !== normalizedSource.kind) {
-      throw new Error("trusted decision source kind differs from canonical Check Run provenance");
-    }
-    const compatibility =
-      normalizedSource.kind === "verify"
-        ? verifyUpdateCompatibility(
-            existingSource,
-            normalizedSource,
-            existing.external_id,
-            finalExternalId,
-          )
-        : manualUpdateCompatibility(
-            existingSource,
-            normalizedSource,
-            existing.external_id,
-            finalExternalId,
-          );
-    if (compatibility === "unchanged" && !quarantined) {
-      return {
-        operation: "unchanged",
-        checkRunId: existing.id,
-        externalId: existing.external_id,
-      };
-    }
-    const completedAt = completedAtNow();
-    let checkRun;
-    try {
-      const response = await github.rest.checks.update({
-        ...safePayload,
-        check_run_id: existing.id,
-        completed_at: completedAt,
-      });
-      checkRun = validateSafeMutation(response, {
-        checkRunId: existing.id,
-        candidateSha,
-        conclusion: "failure",
-        externalId: safeExternalId,
-        completedAt,
-      });
-    } catch (cause) {
-      await ensureFailureBeforeThrow({
-        github,
-        owner,
-        repo,
-        checkRunId: existing.id,
-        safePayload,
-        candidateSha,
-        safeExternalId,
-        cause,
-      });
-    }
-    checkRunId = checkRun.id;
-    operation = "updated";
-  }
-
-  if (conclusion === "failure") {
-    return { operation, checkRunId, externalId: safeExternalId };
-  }
-
-  const completedAt = completedAtNow();
-  const finalExpected = {
+  const created = (await github.rest.checks.create(payload)).data;
+  if (!matches(created, expected(candidateSha, safeId, payload.completed_at)))
+    throw new Error("invalid Check Run create response");
+  const finalId = serializePhase0Gate(candidateSha, finalSource);
+  if (safeId === finalId)
+    return {
+      operation: "created",
+      outcome: finalSource.kind === "a" ? "A_WAIT_CREATE" : "V_FAIL_CREATE",
+      checkRunId: created.id,
+      externalId: finalId,
+    };
+  const done = await update(
+    github,
+    owner,
+    repo,
+    created.id,
     candidateSha,
-    conclusion: "success",
-    externalId: finalExternalId,
+    finalId,
+    detailsUrl,
+    title,
+    summary,
+  );
+  return {
+    operation: "created",
+    outcome: "V_SUCC_CREATE",
+    checkRunId: done.id,
+    externalId: finalId,
   };
-  let response;
-  try {
-    response = await github.rest.checks.update({
-      ...finalPayload,
-      check_run_id: checkRunId,
-      completed_at: completedAt,
-    });
-  } catch (cause) {
-    const recovered = await restoreFailureOrRecoverSuccess({
-      github,
-      owner,
-      repo,
-      checkRunId,
-      safePayload,
-      candidateSha,
-      safeExternalId,
-      finalExpected,
-      cause,
-    });
-    return { operation, checkRunId: recovered.id, externalId: finalExternalId };
-  }
+}
 
-  try {
-    const confirmed = await confirmFinalSuccess(
-      github,
-      owner,
-      repo,
-      checkRunId,
-      finalExpected,
-      response,
-    );
-    if (confirmed) return { operation, checkRunId: confirmed.id, externalId: finalExternalId };
-    throw new Error("final success Check Run response could not be confirmed");
-  } catch (cause) {
-    const recovered = await restoreFailureOrRecoverSuccess({
-      github,
-      owner,
-      repo,
-      checkRunId,
-      safePayload,
-      candidateSha,
-      safeExternalId,
-      finalExpected,
-      cause,
-    });
-    return { operation, checkRunId: recovered.id, externalId: finalExternalId };
-  }
+export async function authorizeManualGate(args) {
+  const { github, owner, repo, candidateSha } = args;
+  const runs = await listAuthoritativeGateChecks(github, owner, repo, candidateSha);
+  if (runs.length !== 1) throw new Error("manual path requires exactly one canonical Gate record");
+  return transitionPhase0Gate({
+    ...args,
+    existing: runs[0],
+    incomingType: "m",
+    classification: args.classification ?? "infrastructure",
+    conclusion: "success",
+    title: "Phase 0 exact-SHA merge authorized",
+    summary: "Independent exact-SHA audit authorization recorded",
+  });
 }
