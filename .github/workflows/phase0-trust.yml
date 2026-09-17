@@ -63,7 +63,7 @@ jobs:
 
       - name: Re-fetch identity and classify exact live candidate
         id: decision
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           TRUSTED_WORKFLOW_SHA: ${{ github.sha }}
           HELPER: ${{ github.workspace }}/phase0-trusted-source/scripts/audit/phase0-merge.mjs
@@ -104,7 +104,7 @@ jobs:
           permission-checks: write
 
       - name: Record canonical Gate decision
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           HELPER: ${{ github.workspace }}/phase0-trusted-source/scripts/audit/phase0-gate-check.mjs
           HEAD: ${{ steps.decision.outputs.target_sha }}
@@ -150,7 +150,7 @@ jobs:
 
       - name: Prepare P1 through P11 with read-only token
         id: prepare
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           HELPER: ${{ github.workspace }}/phase0-trusted-source/scripts/audit/phase0-merge.mjs
           HELPER_SHA: ${{ steps.helper.outputs.sha }}
@@ -180,7 +180,7 @@ jobs:
 
       - name: Finalize P9 through P13
         id: preflight
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           HELPER: ${{ github.workspace }}/phase0-trusted-source/scripts/audit/phase0-merge.mjs
           GATE_TOKEN: ${{ steps.gate-token.outputs.token }}
@@ -188,7 +188,6 @@ jobs:
         with:
           script: |
             const { pathToFileURL } = require("node:url");
-            const { getOctokit } = require("@actions/github");
             const helper = await import(pathToFileURL(process.env.HELPER).href);
             const prepared = JSON.parse(Buffer.from(process.env.PREPARED, "base64").toString());
             const gateGithub = process.env.GATE_TOKEN ? getOctokit(process.env.GATE_TOKEN) : undefined;
@@ -210,7 +209,7 @@ jobs:
           permission-contents: write
 
       - name: Perform one exact-SHA merge and verify I1 through I7
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           HELPER: ${{ github.workspace }}/phase0-trusted-source/scripts/audit/phase0-merge.mjs
           MERGER_TOKEN: ${{ steps.merger-token.outputs.token }}
@@ -218,7 +217,6 @@ jobs:
         with:
           script: |
             const { pathToFileURL } = require("node:url");
-            const { getOctokit } = require("@actions/github");
             const helper = await import(pathToFileURL(process.env.HELPER).href);
             const validated = JSON.parse(Buffer.from(process.env.EVIDENCE, "base64").toString());
             const result = await helper.mergeOnce({ mergerGithub: getOctokit(process.env.MERGER_TOKEN), readGithub: github, ...context.repo, validated });

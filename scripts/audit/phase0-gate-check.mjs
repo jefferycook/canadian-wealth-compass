@@ -346,6 +346,8 @@ async function update(
         payload,
         initialError: cause,
       });
+    const recovered = await get(github, owner, repo, id).catch(() => null);
+    if (matches(recovered, e)) return recovered;
     throw cause;
   }
   return response.data;
@@ -778,9 +780,15 @@ export async function upsertPhase0GateCheck(args) {
       summary,
     },
   };
-  const created = (await github.rest.checks.create(payload)).data;
-  if (!matches(created, expected(candidateSha, safeId, payload.completed_at)))
-    throw new Error("invalid Check Run create response");
+  let created = (await github.rest.checks.create(payload)).data;
+  const expectedCreated = expected(candidateSha, safeId, payload.completed_at);
+  if (!matches(created, expectedCreated)) {
+    const createdId = created?.id;
+    if (!Number.isSafeInteger(createdId) || createdId <= 0)
+      throw new Error("invalid Check Run create response");
+    created = await get(github, owner, repo, createdId).catch(() => null);
+    if (!matches(created, expectedCreated)) throw new Error("invalid Check Run create response");
+  }
   const finalId = serializePhase0Gate(candidateSha, finalSource);
   if (safeId === finalId)
     return {
