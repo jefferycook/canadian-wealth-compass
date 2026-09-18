@@ -77,7 +77,10 @@ function api(initial = [], options = {}) {
         get: async ({ check_run_id }) => {
           state.gets.push(check_run_id);
           if (options.getThrowsAt?.includes(state.gets.length)) throw new Error("get transport");
-          return { data: structuredClone(state.runs.find((r) => r.id === check_run_id)) };
+          const r = structuredClone(state.runs.find((item) => item.id === check_run_id));
+          if (options.invalidGetResponseAt?.includes(state.gets.length))
+            return { data: { ...r, external_id: "invalid-get-response" } };
+          return { data: r };
         },
         create: async (p) => {
           state.creates.push(structuredClone(p));
@@ -92,6 +95,16 @@ function api(initial = [], options = {}) {
             external_id: p.external_id,
           };
           state.runs.push(r);
+          if (Object.hasOwn(options, "createResponseId"))
+            return {
+              data: {
+                ...structuredClone(r),
+                id: options.createResponseId,
+                external_id: "invalid-create-response",
+              },
+            };
+          if (options.invalidCreateResponse)
+            return { data: { ...structuredClone(r), external_id: "invalid-create-response" } };
           return { data: structuredClone(r) };
         },
         update: async (p) => {
@@ -603,6 +616,16 @@ test("workflow serializes Gate and merge authority and orders least-privilege to
     new URL("../../.github/workflows/phase0-trust.yml", import.meta.url),
     "utf8",
   );
+  const githubScriptPin = "3a2844b7e9c422d3c10d287c895573f7108da1b3";
+  const githubScriptPins = [...yml.matchAll(/uses: actions\/github-script@([0-9a-f]{40})/g)].map(
+    (match) => match[1],
+  );
+  assert.equal(githubScriptPins.length, 5);
+  assert.deepEqual([...new Set(githubScriptPins)], [githubScriptPin]);
+  assert.doesNotMatch(yml, /require\(\s*["']@actions\/github["']\s*\)/);
+  assert.doesNotMatch(yml, /__original_require__/);
+  assert.equal((yml.match(/\bgetOctokit\(/g) ?? []).length, 2);
+  assert.doesNotMatch(yml, /\b(?:const|let|var)\s+(?:\{\s*)?getOctokit\b/);
   assert.match(yml, /merge-audited-candidate:/);
   assert.doesNotMatch(yml, /approve-audited-infrastructure:/);
   assert.match(yml, /audited_tree_sha:/);
@@ -617,9 +640,13 @@ test("workflow serializes Gate and merge authority and orders least-privilege to
   const gateToken = yml.indexOf("Mint Gate App token only for P7 cleanup or infrastructure P9");
   const finalize = yml.indexOf("Finalize P9 through P13");
   const mergerToken = yml.indexOf("Mint single-purpose Merger App token");
-  assert.ok(prepare < gateToken && gateToken < finalize && finalize < mergerToken);
+  const merge = yml.indexOf("Perform one exact-SHA merge and verify I1 through I7");
+  assert.ok(
+    prepare < gateToken && gateToken < finalize && finalize < mergerToken && mergerToken < merge,
+  );
   assert.match(yml, /if: steps\.prepare\.outputs\.needs_gate_token == 'true'/);
   assert.match(yml, /const gateGithub = process\.env\.GATE_TOKEN \? getOctokit/);
+  assert.match(yml, /mergerGithub: getOctokit\(process\.env\.MERGER_TOKEN\)/);
   assert.ok(yml.indexOf("github.rest.pulls.get") < yml.indexOf("validateLivePull(pull"));
   assert.match(yml, /validateFileEnumeration\(files, pull\.changed_files\)/);
   for (const field of [
@@ -988,6 +1015,102 @@ test("U4-Y precedes staging and invalid manual source normalization", async () =
     );
     assert.equal(a.state.updates.length, 0);
   }
+});
+test("Check creation accepts a matching immediate response without a recovery GET", async () => {
+  const a = api();
+  const result = await upsertPhase0GateCheck({
+    github: a.github,
+    ...decision("failure"),
+  });
+  assert.equal(result.outcome, "V_FAIL_CREATE");
+  assert.equal(a.state.creates.length, 1);
+  assert.equal(a.state.gets.length, 0);
+  assert.equal(a.state.updates.length, 0);
+  assert.equal(parsePhase0Gate(a.state.runs[0], head).state, "V-FAIL");
+});
+test("Check creation response mismatch recovers from one exact authoritative GET", async () => {
+  const a = api([], { invalidCreateResponse: true });
+  const result = await upsertPhase0GateCheck({
+    github: a.github,
+    ...decision("failure"),
+  });
+  assert.equal(result.outcome, "V_FAIL_CREATE");
+  assert.equal(result.checkRunId, 100);
+  assert.deepEqual(a.state.gets, [100]);
+  assert.equal(a.state.creates.length, 1);
+  assert.equal(a.state.updates.length, 0);
+  assert.equal(parsePhase0Gate(a.state.runs[0], head).state, "V-FAIL");
+});
+test("Check creation response mismatch fails closed on an unproved authoritative read", async (t) => {
+  for (const [name, options] of [
+    ["GET mismatch", { invalidCreateResponse: true, invalidGetResponseAt: [1] }],
+    ["GET throws", { invalidCreateResponse: true, getThrowsAt: [1] }],
+  ])
+    await t.test(name, async () => {
+      const a = api([], options);
+      await assert.rejects(
+        upsertPhase0GateCheck({ github: a.github, ...decision("failure") }),
+        /invalid Check Run create response/,
+      );
+      assert.equal(a.state.creates.length, 1);
+      assert.deepEqual(a.state.gets, [100]);
+      assert.equal(a.state.updates.length, 0);
+    });
+});
+test("Check creation invalid response ID fails without a GET or speculative create", async (t) => {
+  for (const invalidId of [undefined, 0, -1, "100"])
+    await t.test(String(invalidId), async () => {
+      const a = api([], { createResponseId: invalidId });
+      await assert.rejects(
+        upsertPhase0GateCheck({ github: a.github, ...decision("failure") }),
+        /invalid Check Run create response/,
+      );
+      assert.equal(a.state.creates.length, 1);
+      assert.equal(a.state.gets.length, 0);
+      assert.equal(a.state.updates.length, 0);
+    });
+});
+test("Check update accepts a matching immediate response without a recovery GET", async () => {
+  const a = api();
+  const result = await upsertPhase0GateCheck({
+    github: a.github,
+    ...decision("success"),
+  });
+  assert.equal(result.outcome, "V_SUCC_CREATE");
+  assert.equal(result.checkRunId, 100);
+  assert.deepEqual(a.state.gets, [100]);
+  assert.equal(a.state.creates.length, 1);
+  assert.equal(a.state.updates.length, 1);
+  assert.equal(parsePhase0Gate(a.state.runs[0], head).state, "V-SUCC");
+});
+test("Check update response mismatch recovers from one exact authoritative GET", async () => {
+  const a = api([], { invalidUpdateResponseAt: [1] });
+  const result = await upsertPhase0GateCheck({
+    github: a.github,
+    ...decision("success"),
+  });
+  assert.equal(result.outcome, "V_SUCC_CREATE");
+  assert.equal(result.checkRunId, 100);
+  assert.deepEqual(a.state.gets, [100, 100]);
+  assert.equal(a.state.creates.length, 1);
+  assert.equal(a.state.updates.length, 1);
+  assert.equal(parsePhase0Gate(a.state.runs[0], head).state, "V-SUCC");
+});
+test("Check update response mismatch fails closed on an unproved authoritative read", async (t) => {
+  for (const [name, options] of [
+    ["GET mismatch", { invalidUpdateResponseAt: [1], invalidGetResponseAt: [2] }],
+    ["GET throws", { invalidUpdateResponseAt: [1], getThrowsAt: [2] }],
+  ])
+    await t.test(name, async () => {
+      const a = api([], options);
+      await assert.rejects(
+        upsertPhase0GateCheck({ github: a.github, ...decision("success") }),
+        /invalid Check Run update response 100/,
+      );
+      assert.equal(a.state.creates.length, 1);
+      assert.deepEqual(a.state.gets, [100, 100]);
+      assert.equal(a.state.updates.length, 1);
+    });
 });
 test("Check mutation transport ambiguity recovers only a proven applied write", async () => {
   let existing = xExisting("V-SAFE");
