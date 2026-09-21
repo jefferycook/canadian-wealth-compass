@@ -1,0 +1,39 @@
+{
+  "captured_at": "2026-09-18T11:56:05.542Z",
+  "repository": "jefferycook/canadian-wealth-compass",
+  "requests": {
+    "effective_low_privilege": "GET /repos/{owner}/{repo}/rules/branches/main",
+    "ruleset_a": "GET /repos/{owner}/{repo}/rulesets/22812673",
+    "ruleset_b": "GET /repos/{owner}/{repo}/rulesets/23576549",
+    "rule_suites_admin": "GET /repos/{owner}/{repo}/rulesets/rule-suites?ref=refs/heads/main&time_period=day&per_page=100"
+  },
+  "response_body_sha256": {
+    "effective_low_privilege": "a7af1796540deddeddc480c01c5a1ae3b6f5559460a587dac9801c4baa9d6f8d",
+    "ruleset_a_owner": "4354990a554c8632553eec4458ade23f3967aa03429f2eb5aff4182c9ebed127",
+    "ruleset_b_owner": "381fd9188ecd1dc6465a339324665de3b517d0ecc5378298d1510ecb785778f1",
+    "ruleset_a_low_privilege": "7fbc17efc4bf17a30e7191945ac7c9f320a040cc7b9fd43577fcf948651dc82e",
+    "ruleset_b_low_privilege": "11dad676c7351e35f307accf1a15a1611b7c74b69169eb6e029f5ffa5693b99f",
+    "ruleset_a_merger": "7fbc17efc4bf17a30e7191945ac7c9f320a040cc7b9fd43577fcf948651dc82e",
+    "ruleset_b_merger": "075e041b5e518ccc7188282003407f78332a8f370f3acfbee625ffb059c61e43",
+    "rule_suites_admin": "3a2ad616e7b50f9cfe92ae49018a5a9edecb37bbb6205e56fe8e8ddc78a65bdc"
+  },
+  "installation_tokens": {
+    "gate": {
+      "installation_id": 160125433,
+      "requested_permissions": { "checks": "read", "statuses": "read" },
+      "revoked_http_status": 204
+    },
+    "merger": {
+      "installation_id": 161011498,
+      "requested_permissions": { "contents": "read" },
+      "revoked_http_status": 204
+    }
+  },
+  "sanitization": [
+    "authorization headers omitted",
+    "GitHub CLI and owner tokens omitted",
+    "App JWTs omitted",
+    "installation tokens omitted",
+    "PEM contents omitted"
+  ]
+}

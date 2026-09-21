@@ -1,0 +1,47 @@
+[
+  {
+    "type": "deletion",
+    "ruleset_source_type": "Repository",
+    "ruleset_source": "jefferycook/canadian-wealth-compass",
+    "ruleset_id": 22812673
+  },
+  {
+    "type": "non_fast_forward",
+    "ruleset_source_type": "Repository",
+    "ruleset_source": "jefferycook/canadian-wealth-compass",
+    "ruleset_id": 22812673
+  },
+  {
+    "type": "pull_request",
+    "parameters": {
+      "required_approving_review_count": 0,
+      "dismiss_stale_reviews_on_push": false,
+      "required_reviewers": [],
+      "require_code_owner_review": false,
+      "require_last_push_approval": false,
+      "required_review_thread_resolution": false,
+      "require_extra_approval_for_unattributed_changes": false,
+      "allowed_merge_methods": ["merge"]
+    },
+    "ruleset_source_type": "Repository",
+    "ruleset_source": "jefferycook/canadian-wealth-compass",
+    "ruleset_id": 22812673
+  },
+  {
+    "type": "required_status_checks",
+    "parameters": {
+      "strict_required_status_checks_policy": true,
+      "do_not_enforce_on_create": false,
+      "required_status_checks": [{ "context": "phase0-gate", "integration_id": 4876044 }]
+    },
+    "ruleset_source_type": "Repository",
+    "ruleset_source": "jefferycook/canadian-wealth-compass",
+    "ruleset_id": 22812673
+  },
+  {
+    "type": "update",
+    "ruleset_source_type": "Repository",
+    "ruleset_source": "jefferycook/canadian-wealth-compass",
+    "ruleset_id": 23576549
+  }
+]

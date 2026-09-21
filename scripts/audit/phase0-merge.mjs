@@ -11,9 +11,34 @@ import {
 
 export const MERGER_APP_ID = 4915565;
 export const MERGER_APP_BOT_LOGIN = "cwc-phase0-merger[bot]";
+export const MERGER_APP_ACTOR_ID = 328179191;
 export const RULESET_A_ID = 22812673;
 export const RULESET_A_NAME = "Phase 0 main protection";
+export const RULESET_A_UPDATED_AT = "2026-09-10T19:09:35.450Z";
+export const RULESET_B_ID = 23576549;
 export const RULESET_B_NAME = "Phase 0 main update restriction";
+export const RULESET_B_UPDATED_AT = "2026-09-17T03:19:33.461Z";
+export const RULESET_SOURCE = "jefferycook/canadian-wealth-compass";
+const RULESET_ADMIN_ATTESTATIONS = Object.freeze({
+  a: Object.freeze({
+    id: RULESET_A_ID,
+    updatedAt: RULESET_A_UPDATED_AT,
+    bypassActors: Object.freeze([]),
+    responseHash: "4354990a554c8632553eec4458ade23f3967aa03429f2eb5aff4182c9ebed127",
+  }),
+  b: Object.freeze({
+    id: RULESET_B_ID,
+    updatedAt: RULESET_B_UPDATED_AT,
+    bypassActors: Object.freeze([
+      Object.freeze({
+        actor_id: MERGER_APP_ID,
+        actor_type: "Integration",
+        bypass_mode: "pull_request",
+      }),
+    ]),
+    responseHash: "381fd9188ecd1dc6465a339324665de3b517d0ecc5378298d1510ecb785778f1",
+  }),
+});
 const SHA = /^[0-9a-f]{40}$/;
 const sha = (value, name) => {
   if (!SHA.test(value ?? "")) throw new Error(`invalid ${name}`);
@@ -116,17 +141,6 @@ export function infrastructurePath(path) {
   );
 }
 
-function literalMainOnly(rule) {
-  const refs = rule?.conditions?.ref_name;
-  return (
-    Array.isArray(refs?.include) &&
-    refs.include.length === 1 &&
-    refs.include[0] === "refs/heads/main" &&
-    Array.isArray(refs.exclude) &&
-    refs.exclude.length === 0
-  );
-}
-
 const expectedPullRequestParameters = {
   required_approving_review_count: 0,
   dismiss_stale_reviews_on_push: false,
@@ -143,74 +157,163 @@ const expectedStatusParameters = {
   required_status_checks: [{ context: PHASE0_GATE_NAME, integration_id: PHASE0_GATE_APP_ID }],
 };
 
-export function validateRulesetA(rule) {
-  const rules = rule?.rules ?? [];
-  const byType = new Map();
-  for (const item of rules) {
-    if (byType.has(item.type)) throw new Error("P12 Ruleset A drift");
-    byType.set(item.type, item);
-  }
-  const exactTypes = ["deletion", "non_fast_forward", "pull_request", "required_status_checks"];
-  if (
-    rule?.id !== RULESET_A_ID ||
-    rule.name !== RULESET_A_NAME ||
-    rule.target !== "branch" ||
-    rule.enforcement !== "active" ||
-    !literalMainOnly(rule) ||
-    !Array.isArray(rule.bypass_actors) ||
-    rule.bypass_actors.length !== 0 ||
-    rules.length !== exactTypes.length ||
-    exactTypes.some((type) => !byType.has(type)) ||
-    Object.hasOwn(byType.get("deletion"), "parameters") ||
-    Object.hasOwn(byType.get("non_fast_forward"), "parameters") ||
-    canonicalJson(byType.get("pull_request")?.parameters) !==
-      canonicalJson(expectedPullRequestParameters) ||
-    canonicalJson(byType.get("required_status_checks")?.parameters) !==
-      canonicalJson(expectedStatusParameters)
-  )
-    throw new Error("P12 Ruleset A drift");
+const expectedConditions = {
+  ref_name: { include: ["refs/heads/main"], exclude: [] },
+};
+const expectedRulesetARules = [
+  { type: "deletion" },
+  { type: "non_fast_forward" },
+  { type: "pull_request", parameters: expectedPullRequestParameters },
+  { type: "required_status_checks", parameters: expectedStatusParameters },
+];
+const expectedRulesetBRules = [{ type: "update" }];
+const expectedEffectiveRules = [
+  ...expectedRulesetARules.map((rule) => ({
+    ...rule,
+    ruleset_source_type: "Repository",
+    ruleset_source: RULESET_SOURCE,
+    ruleset_id: RULESET_A_ID,
+  })),
+  ...expectedRulesetBRules.map((rule) => ({
+    ...rule,
+    ruleset_source_type: "Repository",
+    ruleset_source: RULESET_SOURCE,
+    ruleset_id: RULESET_B_ID,
+  })),
+];
+function normalizedInstant(value, message) {
+  if (typeof value !== "string") throw new Error(message);
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds)) throw new Error(message);
+  return new Date(milliseconds).toISOString();
+}
+
+function exactRulesetMetadata(rule, { id, name, updatedAt, rules }) {
+  return (
+    rule?.id === id &&
+    rule.name === name &&
+    rule.target === "branch" &&
+    rule.enforcement === "active" &&
+    rule.source_type === "Repository" &&
+    rule.source === RULESET_SOURCE &&
+    rule.current_user_can_bypass === "never" &&
+    canonicalJson(rule.conditions) === canonicalJson(expectedConditions) &&
+    canonicalJson(rule.rules) === canonicalJson(rules) &&
+    normalizedInstant(rule.updated_at, `P12 Ruleset ${id} drift`) === updatedAt
+  );
+}
+
+function validateBypassProjection(rule, expected, message) {
+  if (!Object.hasOwn(rule ?? {}, "bypass_actors")) return "REDACTED";
+  if (canonicalJson(rule.bypass_actors) !== canonicalJson(expected)) throw new Error(message);
+  return "VISIBLE";
+}
+
+export function validateEffectiveRules(applied) {
+  if (!Array.isArray(applied)) throw new Error("P12 effective rules drift");
+  const sortRules = (rules) =>
+    [...rules].sort((left, right) => canonicalJson(left).localeCompare(canonicalJson(right)));
+  if (canonicalJson(sortRules(applied)) !== canonicalJson(sortRules(expectedEffectiveRules)))
+    throw new Error("P12 effective rules drift");
   return true;
 }
 
+export function validateRulesetA(rule) {
+  const message = "P12 Ruleset A drift";
+  let exact = false;
+  try {
+    exact = exactRulesetMetadata(rule, {
+      id: RULESET_A_ID,
+      name: RULESET_A_NAME,
+      updatedAt: RULESET_A_UPDATED_AT,
+      rules: expectedRulesetARules,
+    });
+  } catch {
+    throw new Error(message);
+  }
+  if (!exact) throw new Error(message);
+  return validateBypassProjection(rule, RULESET_ADMIN_ATTESTATIONS.a.bypassActors, message);
+}
+
 export function isRulesetB(rule) {
-  const bypass = rule?.bypass_actors ?? [];
-  const rules = rule?.rules ?? [];
-  return (
-    rule?.name === RULESET_B_NAME &&
-    rule.target === "branch" &&
-    rule.enforcement === "active" &&
-    literalMainOnly(rule) &&
-    rules.length === 1 &&
-    rules[0].type === "update" &&
-    bypass.length === 1 &&
-    bypass[0].actor_type === "Integration" &&
-    bypass[0].actor_id === MERGER_APP_ID &&
-    bypass[0].bypass_mode === "pull_request"
-  );
+  try {
+    return (
+      exactRulesetMetadata(rule, {
+        id: RULESET_B_ID,
+        name: RULESET_B_NAME,
+        updatedAt: RULESET_B_UPDATED_AT,
+        rules: expectedRulesetBRules,
+      }) &&
+      Boolean(
+        validateBypassProjection(
+          rule,
+          RULESET_ADMIN_ATTESTATIONS.b.bypassActors,
+          "P12 Ruleset B drift",
+        ),
+      )
+    );
+  } catch {
+    return false;
+  }
 }
 
 export async function validateRulesets(github, owner, repo) {
   const applied = (
     await repoRequest(github, "GET /repos/{owner}/{repo}/rules/branches/main", owner, repo)
   ).data;
-  const details = [];
-  const ids = [...new Set(applied.map((item) => item.ruleset_id ?? item.id))];
-  for (const rulesetId of ids)
-    details.push(
-      (
-        await repoRequest(github, "GET /repos/{owner}/{repo}/rulesets/{ruleset_id}", owner, repo, {
-          ruleset_id: rulesetId,
-        })
-      ).data,
-    );
-  const a = details.find((rule) => rule.id === RULESET_A_ID);
-  validateRulesetA(a);
-  const matches = details.filter(isRulesetB);
-  if (matches.length !== 1)
-    throw new Error(`P12 expected exactly one normative Ruleset B; found ${matches.length}`);
+  validateEffectiveRules(applied);
+  const [a, b] = await Promise.all(
+    [RULESET_A_ID, RULESET_B_ID].map(
+      async (rulesetId) =>
+        (
+          await repoRequest(
+            github,
+            "GET /repos/{owner}/{repo}/rulesets/{ruleset_id}",
+            owner,
+            repo,
+            {
+              ruleset_id: rulesetId,
+            },
+          )
+        ).data,
+    ),
+  );
+  const aVisibility = validateRulesetA(a);
+  if (!isRulesetB(b)) throw new Error("P12 Ruleset B drift");
+  const bVisibility = validateBypassProjection(
+    b,
+    RULESET_ADMIN_ATTESTATIONS.b.bypassActors,
+    "P12 Ruleset B drift",
+  );
+  const evidence = (key, rule, visibility) => {
+    const adminAttestation = RULESET_ADMIN_ATTESTATIONS[key];
+    const projection = {
+      metadata: {
+        id: rule.id,
+        name: rule.name,
+        target: rule.target,
+        enforcement: rule.enforcement,
+        source_type: rule.source_type,
+        source: rule.source,
+        conditions: rule.conditions,
+        rules: rule.rules,
+        updated_at: normalizedInstant(rule.updated_at, "P12 ruleset timestamp drift"),
+        current_user_can_bypass: rule.current_user_can_bypass,
+        bypass_actors: visibility,
+      },
+      effectiveRules: applied.filter((item) => item.ruleset_id === rule.id),
+    };
+    return {
+      id: rule.id,
+      hash: jsonHash(projection),
+      updatedAt: adminAttestation.updatedAt,
+      bypassVisibility: visibility,
+      adminAttestation,
+    };
+  };
   return {
-    a: { id: a.id, hash: jsonHash(a), json: a },
-    b: { id: matches[0].id, hash: jsonHash(matches[0]), json: matches[0] },
+    a: evidence("a", a, aVisibility),
+    b: evidence("b", b, bVisibility),
   };
 }
 
@@ -479,7 +582,7 @@ const definitiveHttpFailure = (error) => {
 };
 const endpointUnavailable = (error) => [403, 404, 410, 501].includes(Number(statusOf(error)));
 
-async function readRuleSuiteEvidence({ github, owner, repo, mergeSha, attempts, delayMs }) {
+export async function readRuleSuiteEvidence({ github, owner, repo, mergeSha, attempts, delayMs }) {
   for (let attempt = 1; attempt <= attempts; attempt++) {
     let response;
     try {
@@ -498,30 +601,72 @@ async function readRuleSuiteEvidence({ github, owner, repo, mergeSha, attempts, 
         };
       throw error;
     }
-    const suite = (response.data ?? []).find((item) => item.head_sha === mergeSha);
+    const suites = (response.data ?? []).filter((item) => item.after_sha === mergeSha);
+    if (suites.length > 1) throw new Error("I6 multiple exact rule suites found for merge");
+    const suite = suites[0];
     if (suite) {
       if (!["pass", "bypass"].includes(suite.result))
         throw new Error("I6 exact rule suite result is not pass/bypass");
-      if (suite.actor?.login !== MERGER_APP_BOT_LOGIN)
+      if (suite.actor_id !== MERGER_APP_ACTOR_ID || suite.actor_name !== MERGER_APP_BOT_LOGIN)
         throw new Error("I6 exact rule suite actor is not the Merger App");
-      const detail = await repoRequest(
-        github,
-        "GET /repos/{owner}/{repo}/rulesets/rule-suites/{rule_suite_id}",
-        owner,
-        repo,
-        { rule_suite_id: suite.id },
-      );
       return {
         available: true,
         id: suite.id,
         result: suite.result,
-        actor: suite.actor.login,
-        detail: detail.data,
+        actorId: suite.actor_id,
+        actorName: suite.actor_name,
+        afterSha: suite.after_sha,
       };
     }
     if (attempt < attempts && delayMs > 0) await sleep(delayMs);
   }
-  throw new Error(`I6 no exact rule suite found for merge ${mergeSha}`);
+  return { available: false, reason: "not found", mergeSha };
+}
+
+export async function validateMergerRulesetView(mergerGithub, owner, repo) {
+  const [a, b] = await Promise.all(
+    [RULESET_A_ID, RULESET_B_ID].map(
+      async (rulesetId) =>
+        (
+          await repoRequest(
+            mergerGithub,
+            "GET /repos/{owner}/{repo}/rulesets/{ruleset_id}",
+            owner,
+            repo,
+            { ruleset_id: rulesetId },
+          )
+        ).data,
+    ),
+  );
+  let aUpdatedAt;
+  let bUpdatedAt;
+  try {
+    aUpdatedAt = normalizedInstant(a?.updated_at, "P14 Merger Ruleset A view drift");
+    bUpdatedAt = normalizedInstant(b?.updated_at, "P14 Merger Ruleset B view drift");
+  } catch {
+    throw new Error("P14 Merger ruleset view drift");
+  }
+  if (
+    a?.id !== RULESET_A_ID ||
+    a.current_user_can_bypass !== "never" ||
+    aUpdatedAt !== RULESET_A_UPDATED_AT ||
+    b?.id !== RULESET_B_ID ||
+    b.current_user_can_bypass !== "pull_requests_only" ||
+    bUpdatedAt !== RULESET_B_UPDATED_AT
+  )
+    throw new Error("P14 Merger ruleset view drift");
+  return {
+    a: {
+      id: a.id,
+      updatedAt: aUpdatedAt,
+      currentUserCanBypass: a.current_user_can_bypass,
+    },
+    b: {
+      id: b.id,
+      updatedAt: bUpdatedAt,
+      currentUserCanBypass: b.current_user_can_bypass,
+    },
+  };
 }
 
 export async function mergeOnce({
@@ -535,6 +680,7 @@ export async function mergeOnce({
   ruleSuiteDelayMs = 5000,
 }) {
   const { audit } = validated;
+  const mergerRulesets = await validateMergerRulesetView(mergerGithub, owner, repo);
   const payload = {
     owner,
     repo,
@@ -607,5 +753,5 @@ export async function mergeOnce({
     attempts: ruleSuiteAttempts,
     delayMs: ruleSuiteDelayMs,
   });
-  return { mergeSha, mergeTree: merge.commit.tree.sha, ruleSuite };
+  return { mergeSha, mergeTree: merge.commit.tree.sha, mergerRulesets, ruleSuite };
 }

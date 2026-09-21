@@ -1,0 +1,74 @@
+{
+  "a": {
+    "id": 22812673,
+    "name": "Phase 0 main protection",
+    "target": "branch",
+    "source_type": "Repository",
+    "source": "jefferycook/canadian-wealth-compass",
+    "enforcement": "active",
+    "conditions": {
+      "ref_name": { "exclude": [], "include": ["refs/heads/main"] }
+    },
+    "rules": [
+      { "type": "deletion" },
+      { "type": "non_fast_forward" },
+      {
+        "type": "pull_request",
+        "parameters": {
+          "required_approving_review_count": 0,
+          "dismiss_stale_reviews_on_push": false,
+          "required_reviewers": [],
+          "require_code_owner_review": false,
+          "require_last_push_approval": false,
+          "required_review_thread_resolution": false,
+          "require_extra_approval_for_unattributed_changes": false,
+          "allowed_merge_methods": ["merge"]
+        }
+      },
+      {
+        "type": "required_status_checks",
+        "parameters": {
+          "strict_required_status_checks_policy": true,
+          "do_not_enforce_on_create": false,
+          "required_status_checks": [{ "context": "phase0-gate", "integration_id": 4876044 }]
+        }
+      }
+    ],
+    "node_id": "RRS_lACqUmVwb3NpdG9yec5Px-lszgFcGAE",
+    "created_at": "2026-09-10T19:04:27.538Z",
+    "updated_at": "2026-09-10T19:09:35.450Z",
+    "current_user_can_bypass": "never",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/jefferycook/canadian-wealth-compass/rulesets/22812673"
+      },
+      "html": {
+        "href": "https://github.com/jefferycook/canadian-wealth-compass/rules/22812673"
+      }
+    }
+  },
+  "b": {
+    "id": 23576549,
+    "name": "Phase 0 main update restriction",
+    "target": "branch",
+    "source_type": "Repository",
+    "source": "jefferycook/canadian-wealth-compass",
+    "enforcement": "active",
+    "conditions": {
+      "ref_name": { "exclude": [], "include": ["refs/heads/main"] }
+    },
+    "rules": [{ "type": "update" }],
+    "node_id": "RRS_lACqUmVwb3NpdG9yec5Px-lszgFnv-U",
+    "created_at": "2026-09-17T03:10:48.283Z",
+    "updated_at": "2026-09-17T03:19:33.461Z",
+    "current_user_can_bypass": "pull_requests_only",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/jefferycook/canadian-wealth-compass/rulesets/23576549"
+      },
+      "html": {
+        "href": "https://github.com/jefferycook/canadian-wealth-compass/rules/23576549"
+      }
+    }
+  }
+}
