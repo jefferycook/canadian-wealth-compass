@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import { realpathSync, statSync } from "node:fs";
+import { resolve } from "node:path";
 
 function die(message) {
   process.stderr.write(`FAIL: ${message}\n`);
@@ -12,14 +14,18 @@ function argsOf(argv) {
   for (let index = 0; index < argv.length; index += 2) {
     const key = argv[index];
     const value = argv[index + 1];
-    if (!value || !["--merge", "--base", "--head", "--live-main", "--remote"].includes(key)) {
+    if (
+      !value ||
+      !["--merge", "--base", "--head", "--live-main", "--remote", "--repo"].includes(key)
+    ) {
       die(
-        "usage: --merge <SHA/ref> --base <SHA> --head <SHA> [--live-main <ref>] [--remote <remote>]",
+        "usage: --repo <directory> --merge <SHA/ref> --base <SHA> --head <SHA> [--live-main <ref>] [--remote <remote>]",
       );
     }
     out[key.slice(2)] = value;
   }
-  if (!out.merge || !out.base || !out.head) die("--merge, --base and --head are required");
+  if (!out.repo || !out.merge || !out.base || !out.head)
+    die("--repo, --merge, --base and --head are required");
   if (!/^[0-9a-f]{40}$/.test(out.base) || !/^[0-9a-f]{40}$/.test(out.head)) {
     die("--base and --head must be exact lowercase 40-hex commit IDs");
   }
@@ -27,14 +33,32 @@ function argsOf(argv) {
   return out;
 }
 
+const expected = argsOf(process.argv.slice(2));
+let repoPath;
+try {
+  const candidate = resolve(expected.repo);
+  if (!statSync(candidate).isDirectory()) die("--repo must name a directory");
+  repoPath = realpathSync(candidate);
+} catch (error) {
+  die(`invalid --repo directory: ${String(error?.message ?? error)}`);
+}
+
 function git(arguments_, allowFailure = false) {
-  const result = spawnSync("git", arguments_, { encoding: "utf8", shell: false });
+  const result = spawnSync("git", arguments_, {
+    cwd: repoPath,
+    encoding: "utf8",
+    shell: false,
+  });
   if (!allowFailure && result.status !== 0)
     die(`git ${arguments_.join(" ")} failed: ${result.stderr.trim()}`);
   return result;
 }
 
-const expected = argsOf(process.argv.slice(2));
+if (git(["rev-parse", "--is-inside-work-tree"]).stdout.trim() !== "true")
+  die("--repo is not a Git working tree");
+const topLevel = realpathSync(git(["rev-parse", "--show-toplevel"]).stdout.trim());
+const comparable = (value) => (process.platform === "win32" ? value.toLowerCase() : value);
+if (comparable(topLevel) !== comparable(repoPath)) die("--repo must be the Git working-tree root");
 if (expected.remote) {
   git([
     "fetch",

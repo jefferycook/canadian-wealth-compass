@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,7 +20,11 @@ import {
   upsertPhase0GateCheck,
 } from "./phase0-gate-check.mjs";
 import {
+  MERGER_APP_ACTOR_ID,
   MERGER_APP_BOT_LOGIN,
+  RULESET_A_ID,
+  RULESET_B_ID,
+  RULESET_SOURCE,
   finalizeBeforeMerge,
   infrastructurePath,
   isRulesetB,
@@ -27,11 +32,17 @@ import {
   prepareBeforeMerge,
   validateBeforeMerge,
   validateDispatch,
+  validateEffectiveRules,
   validateFileEnumeration,
   validateLivePull,
+  validateMergerRulesetView,
   validateRulesetA,
   validateRulesets,
 } from "./phase0-merge.mjs";
+
+const fixture = (name) =>
+  JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
+const responseHash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
 const head = "1".repeat(40),
   base = "2".repeat(40),
@@ -560,6 +571,12 @@ test("merge payload is exact and cannot select squash/rebase", async () => {
   const mergeSha = "4".repeat(40);
   const gate = run(v());
   const { github: merger, state } = api();
+  const capturedMergerRulesets = fixture("phase0-rulesets.merger.json");
+  merger.request = async (_route, parameters) => ({
+    data: structuredClone(
+      parameters.ruleset_id === RULESET_A_ID ? capturedMergerRulesets.a : capturedMergerRulesets.b,
+    ),
+  });
   const readGithub = {
     paginate: async () => [gate],
     request: async () => {
@@ -649,6 +666,8 @@ test("workflow serializes Gate and merge authority and orders least-privilege to
   assert.match(yml, /mergerGithub: getOctokit\(process\.env\.MERGER_TOKEN\)/);
   assert.ok(yml.indexOf("github.rest.pulls.get") < yml.indexOf("validateLivePull(pull"));
   assert.match(yml, /validateFileEnumeration\(files, pull\.changed_files\)/);
+  assert.match(yml, /verify-merge\.mjs --repo phase0-trusted-source --merge origin\/main/);
+  assert.doesNotMatch(yml, /verify-merge\.mjs --merge origin\/main/);
   for (const field of [
     "auditedTree",
     "mergeSha",
@@ -658,6 +677,7 @@ test("workflow serializes Gate and merge authority and orders least-privilege to
     "gateCompletedAt",
     "rulesetA",
     "rulesetB",
+    "mergerRulesets",
     "ruleSuite",
   ])
     assert.match(yml, new RegExp(`${field}:`));
@@ -1294,117 +1314,126 @@ test("failed U4 recovery explicitly reports that non-authorizing state is unprov
   assert.equal(a.state.runs[0].conclusion, "success");
 });
 
-const rulesetA = {
-  id: 22812673,
-  name: "Phase 0 main protection",
-  target: "branch",
-  enforcement: "active",
-  conditions: { ref_name: { include: ["refs/heads/main"], exclude: [] } },
-  bypass_actors: [],
-  rules: [
-    { type: "deletion" },
-    { type: "non_fast_forward" },
-    {
-      type: "pull_request",
-      parameters: {
-        required_approving_review_count: 0,
-        dismiss_stale_reviews_on_push: false,
-        required_reviewers: [],
-        require_code_owner_review: false,
-        require_last_push_approval: false,
-        required_review_thread_resolution: false,
-        require_extra_approval_for_unattributed_changes: false,
-        allowed_merge_methods: ["merge"],
-      },
-    },
-    {
-      type: "required_status_checks",
-      parameters: {
-        strict_required_status_checks_policy: true,
-        do_not_enforce_on_create: false,
-        required_status_checks: [{ context: "phase0-gate", integration_id: 4876044 }],
-      },
-    },
-  ],
-};
-const rulesetB = {
-  id: 991,
-  name: "Phase 0 main update restriction",
-  target: "branch",
-  enforcement: "active",
-  conditions: { ref_name: { include: ["refs/heads/main"], exclude: [] } },
-  bypass_actors: [{ actor_type: "Integration", actor_id: 4915565, bypass_mode: "pull_request" }],
-  rules: [{ type: "update" }],
-};
-function rulesClient(a = rulesetA, bs = [rulesetB]) {
-  const all = [a, ...bs];
+const effectiveRules = fixture("phase0-rules-main.low-privilege.json");
+const adminRulesets = fixture("phase0-rulesets.admin.json");
+const lowPrivilegeRulesets = fixture("phase0-rulesets.low-privilege.json");
+const mergerRulesets = fixture("phase0-rulesets.merger.json");
+const responseCaptureProvenance = fixture("phase0-response-capture.provenance.json");
+const rulesetA = lowPrivilegeRulesets.a;
+const rulesetB = lowPrivilegeRulesets.b;
+function rulesClient(a = rulesetA, b = rulesetB, applied = effectiveRules) {
   return {
     request: async (route, parameters) => {
-      if (route.includes("rules/branches")) return { data: all.map((r) => ({ ruleset_id: r.id })) };
-      return { data: structuredClone(all.find((r) => r.id === parameters.ruleset_id)) };
+      if (route.includes("rules/branches")) return { data: structuredClone(applied) };
+      if (parameters.ruleset_id === RULESET_A_ID) return { data: structuredClone(a) };
+      if (parameters.ruleset_id === RULESET_B_ID) return { data: structuredClone(b) };
+      throw new Error(`unexpected ruleset ${parameters.ruleset_id}`);
     },
   };
 }
-test("Ruleset A exact normative configuration and drift rejection", () => {
-  assert.doesNotThrow(() => validateRulesetA(structuredClone(rulesetA)));
-  for (const mutate of [
-    (r) => (r.target = "tag"),
-    (r) => (r.enforcement = "disabled"),
-    (r) => (r.conditions.ref_name.include = ["refs/heads/dev"]),
-    (r) => (r.conditions.ref_name.include = ["~DEFAULT_BRANCH"]),
-    (r) => r.conditions.ref_name.exclude.push("refs/heads/dev"),
-    (r) => r.bypass_actors.push({ actor_type: "RepositoryRole", actor_id: 5 }),
-    (r) => r.rules.splice(0, 1),
-    (r) => r.rules.push({ type: "update" }),
-    (r) => r.rules.push({ type: "deletion" }),
-    (r) =>
-      (r.rules.find((x) => x.type === "pull_request").parameters.allowed_merge_methods = [
-        "squash",
-      ]),
+test("captured production response fixtures retain their sanitized body identities", () => {
+  const expected = responseCaptureProvenance.response_body_sha256;
+  assert.equal(responseHash(effectiveRules), expected.effective_low_privilege);
+  assert.equal(responseHash(adminRulesets.a), expected.ruleset_a_owner);
+  assert.equal(responseHash(adminRulesets.b), expected.ruleset_b_owner);
+  assert.equal(responseHash(lowPrivilegeRulesets.a), expected.ruleset_a_low_privilege);
+  assert.equal(responseHash(lowPrivilegeRulesets.b), expected.ruleset_b_low_privilege);
+  assert.equal(responseHash(mergerRulesets.a), expected.ruleset_a_merger);
+  assert.equal(responseHash(mergerRulesets.b), expected.ruleset_b_merger);
+  assert.equal(responseHash(fixture("phase0-rule-suites.admin.json")), expected.rule_suites_admin);
+  assert.deepEqual(responseCaptureProvenance.sanitization, [
+    "authorization headers omitted",
+    "GitHub CLI and owner tokens omitted",
+    "App JWTs omitted",
+    "installation tokens omitted",
+    "PEM contents omitted",
+  ]);
+});
+test("fixture-backed P12 accepts redacted production and exact admin bypass views", async () => {
+  assert.equal(validateRulesetA(structuredClone(lowPrivilegeRulesets.a)), "REDACTED");
+  assert.equal(isRulesetB(structuredClone(lowPrivilegeRulesets.b)), true);
+  assert.equal(validateRulesetA(structuredClone(adminRulesets.a)), "VISIBLE");
+  assert.equal(isRulesetB(structuredClone(adminRulesets.b)), true);
+  const result = await validateRulesets(rulesClient(), "o", "r");
+  assert.equal(result.a.bypassVisibility, "REDACTED");
+  assert.equal(result.b.bypassVisibility, "REDACTED");
+  assert.equal(result.a.adminAttestation.id, RULESET_A_ID);
+  assert.equal(result.b.adminAttestation.id, RULESET_B_ID);
+  assert.match(result.a.hash, /^[0-9a-f]{64}$/);
+  assert.match(result.b.hash, /^[0-9a-f]{64}$/);
+  assert.equal(mergerRulesets.a.current_user_can_bypass, "never");
+  assert.equal(mergerRulesets.b.current_user_can_bypass, "pull_requests_only");
+});
+
+test("P12 metadata and visible bypass drift fail closed", () => {
+  const casesA = [
+    (r) => (r.updated_at = "2026-09-10T19:09:36.450Z"),
+    (r) => (r.source = "an-org"),
+    (r) => (r.current_user_can_bypass = "always"),
     (r) =>
       (r.rules.find(
-        (x) => x.type === "required_status_checks",
-      ).parameters.strict_required_status_checks_policy = false),
-    (r) =>
-      (r.rules.find(
-        (x) => x.type === "required_status_checks",
+        (item) => item.type === "required_status_checks",
       ).parameters.required_status_checks[0].integration_id = 1),
     (r) =>
-      (r.rules.find(
-        (x) => x.type === "required_status_checks",
-      ).parameters.do_not_enforce_on_create = true),
-  ]) {
-    const changed = structuredClone(rulesetA);
+      r.rules
+        .find((item) => item.type === "pull_request")
+        .parameters.allowed_merge_methods.push("squash"),
+    (r) =>
+      (r.rules.find((item) => item.type === "pull_request").parameters.unknown_security_key = true),
+  ];
+  for (const mutate of casesA) {
+    const changed = structuredClone(lowPrivilegeRulesets.a);
     mutate(changed);
     assert.throws(() => validateRulesetA(changed), /Ruleset A drift/);
   }
-});
-test("Ruleset B exact actor/ref/rule configuration", () => {
-  assert.equal(isRulesetB(structuredClone(rulesetB)), true);
+  const wrongVisibleA = structuredClone(adminRulesets.a);
+  wrongVisibleA.bypass_actors.push({
+    actor_id: 1,
+    actor_type: "Integration",
+    bypass_mode: "always",
+  });
+  assert.throws(() => validateRulesetA(wrongVisibleA), /Ruleset A drift/);
+
   for (const mutate of [
-    (r) => (r.target = "tag"),
-    (r) => (r.enforcement = "disabled"),
-    (r) => (r.conditions.ref_name.include = ["refs/heads/dev"]),
-    (r) => (r.conditions.ref_name.include = ["~DEFAULT_BRANCH"]),
-    (r) => r.rules.push({ type: "deletion" }),
-    (r) => (r.rules = []),
-    (r) => (r.bypass_actors[0].actor_type = "RepositoryRole"),
-    (r) => (r.bypass_actors[0].actor_id = 4915564),
-    (r) => (r.bypass_actors[0].bypass_mode = "always"),
-    (r) =>
-      r.bypass_actors.push({ actor_type: "Integration", actor_id: 2, bypass_mode: "pull_request" }),
+    (r) => (r.id = 1),
+    (r) => (r.updated_at = "2026-09-17T03:19:34.461Z"),
+    (r) => (r.source = "an-org"),
+    (r) => (r.current_user_can_bypass = "always"),
   ]) {
-    const changed = structuredClone(rulesetB);
+    const changed = structuredClone(lowPrivilegeRulesets.b);
     mutate(changed);
     assert.equal(isRulesetB(changed), false);
   }
+  const wrongVisibleB = structuredClone(adminRulesets.b);
+  wrongVisibleB.bypass_actors[0].actor_id = 1;
+  assert.equal(isRulesetB(wrongVisibleB), false);
 });
-test("Ruleset B missing and duplicate matches fail closed", async () => {
-  await assert.rejects(validateRulesets(rulesClient(rulesetA, []), "o", "r"), /found 0/);
-  await assert.rejects(
-    validateRulesets(rulesClient(rulesetA, [rulesetB, { ...rulesetB, id: 992 }]), "o", "r"),
-    /found 2/,
-  );
+
+test("P12 exact effective-rule ownership rejects missing, extra, duplicate, and foreign rules", () => {
+  assert.equal(validateEffectiveRules(structuredClone(effectiveRules)), true);
+  const variants = [
+    effectiveRules.slice(1),
+    [...effectiveRules, structuredClone(effectiveRules[0])],
+    [
+      ...effectiveRules,
+      {
+        type: "required_signatures",
+        ruleset_source_type: "Repository",
+        ruleset_source: RULESET_SOURCE,
+        ruleset_id: RULESET_A_ID,
+      },
+    ],
+    effectiveRules.map((item, index) =>
+      index === 0 ? { ...item, ruleset_id: RULESET_B_ID } : structuredClone(item),
+    ),
+    effectiveRules.map((item, index) =>
+      index === 0
+        ? { ...item, ruleset_source_type: "Organization", ruleset_source: "an-org" }
+        : structuredClone(item),
+    ),
+  ];
+  for (const changed of variants)
+    assert.throws(() => validateEffectiveRules(changed), /effective rules drift/);
 });
 
 function preflightClient(change = {}) {
@@ -1412,7 +1441,15 @@ function preflightClient(change = {}) {
   const gates = change.gates ?? (gate ? [gate] : []);
   const wrongApp = change.wrongApp ? [{ ...run(v("success", 2), 88), app: { id: 999 } }] : [];
   const files = change.files ?? [{ filename: "src/ui.tsx", status: "modified" }];
-  const rules = rulesClient(change.rulesetA ?? rulesetA, change.rulesets ?? [rulesetB]);
+  const rules = rulesClient(
+    change.rulesetA ?? rulesetA,
+    Object.hasOwn(change, "rulesetB")
+      ? change.rulesetB
+      : Object.hasOwn(change, "rulesets")
+        ? (change.rulesets[0] ?? null)
+        : rulesetB,
+    change.effectiveRules ?? effectiveRules,
+  );
   let mainReads = 0;
   let pullReads = 0;
   let commitReads = 0;
@@ -1571,6 +1608,32 @@ test("P7/P8/P9 merge preflight accepts one exact ordinary V-SUCC", async () => {
   const result = await preflight();
   assert.equal(result.gateId, 1);
   assert.equal(result.infrastructure, false);
+  assert.equal(result.rulesets.a.bypassVisibility, "REDACTED");
+  assert.equal(result.rulesets.b.bypassVisibility, "REDACTED");
+});
+test("metadata-only ordinary and infrastructure finalize both reach P13", async () => {
+  const ordinary = await preflight();
+  assert.equal(ordinary.infrastructure, false);
+  assert.equal(ordinary.rulesets.a.updatedAt, "2026-09-10T19:09:35.450Z");
+
+  const gate = run(awaiting());
+  const github = preflightClient({
+    gate,
+    files: [{ filename: ".github/workflows/candidate.yml", status: "modified" }],
+  });
+  const infrastructure = await validateBeforeMerge({
+    github,
+    gateGithub: github,
+    owner: "o",
+    repo: "r",
+    dispatch,
+    trustedSha: base,
+    helperSha: base,
+    dispatchRunId: 30,
+    dispatchAttempt: 1,
+  });
+  assert.equal(infrastructure.infrastructure, true);
+  assert.equal(infrastructure.rulesets.b.updatedAt, "2026-09-17T03:19:33.461Z");
 });
 test("merge preflight required rejection matrix", async (t) => {
   const malformed = { ...run(v("success", 2)), external_id: "bad" };
@@ -1714,9 +1777,26 @@ test("read-only preparation identifies whether a Gate token is actually required
 function postMergeFixture(change = {}) {
   const mergeSha = "4".repeat(40);
   const gate = change.gate ?? run(v("success", 2));
+  const capturedRuleSuite = fixture("phase0-rule-suites.admin.json")[0];
+  const mergerView = structuredClone(mergerRulesets);
+  if (Object.hasOwn(change, "mergerACanBypass"))
+    mergerView.a.current_user_can_bypass = change.mergerACanBypass;
+  if (Object.hasOwn(change, "mergerBCanBypass"))
+    mergerView.b.current_user_can_bypass = change.mergerBCanBypass;
+  if (Object.hasOwn(change, "mergerAUpdatedAt")) mergerView.a.updated_at = change.mergerAUpdatedAt;
+  if (Object.hasOwn(change, "mergerBUpdatedAt")) mergerView.b.updated_at = change.mergerBUpdatedAt;
   const writes = [];
   const ruleSuiteRequests = [];
+  const mergerRulesetRequests = [];
   const mergerGithub = {
+    request: async (route, parameters) => {
+      mergerRulesetRequests.push({ route, parameters });
+      if (route !== "GET /repos/{owner}/{repo}/rulesets/{ruleset_id}")
+        throw new Error(`unexpected Merger route ${route}`);
+      if (parameters.ruleset_id === RULESET_A_ID) return { data: structuredClone(mergerView.a) };
+      if (parameters.ruleset_id === RULESET_B_ID) return { data: structuredClone(mergerView.b) };
+      throw new Error(`unexpected Merger ruleset ${parameters.ruleset_id}`);
+    },
     rest: {
       pulls: {
         merge: async (payload) => {
@@ -1745,25 +1825,23 @@ function postMergeFixture(change = {}) {
         const mode = change.ruleSuiteMode ?? "unavailable";
         if (mode === "unavailable") {
           const error = new Error("rule-suite endpoint unavailable");
-          error.status = 404;
+          error.status = change.ruleSuiteStatus ?? 404;
           throw error;
         }
         if (mode === "no-exact") return { data: [] };
         return {
           data: [
             {
+              ...capturedRuleSuite,
               id: 71,
-              head_sha: mergeSha,
+              after_sha: mergeSha,
               result: mode === "wrong-result" ? "fail" : "pass",
-              actor: {
-                login: mode === "wrong-actor" ? "attacker" : MERGER_APP_BOT_LOGIN,
-              },
+              actor_id: mode === "wrong-actor" ? 1 : MERGER_APP_ACTOR_ID,
+              actor_name: mode === "wrong-actor" ? "attacker" : MERGER_APP_BOT_LOGIN,
             },
           ],
         };
       }
-      if (route.includes("rule-suites/{rule_suite_id}"))
-        return { data: { id: 71, rule_evaluations: [{ rule_source: "Repository" }] } };
       throw new Error(`unexpected route ${route}`);
     },
     rest: {
@@ -1802,8 +1880,71 @@ function postMergeFixture(change = {}) {
     gateCompletedAt: completed,
     dispatchIdentity: { runId: 30, attempt: 2 },
   };
-  return { mergerGithub, readGithub, validated, writes, mergeSha, ruleSuiteRequests };
+  return {
+    mergerGithub,
+    readGithub,
+    validated,
+    writes,
+    mergeSha,
+    ruleSuiteRequests,
+    mergerRulesetRequests,
+  };
 }
+test("P14 validates the live captured Merger ruleset view before one merge PUT", async (t) => {
+  assert.equal(Object.hasOwn(mergerRulesets.a, "bypass_actors"), false);
+  assert.equal(Object.hasOwn(mergerRulesets.b, "bypass_actors"), false);
+  const direct = await validateMergerRulesetView(postMergeFixture().mergerGithub, "o", "r");
+  assert.deepEqual(direct, {
+    a: {
+      id: RULESET_A_ID,
+      updatedAt: "2026-09-10T19:09:35.450Z",
+      currentUserCanBypass: "never",
+    },
+    b: {
+      id: RULESET_B_ID,
+      updatedAt: "2026-09-17T03:19:33.461Z",
+      currentUserCanBypass: "pull_requests_only",
+    },
+  });
+
+  const valid = postMergeFixture();
+  const result = await mergeOnce({
+    ...valid,
+    owner: "o",
+    repo: "r",
+    confirmationDelayMs: 0,
+    ruleSuiteAttempts: 1,
+    ruleSuiteDelayMs: 0,
+  });
+  assert.deepEqual(result.mergerRulesets, direct);
+  assert.deepEqual(
+    valid.mergerRulesetRequests.map(({ parameters }) => parameters.ruleset_id),
+    [RULESET_A_ID, RULESET_B_ID],
+  );
+  assert.equal(valid.writes.length, 1);
+
+  for (const [name, change] of [
+    ["Ruleset A bypass capability", { mergerACanBypass: "pull_requests_only" }],
+    ["Ruleset B bypass capability", { mergerBCanBypass: "never" }],
+    ["Ruleset A version", { mergerAUpdatedAt: "2026-09-10T19:09:36.450Z" }],
+    ["Ruleset B version", { mergerBUpdatedAt: "2026-09-17T03:19:34.461Z" }],
+  ])
+    await t.test(name, async () => {
+      const invalid = postMergeFixture(change);
+      await assert.rejects(
+        mergeOnce({
+          ...invalid,
+          owner: "o",
+          repo: "r",
+          confirmationDelayMs: 0,
+          ruleSuiteAttempts: 1,
+          ruleSuiteDelayMs: 0,
+        }),
+        /P14 Merger ruleset view drift/,
+      );
+      assert.equal(invalid.writes.length, 0);
+    });
+});
 test("merge ambiguity never retries and recovered merge runs invariants", async () => {
   const f = postMergeFixture({ transport: true });
   const result = await mergeOnce({
@@ -1893,7 +2034,7 @@ test("post-merge invariant rejection matrix", async (t) => {
 });
 
 test("I6 rule-suite evidence distinguishes endpoint availability and exact evidence", async () => {
-  const unavailable = postMergeFixture({ ruleSuiteMode: "unavailable" });
+  const unavailable = postMergeFixture({ ruleSuiteMode: "unavailable", ruleSuiteStatus: 403 });
   const unavailableResult = await mergeOnce({
     ...unavailable,
     owner: "o",
@@ -1920,19 +2061,42 @@ test("I6 rule-suite evidence distinguishes endpoint availability and exact evide
       available: validResult.ruleSuite.available,
       id: validResult.ruleSuite.id,
       result: validResult.ruleSuite.result,
-      actor: validResult.ruleSuite.actor,
+      actorId: validResult.ruleSuite.actorId,
+      actorName: validResult.ruleSuite.actorName,
+      afterSha: validResult.ruleSuite.afterSha,
     },
-    { available: true, id: 71, result: "pass", actor: MERGER_APP_BOT_LOGIN },
+    {
+      available: true,
+      id: 71,
+      result: "pass",
+      actorId: MERGER_APP_ACTOR_ID,
+      actorName: MERGER_APP_BOT_LOGIN,
+      afterSha: valid.mergeSha,
+    },
   );
-  assert.equal(validResult.ruleSuite.detail.rule_evaluations.length, 1);
   assert.equal(valid.ruleSuiteRequests[0].parameters.time_period, "hour");
   assert.equal(valid.writes.length, 1);
 
-  for (const [mode, attempts] of [
-    ["no-exact", 2],
-    ["wrong-actor", 1],
-    ["wrong-result", 1],
-  ]) {
+  const notFound = postMergeFixture({ ruleSuiteMode: "no-exact" });
+  const notFoundResult = await mergeOnce({
+    ...notFound,
+    owner: "o",
+    repo: "r",
+    confirmationDelayMs: 0,
+    ruleSuiteAttempts: 2,
+    ruleSuiteDelayMs: 0,
+  });
+  assert.deepEqual(notFoundResult.ruleSuite, {
+    available: false,
+    reason: "not found",
+    mergeSha: notFound.mergeSha,
+  });
+  assert.equal(
+    notFound.ruleSuiteRequests.filter(({ route }) => route.endsWith("/rule-suites")).length,
+    2,
+  );
+
+  for (const mode of ["wrong-actor", "wrong-result"]) {
     const fixture = postMergeFixture({ ruleSuiteMode: mode });
     await assert.rejects(
       mergeOnce({
@@ -1940,17 +2104,12 @@ test("I6 rule-suite evidence distinguishes endpoint availability and exact evide
         owner: "o",
         repo: "r",
         confirmationDelayMs: 0,
-        ruleSuiteAttempts: attempts,
+        ruleSuiteAttempts: 1,
         ruleSuiteDelayMs: 0,
       }),
       /I6/,
     );
     assert.equal(fixture.writes.length, 1);
-    if (mode === "no-exact")
-      assert.equal(
-        fixture.ruleSuiteRequests.filter(({ route }) => route.endsWith("/rule-suites")).length,
-        2,
-      );
   }
 });
 
@@ -2147,6 +2306,7 @@ test("T4/T5/T6 terminal Q recovers after a throw-before-apply", async (t) => {
 
 test("independent verify-merge helper preserves Git graph and tree invariants", () => {
   const root = mkdtempSync(join(tmpdir(), "phase0-verify-merge-"));
+  const nonRepo = mkdtempSync(join(tmpdir(), "phase0-verify-merge-cwd-"));
   const git = (args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
   git(["init", "--initial-branch=main"]);
   git(["config", "user.name", "Phase0 Test"]);
@@ -2165,22 +2325,22 @@ test("independent verify-merge helper preserves Git graph and tree invariants", 
   const script = fileURLToPath(new URL("./verify-merge.mjs", import.meta.url));
   const good = spawnSync(
     process.execPath,
-    [script, "--merge", merge, "--base", gitBase, "--head", gitHead],
-    { cwd: root, encoding: "utf8" },
+    [script, "--repo", root, "--merge", merge, "--base", gitBase, "--head", gitHead],
+    { cwd: nonRepo, encoding: "utf8" },
   );
   assert.equal(good.status, 0, good.stderr);
   assert.match(good.stdout, /PASS/);
   const wrongParent = spawnSync(
     process.execPath,
-    [script, "--merge", gitHead, "--base", gitBase, "--head", gitHead],
-    { cwd: root, encoding: "utf8" },
+    [script, "--repo", root, "--merge", gitHead, "--base", gitBase, "--head", gitHead],
+    { cwd: nonRepo, encoding: "utf8" },
   );
   assert.notEqual(wrongParent.status, 0);
   assert.match(wrongParent.stderr, /exactly two parents/);
   const wrongHead = spawnSync(
     process.execPath,
-    [script, "--merge", merge, "--base", gitBase, "--head", gitBase],
-    { cwd: root, encoding: "utf8" },
+    [script, "--repo", root, "--merge", merge, "--base", gitBase, "--head", gitBase],
+    { cwd: nonRepo, encoding: "utf8" },
   );
   assert.notEqual(wrongHead.status, 0);
   assert.match(wrongHead.stderr, /second parent/);

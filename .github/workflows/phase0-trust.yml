@@ -192,7 +192,7 @@ jobs:
             const prepared = JSON.parse(Buffer.from(process.env.PREPARED, "base64").toString());
             const gateGithub = process.env.GATE_TOKEN ? getOctokit(process.env.GATE_TOKEN) : undefined;
             const validated = await helper.finalizeBeforeMerge({ github, gateGithub, ...context.repo, prepared, trustedSha: context.sha });
-            const compact = { ...validated, rulesets: { a: { id: validated.rulesets.a.id, hash: validated.rulesets.a.hash }, b: { id: validated.rulesets.b.id, hash: validated.rulesets.b.hash } } };
+            const compact = { ...validated, rulesets: { a: validated.rulesets.a, b: validated.rulesets.b } };
             core.setOutput("evidence", Buffer.from(JSON.stringify(compact)).toString("base64"));
             core.setOutput("ruleset_a", `${validated.rulesets.a.id}:${validated.rulesets.a.hash}`);
             core.setOutput("ruleset_b", `${validated.rulesets.b.id}:${validated.rulesets.b.hash}`);
@@ -220,7 +220,7 @@ jobs:
             const helper = await import(pathToFileURL(process.env.HELPER).href);
             const validated = JSON.parse(Buffer.from(process.env.EVIDENCE, "base64").toString());
             const result = await helper.mergeOnce({ mergerGithub: getOctokit(process.env.MERGER_TOKEN), readGithub: github, ...context.repo, validated });
-            await core.summary.addHeading("Phase 0 trusted merge").addCodeBlock(JSON.stringify({ pr: validated.audit.prNumber, base: validated.audit.base, head: validated.audit.head, auditedTree: validated.audit.tree, mergeSha: result.mergeSha, mergeTree: result.mergeTree, gateId: validated.gateId, gateProvenance: validated.gateExternalId, gateCompletedAt: validated.gateCompletedAt, dispatch: `${validated.dispatchIdentity.runId}/${validated.dispatchIdentity.attempt}`, rulesetA: validated.rulesets.a, rulesetB: validated.rulesets.b, ruleSuite: result.ruleSuite }, null, 2)).write();
+            await core.summary.addHeading("Phase 0 trusted merge").addCodeBlock(JSON.stringify({ pr: validated.audit.prNumber, base: validated.audit.base, head: validated.audit.head, auditedTree: validated.audit.tree, mergeSha: result.mergeSha, mergeTree: result.mergeTree, gateId: validated.gateId, gateProvenance: validated.gateExternalId, gateCompletedAt: validated.gateCompletedAt, dispatch: `${validated.dispatchIdentity.runId}/${validated.dispatchIdentity.attempt}`, rulesetA: validated.rulesets.a, rulesetB: validated.rulesets.b, mergerRulesets: result.mergerRulesets, ruleSuite: result.ruleSuite }, null, 2)).write();
 
       - name: Independent Git-level merge verification
         env:
@@ -229,4 +229,4 @@ jobs:
         run: |
           set -euo pipefail
           git -C phase0-trusted-source fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          node phase0-trusted-source/scripts/audit/verify-merge.mjs --merge origin/main --base "$BASE" --head "$HEAD" --live-main origin/main
+          node phase0-trusted-source/scripts/audit/verify-merge.mjs --repo phase0-trusted-source --merge origin/main --base "$BASE" --head "$HEAD" --live-main origin/main
