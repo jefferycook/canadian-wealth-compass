@@ -39,3 +39,67 @@ formula (base vs enhanced portions), which this note does **not** implement.
    base cap, with fixtures for early starter / deferrer / 65-crossing, written
    by a party other than the implementer.
 2. Only then implement; do not alter golden 274,815 without stage attribution.
+
+## Statutory component mapping (added 2026-10-25; first-hand read, still unreviewed)
+
+Source: Justice Laws, *Canada Pension Plan* (R.S.C. 1985, c. C-8), ss.45, 46 and 58,
+"Act current to 2026-09-30, last amended 2024-12-17", fetched directly. This is a
+reading of the text, not legal advice and **not an approved reference answer**. Not
+read: s.57(2) (deceased's portion), s.48.1/48.2/51 (additional earnings), the
+definition of "Maximum Pensionable Earnings Average", and the Pension Index
+regulations. Those remain open.
+
+### s.58(2)(c): survivor 65+, born after 1932, own pension commenced after 1997
+
+Survivor pension = (i) + (ii) + (iii), each computed on its own component:
+
+| Part | Deceased portion `C` (60% applied) | Survivor own portion used in `B` | Cap |
+|---|---|---|---|
+| (i) base | 60% of s.58(3) portion (s.57(2) amount x Pension Index ratio) | s.46(1)(a) 25% of average monthly pensionable earnings, **ignoring s.46(3)-(6)**, indexed under s.45(2) | lesser of `A-B` and (25% of 1/12 of survivor's MPE Average for the later of year-qualified / year-pension-started, indexed under s.45(2)) **minus the survivor's own base portion** |
+| (ii) first additional | 60% of s.58(3.1) portion = 8.33% of first additional monthly pensionable earnings (s.58(3.2)); x index ratio since death; if a retirement pension was payable in the death month, also x ratio from the year it started | s.46(1)(b) portion, ignoring s.46(3.1)-(6), indexed | none |
+| (iii) second additional | 60% of s.58(3.4) portion = 33.33% of second additional monthly pensionable earnings (s.58(3.5)); same index treatment | s.46(1)(c) portion, ignoring s.46(3.1)-(6), indexed | none |
+
+For each part: `A = 60% x deceased portion`, `B = min(40% x A, 40% x survivor's own portion)`,
+part = `A - B` (base part further limited by the cap above).
+
+### Other age categories (not mapped further here)
+
+- s.58(2)(a), survivor under 65, pension commencing after 1997: same shape with **37.5%**
+  in place of 60%, plus a flat-rate benefit (s.58(1.1)) or post-retirement disability benefit
+  (greater of the two).
+- s.58(2)(b), under 65, pension commencing before 1998: 37.5% with a 25%-of-three-year-average-YMPE cap.
+- Survivors born before 1933 or with pensions commencing before 1998 fall in other branches.
+
+### Consequences for `cppSurvivorBenefit` (hypotheses to test, not conclusions)
+
+1. **Own pension basis.** The statute uses the survivor's own portions *before* the
+   early/late factor (s.46(3)-(6) disregarded). The engine's `survOwnCpp` is after `cppFactor`.
+2. **Cap structure.** The engine applies one cap, `combinedMax - survOwnCpp`, to the whole
+   survivor amount. In (c) only the base part is capped (against 25% of MPEA/12 less own base
+   portion); enhancement parts (ii) and (iii) are uncapped.
+3. **Component separation.** The engine appears to treat the deceased's pension as one
+   figure. The Act needs base / first additional / second additional separately, with
+   different percentages (25%, 8.33%, 33.33% of the respective earnings measures).
+4. **s.46(5) interaction (new).** When a survivor's pension is reduced under s.58(2), the
+   downward early-claim factor in s.46(3)/(3.1)/(4) applies only to the survivor's own
+   basic retirement amount *less* the reduction (scaled by Pension Index ratios), not the whole.
+   This bears directly on how an early claimer's combined payment should be modelled and
+   is not mentioned in the backlog.
+5. **Reduction rule is 40%-of-smaller, not "min with combined max".** `B` is a 40% haircut
+   on the smaller of A and the survivor's own portion; this is a different shape from
+   `min(60% x deceased, max - own)`.
+
+### Synthetic arithmetic check of the part (i) shape (not a fixture)
+
+Invented monthly figures, no engine constants: deceased base portion 600 -> `A = 360`;
+survivor own base portion 500 -> `B = min(144, 200) = 144`; `A - B = 216`; with an invented
+cap value of 700 (25% MPEA/12), cap room = 700 - 500 = 200; part (i) = min(216, 200) = **200**.
+Illustrates that the cap can bind while enhancement parts are unaffected.
+
+### Next steps
+
+1. Read s.57(2), ss.48.1/48.2/51, the "Maximum Pensionable Earnings Average" definition and
+   Pension Index rules; finish the component mapping.
+2. Derive component-separated synthetic fixtures (claim at 60 / 65 / 70, under-65 turning 65).
+3. A second party checks the fixtures before any are called expected values.
+4. No engine change and no golden movement without explicit owner authorization.
