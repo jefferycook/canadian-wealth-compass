@@ -109,7 +109,13 @@ Survivor own portions are the unadjusted s.46(1) portions (s.46(3)-(6) disregard
 | F1 | 600 / 0 / 0 | 500 / 0 / 0 | 700 | min(360-144, 700-500) = min(216, 200) = 200 | 0 | 0 | 200 |
 | F2 | 600 / 0 / 0 | 100 / 0 / 0 | 700 | B = min(144, 40) = 40; 360-40 = 320; cap room 600; = 320 | 0 | 0 | 320 |
 | F3 | 600 / 100 / 50 | 500 / 40 / 20 | 700 | 200 | A=60, B=min(24,16)=16 -> 44 | A=30, B=min(12,8)=8 -> 22 | 266 |
-| F4 | 600 / 100 / 50 | 750 / 0 / 0 | 700 | cap room = max(0, 700-750) = 0 -> 0 | A=60, B=0 -> 60 | A=30, B=0 -> 30 | 90 |
+| F4 (**HOLD**) | 600 / 100 / 50 | 750 / 0 / 0 | 700 | literal 700-750 = -50; floor to 0 is ASSUMED | A=60, B=0 -> 60 | A=30, B=0 -> 30 | 90 only if the floor holds |
+
+**F4 is on HOLD (second-party check, 2026-10-26).** The nonnegative floor is not derived from
+the statute. Do not certify F4 = 90 and do not model a negative pension. Replace F4 with a
+feasible cap/own-base combination, or document the legal basis of the floor, before use.
+F1-F3 are conditional illustrative arithmetic (second party confirmed the arithmetic and the
+conditional formula shape), not approved benefit values.
 
 Checks: F3 and F4 show enhancement parts are not limited by the base cap. F4 shows the
 base part floors at zero when the own base portion already exceeds the cap.
@@ -121,22 +127,48 @@ Whether the base cap term is "cap minus own base portion" exactly as tabulated d
 paraphrased s.58(2)(c)(i) text and **must be confirmed against the official wording** before F1,
 F2 and F4 are treated as expected values.
 
-### Draft synthetic fixtures, under-65 shape (UNREVIEWED; invented monthly figures)
+### Draft synthetic fixtures, under-65 survivor with NO own retirement pension (UNREVIEWED; invented monthly figures)
 
-Recalled shape, **not yet confirmed against the official s.58 wording**: a survivor under 65
-receives a flat-rate component plus 37.5% of the deceased's retirement pension (s.58(2)(a)
-as described in the earlier notes), subject to the combined-benefit limit. Invented flat
-rate: 200. Invented deceased retirement pension: 800. Combined-limit and indexation effects
-are excluded (ratios 1, no cap) to isolate the shape.
+Per the second-party reading (2026-10-26): s.58(1)(a.1) gives an under-65 survivor who is
+**not** receiving their own retirement pension a flat-rate component plus 37.5% of the
+deceased's pension. G1/G2 illustrate **only that branch**. They are **not** combined-pension
+fixtures and do not test s.58(2)(a). Invented flat rate: 200 (assumes eligibility under s.44).
+Indexation ratios 1.
 
 | ID | Deceased pension | Flat rate | 37.5% part | Total |
 |---|---|---|---|---|
 | G1 | 800 | 200 | 0.375 x 800 = 300 | 500 |
-| G2 | 0 (no pension) | 200 | 0 | 200 |
+| G2 | 0 | 200 | 0 | 200 |
 
-G1/G2 are arithmetic illustrations only. Still open: the combined cap for under-65 survivors,
-the s.46(5) early-claim interaction, and the transition at 65 (s.58(3)). Each needs an
-official-text reading and a second-party check before it is an expected value.
+G2 is an arithmetic illustration only. A zero-contribution deceased contributor would not
+establish s.44 eligibility, so G2 is not evidence of a real benefit.
+
+### Draft synthetic fixture, under-65 COMBINED case, s.58(2)(a) shape (UNREVIEWED; invented)
+
+Shape per the second-party reading: flat rate + lesser of (`C - D`, base top-up allowance)
++ separate first/second additional `C - D` parts, with `C = 0.375 x deceased component` and
+`D = min(0.40 x C, 0.40 x survivor own unadjusted component)`. Ratios 1. Base cap 700.
+
+| ID | Deceased base / 1st / 2nd | Survivor own base / 1st / 2nd | Flat | Base part | 1st part | 2nd part | Total |
+|---|---|---|---|---|---|---|---|
+| G3 | 800 / 100 / 50 | 500 / 40 / 20 | 200 | C=300, D=min(120,200)=120, C-D=180; cap room 700-500=200; lesser = 180 | C=37.5, D=min(15,16)=15 -> 22.5 | C=18.75, D=min(7.5,8)=7.5 -> 11.25 | 200 + 180 + 22.5 + 11.25 = 413.75 |
+
+G3 is arithmetic on invented inputs. Whether the flat rate is added outside the cap, and the
+exact s.58(2)(a) wording, still need a second-party check before G3 is an expected value.
+
+### s.46(5) early-claim interaction: variables a future fixture must track (docs only)
+
+No numeric result is claimed. A future case must track separately: the full (unreduced)
+survivor amount; the reduced survivor amount and the s.58(2) reduction; the survivor's own
+unadjusted base / first / second additional portions; the downward early-claim factor and
+claim age; the Pension Index years used in the s.46(5)(a)-(b) ratio; and whether the case is
+upward (late claim) or historic (pre-2011 start), which need separate treatment. Do not apply
+a flat early-claim factor to an undifferentiated combined total. The offset and indexing need
+an independent official-text reading first.
+
+Note: PR #30 has more than one commit and cannot satisfy the one-commit `verify-candidate`
+rule. Any formal integration needs a new one-commit replacement; published history is not
+to be rewritten.
 
 ### Next steps
 
