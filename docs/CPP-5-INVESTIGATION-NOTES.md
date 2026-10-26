@@ -110,6 +110,12 @@ Survivor own portions are the unadjusted s.46(1) portions (s.46(3)-(6) disregard
 | F2 | 600 / 0 / 0 | 100 / 0 / 0 | 700 | B = min(144, 40) = 40; 360-40 = 320; cap room 600; = 320 | 0 | 0 | 320 |
 | F3 | 600 / 100 / 50 | 500 / 40 / 20 | 700 | 200 | A=60, B=min(24,16)=16 -> 44 | A=30, B=min(12,8)=8 -> 22 | 266 |
 | F4 (**HOLD**) | 600 / 100 / 50 | 750 / 0 / 0 | 700 | literal 700-750 = -50; floor to 0 is ASSUMED | A=60, B=0 -> 60 | A=30, B=0 -> 30 | 90 only if the floor holds |
+| F5 (replaces F4, boundary) | 600 / 100 / 50 | 700 / 0 / 0 | 700 | cap room 700-700 = 0 (no negative term); min(360-144, 0) = 0 | A=60, B=min(24,0)=0 -> 60 | A=30, B=min(12,0)=0 -> 30 | 90 |
+
+F5 (invented, unapproved) puts the own base portion exactly at the cap, so the cap term is 0
+without relying on any floor. It tests the boundary where the base part is fully capped out
+while the enhancement parts are unaffected. The legal basis of a floor for own base > cap
+remains undocumented; F4 stays on hold.
 
 **F4 is on HOLD (second-party check, 2026-10-26).** The nonnegative floor is not derived from
 the statute. Do not certify F4 = 90 and do not model a negative pension. Replace F4 with a
