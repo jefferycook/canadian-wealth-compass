@@ -121,6 +121,23 @@ Whether the base cap term is "cap minus own base portion" exactly as tabulated d
 paraphrased s.58(2)(c)(i) text and **must be confirmed against the official wording** before F1,
 F2 and F4 are treated as expected values.
 
+### Draft synthetic fixtures, under-65 shape (UNREVIEWED; invented monthly figures)
+
+Recalled shape, **not yet confirmed against the official s.58 wording**: a survivor under 65
+receives a flat-rate component plus 37.5% of the deceased's retirement pension (s.58(2)(a)
+as described in the earlier notes), subject to the combined-benefit limit. Invented flat
+rate: 200. Invented deceased retirement pension: 800. Combined-limit and indexation effects
+are excluded (ratios 1, no cap) to isolate the shape.
+
+| ID | Deceased pension | Flat rate | 37.5% part | Total |
+|---|---|---|---|---|
+| G1 | 800 | 200 | 0.375 x 800 = 300 | 500 |
+| G2 | 0 (no pension) | 200 | 0 | 200 |
+
+G1/G2 are arithmetic illustrations only. Still open: the combined cap for under-65 survivors,
+the s.46(5) early-claim interaction, and the transition at 65 (s.58(3)). Each needs an
+official-text reading and a second-party check before it is an expected value.
+
 ### Next steps
 
 1. Read s.57(2), ss.48.1/48.2/51, the "Maximum Pensionable Earnings Average" definition and
