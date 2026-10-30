@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,17 +21,22 @@ import { annualFromMonthly, money, monthlyFromAnnual } from "@/lib/planning/unit
 export function Field({
   label,
   hint,
+  htmlFor,
   children,
   className,
 }: {
   label: string;
   hint?: string | undefined;
+  /** Id of the control this label names, so assistive tech announces it. */
+  htmlFor?: string | undefined;
   children: ReactNode;
   className?: string | undefined;
 }) {
   return (
     <div className={cn("space-y-1.5", className)}>
-      <Label className="text-sm font-medium">{label}</Label>
+      <Label htmlFor={htmlFor} className="text-sm font-medium">
+        {label}
+      </Label>
       {children}
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </div>
@@ -70,6 +75,7 @@ export function NumberField({
    */
   const [text, setText] = useState(value == null ? "" : String(value));
   const typing = useRef(false);
+  const id = useId();
 
   useEffect(() => {
     if (typing.current) {
@@ -81,7 +87,7 @@ export function NumberField({
   }, [value, text]);
 
   return (
-    <Field label={label} hint={hint} className={className}>
+    <Field label={label} hint={hint} htmlFor={id} className={className}>
       <div className="relative">
         {prefix ? (
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
@@ -89,6 +95,7 @@ export function NumberField({
           </span>
         ) : null}
         <Input
+          id={id}
           type="number"
           inputMode="decimal"
           className={cn("tabular", prefix && "pl-7", suffix && "pr-10")}
@@ -128,9 +135,11 @@ export function TextField({
   onChange: (v: string) => void;
   placeholder?: string | undefined;
 }) {
+  const id = useId();
   return (
-    <Field label={label} hint={hint}>
+    <Field label={label} hint={hint} htmlFor={id}>
       <Input
+        id={id}
         value={value}
         placeholder={placeholder ?? ""}
         onChange={(e) => onChange(e.target.value)}
@@ -154,10 +163,11 @@ export function SelectField<T extends string>({
   options: { value: T; label: string; disabled?: boolean }[];
   placeholder?: string | undefined;
 }) {
+  const id = useId();
   return (
-    <Field label={label} hint={hint}>
+    <Field label={label} hint={hint} htmlFor={id}>
       <Select value={value ?? ""} onValueChange={(v) => onChange(v as T)}>
-        <SelectTrigger>
+        <SelectTrigger id={id}>
           <SelectValue placeholder={placeholder ?? "Select…"} />
         </SelectTrigger>
         <SelectContent>
@@ -185,9 +195,11 @@ export function DateField({
   onChange: (v: string | null) => void;
   max?: string | undefined;
 }) {
+  const id = useId();
   return (
-    <Field label={label} hint={hint}>
+    <Field label={label} hint={hint} htmlFor={id}>
       <Input
+        id={id}
         type="date"
         className="tabular"
         value={value ?? ""}
