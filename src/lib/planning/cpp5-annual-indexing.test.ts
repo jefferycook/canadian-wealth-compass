@@ -166,4 +166,26 @@ describe("CPP-5 experimental annual indexing chain", () => {
     // ratio 1.00000000000000013 -> 1.000
     expect(r.status === "COMPUTED" && r.finalAmountCents).toBe(100000);
   });
+
+  it("multi-year non-unity chain differs from a single direct ratio (workbench ledger W1)", () => {
+    // Hand: 1234.56 x 1.012 = 1249.37472 -> 1249.37; 1249.37 x 1.012 = 1264.36244 -> 1264.36.
+    // Direct 1234.56 x 1.024144 = 1264.3672 -> 1264.37 would be wrong.
+    const r = indexBenefitAnnually({
+      startYear: 2030,
+      startAmountCents: 123456,
+      pensionIndex: { 2030: "100", 2031: "101.2", 2032: "102.4144" },
+      throughYear: 2032,
+    });
+    expect(r.status === "COMPUTED" && r.steps.map((s) => s.amountCents)).toEqual([124937, 126436]);
+  });
+
+  it("flat PI leaves a fractional-cent history untouched (workbench ledger W2)", () => {
+    const r = indexBenefitAnnually({
+      startYear: 2030,
+      startAmountCents: 123457,
+      pensionIndex: { 2030: "104.55", 2031: "104.55", 2032: "104.55" },
+      throughYear: 2032,
+    });
+    expect(r.status === "COMPUTED" && r.finalAmountCents).toBe(123457);
+  });
 });
