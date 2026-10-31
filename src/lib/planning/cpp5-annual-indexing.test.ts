@@ -66,50 +66,52 @@ describe("CPP-5 experimental annual indexing chain", () => {
     expect(r).toMatchObject({ status: "COMPUTED", finalAmountCents: 12345, steps: [] });
   });
 
-  it("fails closed when the ratio is not exact to three decimals and no policy is given", () => {
+  it("Reg. 62(3): rounds fourth quotient digit into third, 1.01234 -> 1.012", () => {
     const r = indexBenefitAnnually({
       startYear: 2030,
       startAmountCents: 100000,
       pensionIndex: { 2030: "100", 2031: "101.234" },
       throughYear: 2031,
     });
-    expect(r.status).toBe("UNVERIFIED_RULE");
-  });
-
-  it("applies an explicit ratio policy but tags the result as not verified", () => {
-    const base = {
-      startYear: 2030,
-      startAmountCents: 100000,
-      pensionIndex: { 2030: "100", 2031: "101.234" },
-      throughYear: 2031,
-    };
-    // ratio 1.01234: three decimals 1.012 -> 1012.00; four decimals 1.0123 -> 1012.30
-    const three = indexBenefitAnnually({ ...base, ratioPolicy: "THREE_DECIMALS_LITERAL_REG62_3" });
-    const four = indexBenefitAnnually({
-      ...base,
-      ratioPolicy: "FOUR_DECIMALS_ALTERNATIVE_READING",
-    });
-    expect(three).toMatchObject({
+    expect(r).toMatchObject({
       status: "COMPUTED",
-      basis: "ASSUMED_RATIO_POLICY_NOT_VERIFIED",
+      basis: "STATUTORY_TEXT",
       finalAmountCents: 101200,
     });
-    expect(four).toMatchObject({
-      status: "COMPUTED",
-      basis: "ASSUMED_RATIO_POLICY_NOT_VERIFIED",
-      finalAmountCents: 101230,
-    });
+    if (r.status === "COMPUTED") expect(r.steps[0].ratioApplied).toBe("1.012");
   });
 
-  it("rounds the ratio half-up on the fourth digit (1.0125 -> 1.013)", () => {
+  it("Reg. 62(3): fourth digit five rounds third up, 1.0125 -> 1.013", () => {
     const r = indexBenefitAnnually({
       startYear: 2030,
       startAmountCents: 100000,
       pensionIndex: { 2030: "100", 2031: "101.25" },
       throughYear: 2031,
-      ratioPolicy: "THREE_DECIMALS_LITERAL_REG62_3",
     });
     expect(r.status === "COMPUTED" && r.finalAmountCents).toBe(101300);
+    if (r.status === "COMPUTED") expect(r.steps[0].ratioApplied).toBe("1.013");
+  });
+
+  it("Reg. 62(3): quotient rounding carries to whole number, 1.9995 -> 2.000", () => {
+    const r = indexBenefitAnnually({
+      startYear: 2030,
+      startAmountCents: 100000,
+      pensionIndex: { 2030: "100", 2031: "199.95" },
+      throughYear: 2031,
+    });
+    expect(r).toMatchObject({ status: "COMPUTED", finalAmountCents: 200000 });
+    if (r.status === "COMPUTED") expect(r.steps[0].ratioApplied).toBe("2.000");
+  });
+
+  it("rounds the quotient before the cent product, not the raw PI ratio", () => {
+    const r = indexBenefitAnnually({
+      startYear: 2030,
+      startAmountCents: 100000,
+      pensionIndex: { 2030: "100", 2031: "101.249" },
+      throughYear: 2031,
+    });
+    // Raw ratio 1.01249 -> statutory 1.012 -> $1012.00, not $1012.49.
+    expect(r).toMatchObject({ status: "COMPUTED", finalAmountCents: 101200 });
   });
 
   it("rejects a falling PI (s.43(2)), missing years and malformed values", () => {
@@ -161,9 +163,19 @@ describe("CPP-5 experimental annual indexing chain", () => {
       startAmountCents: 100000,
       pensionIndex: { 2030: "0.3", 2031: "0.30000000000000004" },
       throughYear: 2031,
-      ratioPolicy: "THREE_DECIMALS_LITERAL_REG62_3",
     });
     // ratio 1.00000000000000013 -> 1.000
     expect(r.status === "COMPUTED" && r.finalAmountCents).toBe(100000);
   });
+  it("fails closed if annual multiplication would exceed safe integer cents", () => {
+    const r = indexBenefitAnnually({
+      startYear: 2030,
+      startAmountCents: Number.MAX_SAFE_INTEGER,
+      pensionIndex: { 2030: "100", 2031: "200" },
+      throughYear: 2031,
+    });
+    expect(r.status).toBe("INVALID_INPUT");
+  });
+
+
 });

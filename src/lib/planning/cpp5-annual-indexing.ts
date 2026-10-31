@@ -12,11 +12,10 @@
  *   as the previous year's adjusted amount makes the adjustment a year-by-year chain.
  * - Regs s.62(1)(a), (2): each product is adjusted to the nearest cent, using only the
  *   third decimal digit (5 or more rounds the cent up, otherwise dropped).
- * - Regs s.62(1)(b), (3): the PI quotient is expressed as a decimal. The text says to
- *   write four digits after the point and then round on the fourth digit into the
- *   third, which literally leaves THREE decimals. Whether three or four was intended
- *   is unresolved, so the ratio is only used without a caller-supplied policy when
- *   both readings give the same ratio.
+ * - Regs s.62(1)(b), (3): determine the first four digits after the decimal
+ *   point of the PI quotient; the fourth is the rounding digit for the THIRD.
+ *   The final annual adjustment quotient is therefore expressed to THREE decimal
+ *   places. This is a required statutory rule, not a caller-selectable policy.
  *
  * Deliberately NOT implemented (fail closed upstream): s.58(3) event rebasing, s.58(1.1)
  * flat-rate indexing, the s.43(1) CPI averaging and s.43(3) rebasing (Reg. s.75 unread).
@@ -25,8 +24,6 @@
  *
  * All arithmetic is exact (BigInt rationals); no floating point touches money or ratios.
  */
-
-export type RatioPolicy = "THREE_DECIMALS_LITERAL_REG62_3" | "FOUR_DECIMALS_ALTERNATIVE_READING";
 
 export interface IndexingInput {
   /** Year Y0 in which the benefit first became payable. */
@@ -37,8 +34,6 @@ export interface IndexingInput {
   readonly pensionIndex: Readonly<Record<number, number | string>>;
   /** Last year to compute (>= startYear). */
   readonly throughYear: number;
-  /** Only needed when some year's ratio is not exact to three decimals. */
-  readonly ratioPolicy?: RatioPolicy;
 }
 
 export interface IndexingStep {
@@ -50,14 +45,14 @@ export interface IndexingStep {
 
 export interface IndexingComputed {
   readonly status: "COMPUTED";
-  /** "STATUTORY_TEXT" when every ratio is exact to 3 decimals; otherwise policy-dependent. */
-  readonly basis: "STATUTORY_TEXT" | "ASSUMED_RATIO_POLICY_NOT_VERIFIED";
+  /** Regulation 62(3) rounded the PI quotient to three decimals. */
+  readonly basis: "STATUTORY_TEXT";
   readonly steps: readonly IndexingStep[];
   readonly finalAmountCents: number;
 }
 
 export interface IndexingFailClosed {
-  readonly status: "INVALID_INPUT" | "INSUFFICIENT_DATA" | "UNVERIFIED_RULE";
+  readonly status: "INVALID_INPUT" | "INSUFFICIENT_DATA";
   readonly reason: string;
   readonly citation: string;
 }
@@ -96,7 +91,7 @@ function formatScaled(scaled: bigint, decimals: number): string {
 }
 
 export function indexBenefitAnnually(input: IndexingInput): IndexingResult {
-  const { startYear, startAmountCents, pensionIndex, throughYear, ratioPolicy } = input;
+  const { startYear, startAmountCents, pensionIndex, throughYear } = input;
   if (!Number.isInteger(startYear) || !Number.isInteger(throughYear) || throughYear < startYear) {
     return fail("INVALID_INPUT", "years must be integers with throughYear >= startYear", ACT_45);
   }
@@ -116,15 +111,9 @@ export function indexBenefitAnnually(input: IndexingInput): IndexingResult {
     pi.set(y, r);
   }
 
-  // Exact ratios and the readings of Reg. s.62(3).
-  const ratios: {
-    year: number;
-    n: bigint;
-    d: bigint;
-    three: bigint;
-    four: bigint;
-    exact3: boolean;
-  }[] = [];
+  // Reg. 62(3): evaluate the fourth decimal as the rounding digit, retain three.
+  // BigInt rational arithmetic performs this rounding exactly, including carry.
+  const ratios: { year: number; scaledToThree: bigint }[] = [];
   for (let y = startYear + 1; y <= throughYear; y++) {
     const cur = pi.get(y)!;
     const prev = pi.get(y - 1)!;
@@ -137,37 +126,25 @@ export function indexBenefitAnnually(input: IndexingInput): IndexingResult {
         ACT_43,
       );
     }
-    const three = roundHalfUp(n * 1000n, d);
-    const four = roundHalfUp(n * 10000n, d);
-    ratios.push({ year: y, n, d, three, four, exact3: (n * 1000n) % d === 0n });
-  }
-
-  const needsPolicy = ratios.some((r) => !r.exact3);
-  if (needsPolicy && ratioPolicy === undefined) {
-    const first = ratios.find((r) => !r.exact3)!;
-    return fail(
-      "UNVERIFIED_RULE",
-      `PI ratio for ${first.year} is not exact to three decimals; Reg. s.62(3) is ambiguous between 3 and 4 decimals`,
-      "CPP Regulations s.62(1)(b), (3)",
-    );
+    ratios.push({ year: y, scaledToThree: roundHalfUp(n * 1000n, d) });
   }
 
   let cents = BigInt(startAmountCents);
   const steps: IndexingStep[] = [];
   for (const r of ratios) {
-    const useFour = needsPolicy && ratioPolicy === "FOUR_DECIMALS_ALTERNATIVE_READING";
-    const scale = useFour ? 10000n : 1000n;
-    const scaled = useFour ? r.four : r.three;
-    cents = roundHalfUp(cents * scaled, scale);
+    cents = roundHalfUp(cents * r.scaledToThree, 1000n);
+    if (cents > BigInt(Number.MAX_SAFE_INTEGER)) {
+      return fail("INVALID_INPUT", "adjusted benefit exceeds safe integer cents", ACT_45);
+    }
     steps.push({
       year: r.year,
-      ratioApplied: formatScaled(scaled, useFour ? 4 : 3),
+      ratioApplied: formatScaled(r.scaledToThree, 3),
       amountCents: Number(cents),
     });
   }
   return {
     status: "COMPUTED",
-    basis: needsPolicy ? "ASSUMED_RATIO_POLICY_NOT_VERIFIED" : "STATUTORY_TEXT",
+    basis: "STATUTORY_TEXT",
     steps,
     finalAmountCents: Number(cents),
   };
