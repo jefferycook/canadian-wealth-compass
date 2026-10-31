@@ -83,10 +83,27 @@ describe("selectS583Events", () => {
     expect(run({ ...ok, deathMonth: "2018-06", survivorBirthMonth: "1983-06" }).eventA.status).toBe(
       "UNRESOLVED",
     );
-    // onset at/after 65th-birthday month
-    expect(
-      run({ ...ok, survivorBirthMonth: "1960-01", dependentChildAtDeath: false }).eventA.status,
-    ).toBe("UNRESOLVED");
+    // onset at/after 65th-birthday month: the survivor is 68 at death (65th birthday 2015-01)
+    // and 69 at onset, so the age-65 branch is the one selected (checked via its reason text).
+    const at65 = run({ ...ok, survivorBirthMonth: "1950-01" }).eventA;
+    expect(at65.status).toBe("UNRESOLVED");
+    expect(at65.reason).toContain("65th birthday month");
+    // boundary: onset exactly in the 65th-birthday month (born 1953-10, 65 in 2018-10, death 2018-06)
+    const exact = run({
+      ...ok,
+      survivorBirthMonth: "1953-10",
+      disabilityOnsetMonth: "2018-10",
+    }).eventA;
+    expect(exact.status).toBe("UNRESOLVED");
+    expect(exact.reason).toContain("65th birthday month");
+    // one month earlier the age-65 branch is not taken; the over-35 contradiction guard is
+    const before = run({
+      ...ok,
+      survivorBirthMonth: "1953-10",
+      disabilityOnsetMonth: "2018-09",
+    }).eventA;
+    expect(before.status).toBe("UNRESOLVED");
+    expect(before.reason).toContain("contradictory history");
     // onset in the death month cannot be ordered
     expect(run({ ...ok, disabilityOnsetMonth: "2018-06" }).eventA.status).toBe("UNRESOLVED");
   });
