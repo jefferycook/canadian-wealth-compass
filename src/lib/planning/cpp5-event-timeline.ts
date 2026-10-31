@@ -122,6 +122,7 @@ export function selectS583Events(input: EventTimelineInput): EventTimelineResult
     return bad("unknown s44d1dRegime");
 
   const turns65 = birth + 65 * 12;
+  const ageAtDeathMonths = death - birth;
 
   // Event (a): disability began after the death.
   let eventA: EventSelection;
@@ -139,15 +140,35 @@ export function selectS583Events(input: EventTimelineInput): EventTimelineResult
       );
     } else if (input.payableByReasonOfDisability === false) {
       eventA = sel("NOT_MET", "declared: pension not payable by reason of the later disability");
+    } else if (regime === undefined) {
+      eventA = sel(
+        "UNRESOLVED",
+        "s.44(1)(d) limb not declared; a bare causation flag is not enough",
+      );
     } else if (regime === "d(ii)") {
       eventA = sel(
         "UNRESOLVED",
         "declared payable by reason of disability, but under d(ii) s.72(b) already starts the month after death",
       );
+    } else if (ageAtDeathMonths === 35 * 12) {
+      eventA = sel(
+        "UNRESOLVED",
+        "35th-birthday month equals the death month; day-level order is unknown",
+      );
+    } else if (ageAtDeathMonths > 35 * 12 || input.dependentChildAtDeath === true) {
+      eventA = sel(
+        "UNRESOLVED",
+        "contradictory: under d(i) s.72(a)(i) a survivor 35+ or with a dependent child already starts the month after death, so a later disability cannot be what made the pension payable",
+      );
+    } else if (input.dependentChildAtDeath === undefined) {
+      eventA = sel(
+        "UNRESOLVED",
+        "under 35 at death: dependent-child status needed to test causation",
+      );
     } else {
       eventA = sel(
         "MET",
-        "disability began after the death and the pension is declared payable by reason of it",
+        "d(i), under 35, no dependent child, disability began after the death and the pension is declared payable by reason of it",
       );
     }
   } else {
@@ -170,7 +191,6 @@ export function selectS583Events(input: EventTimelineInput): EventTimelineResult
   // s.72 start month and s.58(9) qualification month (separate, labelled fields).
   let s72Start: MonthKey | null = null;
   let qualification: MonthKey | null = null;
-  const ageAtDeathMonths = death - birth;
   const ge35 = ageAtDeathMonths > 35 * 12; // month granularity: strictly past the 35th-birthday month
   const eq35 = ageAtDeathMonths === 35 * 12;
   if (regime === "d(ii)") {

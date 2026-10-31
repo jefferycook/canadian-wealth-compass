@@ -57,6 +57,31 @@ describe("selectS583Events", () => {
     ).toBe("UNRESOLVED"); // d(ii): s.72(b) already starts 2030-07
   });
 
+  it("(a) adversarial: a bare causation flag never yields MET when the entitlement timeline contradicts it", () => {
+    const flag = { disabilityOnsetMonth: "2035-01", payableByReasonOfDisability: true };
+    const d1 = { s44d1dRegime: "d(i)" as const, ...flag };
+    // d(i), 50 at death: s.72(a)(i) already starts the month after death.
+    expect(run({ ...d1 }).eventA.status).toBe("UNRESOLVED");
+    // d(i), under 35 WITH a dependent child: same.
+    expect(
+      run({ ...d1, survivorBirthMonth: "2000-01", dependentChildAtDeath: true }).eventA.status,
+    ).toBe("UNRESOLVED");
+    // d(i), under 35, dependent-child status unknown.
+    expect(run({ ...d1, survivorBirthMonth: "2000-01" }).eventA.status).toBe("UNRESOLVED");
+    // d(i), 35th-birthday month equals death month.
+    expect(
+      run({ ...d1, survivorBirthMonth: "1995-06", dependentChildAtDeath: false }).eventA.status,
+    ).toBe("UNRESOLVED");
+    // regime undeclared.
+    expect(run({ ...flag, survivorBirthMonth: "2000-01" }, ["s44d1dRegime"]).eventA.status).toBe(
+      "UNRESOLVED",
+    );
+    // only the fully consistent d(i) under-35 no-child case is MET.
+    expect(
+      run({ ...d1, survivorBirthMonth: "2000-01", dependentChildAtDeath: false }).eventA.status,
+    ).toBe("MET");
+  });
+
   it("(a) onset before death is NOT_MET, same month UNRESOLVED", () => {
     expect(run({ disabilityOnsetMonth: "2029-01" }).eventA.status).toBe("NOT_MET");
     expect(run({ disabilityOnsetMonth: "2030-06" }).eventA.status).toBe("UNRESOLVED");
