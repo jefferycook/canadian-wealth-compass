@@ -18,8 +18,10 @@
  * Caveat: the Regs s.75(1) text opens "For the purposes of subsection 43(2) of the Act";
  * this module reads that as the prescribed manner of s.43(1). Unverified drafting reading.
  *
- * Fail closed: missing months, malformed CPI, or observations on more than one CPI basis
- * in the window (s.43(3) rebasing is not implemented). All arithmetic is exact BigInt.
+ * Fail closed: missing months, malformed CPI, a missing preceding PI (the s.43(2) floor
+ * cannot be evaluated, so no final PI is claimed), missing basis provenance, or any
+ * difference between the window bases and the preceding PI's basis (s.43(3) rebasing is
+ * not implemented). All arithmetic is exact BigInt.
  */
 
 export interface PensionIndexInput {
@@ -27,10 +29,12 @@ export interface PensionIndexInput {
   readonly year: number;
   /** Monthly CPI keyed "YYYY-MM" (decimal strings or numbers, no exponent notation). */
   readonly cpi: Readonly<Record<string, number | string>>;
-  /** CPI basis label per "YYYY-MM"; omitted means all observations share one basis. */
+  /** CPI basis label per "YYYY-MM"; required for every month in the window. */
   readonly cpiBasis?: Readonly<Record<string, string>>;
-  /** Preceding year's PI (one decimal), for the s.43(2) floor. */
+  /** Preceding year's final PI (one decimal), required for the s.43(2) floor. */
   readonly precedingPensionIndex?: number | string;
+  /** CPI basis the preceding PI is expressed on; must equal every window basis. */
+  readonly precedingPensionIndexBasis?: string;
 }
 
 export interface PensionIndexComputed {
@@ -76,7 +80,7 @@ function formatTenths(tenths: bigint): string {
 }
 
 export function pensionIndexFromCpi(input: PensionIndexInput): PensionIndexResult {
-  const { year, cpi, cpiBasis, precedingPensionIndex } = input;
+  const { year, cpi, cpiBasis, precedingPensionIndex, precedingPensionIndexBasis } = input;
   if (!Number.isInteger(year) || year < 1000 || year > 9999) {
     return fail("INVALID_INPUT", "year must be a four-digit integer");
   }
@@ -87,6 +91,21 @@ export function pensionIndexFromCpi(input: PensionIndexInput): PensionIndexResul
     const y = year - 2 + Math.floor(m0 / 12);
     const mo = (m0 % 12) + 1;
     window.push(`${y}-${String(mo).padStart(2, "0")}`);
+  }
+
+  if (precedingPensionIndex === undefined) {
+    return fail(
+      "INSUFFICIENT_DATA",
+      "preceding year's Pension Index is required; the s.43(2) floor cannot be evaluated",
+      "CPP Act s.43(2)",
+    );
+  }
+  if (cpiBasis === undefined || precedingPensionIndexBasis === undefined) {
+    return fail(
+      "INSUFFICIENT_DATA",
+      "CPI basis for every window month and for the preceding PI is required",
+      "CPP Act s.43(3)",
+    );
   }
 
   const SCALE = 6; // finer than any published CPI precision; inputs beyond it are rejected
@@ -101,12 +120,20 @@ export function pensionIndexFromCpi(input: PensionIndexInput): PensionIndexResul
     }
     if (p.scale > SCALE) return fail("INVALID_INPUT", `CPI for ${key} has too many decimals`);
     sum += p.n * 10n ** BigInt(SCALE - p.scale);
-    bases.add(cpiBasis?.[key] ?? "");
+    const b = cpiBasis[key];
+    if (b === undefined || b === "") {
+      return fail("INSUFFICIENT_DATA", `CPI basis missing for ${key}`, "CPP Act s.43(3)");
+    }
+    bases.add(b);
   }
+  if (precedingPensionIndexBasis === "") {
+    return fail("INSUFFICIENT_DATA", "preceding PI basis is empty", "CPP Act s.43(3)");
+  }
+  bases.add(precedingPensionIndexBasis);
   if (bases.size > 1) {
     return fail(
       "UNVERIFIED_RULE",
-      "CPI window mixes more than one CPI basis; s.43(3) rebasing is not implemented",
+      "CPI window and preceding PI are not all on one CPI basis; s.43(3) rebasing is not implemented",
       "CPP Act s.43(3)",
     );
   }
@@ -118,7 +145,7 @@ export function pensionIndexFromCpi(input: PensionIndexInput): PensionIndexResul
 
   let finalTenths = tenths;
   let held = false;
-  if (precedingPensionIndex !== undefined) {
+  {
     const prev = parseDecimal(precedingPensionIndex);
     if (prev === null || prev.n === 0n || prev.scale > 1) {
       return fail("INVALID_INPUT", "precedingPensionIndex must be a positive one-decimal value");
