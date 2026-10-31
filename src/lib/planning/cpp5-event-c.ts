@@ -17,6 +17,13 @@ export type MonthKey = string;
 export type CommencementDecl = MonthKey | null | undefined; // month | declared none | unknown
 
 export interface EventCInput {
+  /** Contributor's death month (required to order the survivor pension after the death). */
+  readonly deathMonth?: MonthKey | undefined;
+  /** Survivor's birth month (required to check the own-CPP retirement commencement age). */
+  readonly survivorBirthMonth?: MonthKey | undefined;
+  /** Caller declaration that a supplied provincial commencement is a verified QPP/other-plan
+   *  retirement pension. Absent or false => a provincial month is not trusted. */
+  readonly provincialPlanProvenanceDeclared?: boolean | undefined;
   readonly survivorPensionCommencementMonth: CommencementDecl;
   readonly ownRetirementCommencementMonth: CommencementDecl;
   readonly provincialRetirementCommencementMonth: CommencementDecl;
@@ -46,6 +53,16 @@ export function selectS583EventC(input: EventCInput): EventCResult {
     if (!valid(v))
       return { status: "INVALID_INPUT", reason: `${k} must be YYYY-MM, null or omitted` };
   }
+  const { deathMonth: death, survivorBirthMonth: birth } = input;
+  for (const [k, v] of [
+    ["deathMonth", death],
+    ["survivorBirthMonth", birth],
+  ] as const) {
+    if (v !== undefined && !(typeof v === "string" && MONTH_RE.test(v)))
+      return { status: "INVALID_INPUT", reason: `${k} must be YYYY-MM or omitted` };
+  }
+  if (death !== undefined && birth !== undefined && idx(birth) > idx(death))
+    return { status: "INVALID_INPUT", reason: "survivor cannot be born after the death" };
   if (sp === undefined)
     return { status: "UNRESOLVED", reason: "survivor pension commencement unknown" };
   if (sp === null) return { status: "NOT_MET", reason: "declared: no survivor pension commences" };
@@ -64,6 +81,30 @@ export function selectS583EventC(input: EventCInput): EventCResult {
       status: "UNRESOLVED",
       reason:
         "both a CPP and a provincial retirement pension declared; which one (c) means is unresolved",
+    };
+  if (death === undefined)
+    return {
+      status: "UNRESOLVED",
+      reason: "death month not supplied; cannot order the survivor pension",
+    };
+  if (idx(sp) <= idx(death))
+    return {
+      status: "UNRESOLVED",
+      reason: "survivor pension commencement is not after the death month; inconsistent history",
+    };
+  if (own !== null && own !== undefined) {
+    if (birth === undefined)
+      return { status: "UNRESOLVED", reason: "survivor birth month needed to check own CPP age" };
+    if (idx(own) < idx(birth) + 60 * 12)
+      return {
+        status: "UNRESOLVED",
+        reason: "own CPP retirement commencement before age 60 is not a modelled history",
+      };
+  }
+  if (prov !== null && prov !== undefined && input.provincialPlanProvenanceDeclared !== true)
+    return {
+      status: "UNRESOLVED",
+      reason: "provincial-plan commencement lacks declared QPP/other-plan provenance",
     };
   const ret = (own ?? prov) as MonthKey;
   const later = idx(sp) >= idx(ret) ? sp : ret;

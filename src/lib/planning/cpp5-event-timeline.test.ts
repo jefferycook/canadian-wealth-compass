@@ -49,9 +49,21 @@ describe("selectS583Events", () => {
       s44d1dRegime: "d(i)" as const,
       survivorBirthMonth: "2000-01", // 18 at death
       dependentChildAtDeath: false,
-      disabilityOnsetMonth: "2019-02",
+      disabilityOnsetMonth: "2018-09", // wholly within the pre-2019 regime
     };
     expect(run({ ...young, payableByReasonOfDisability: true }).eventA.status).toBe("MET");
+    // 2018/2019 transition: a death in 2018 with onset in 2019 may be newly entitled
+    // independently of the disability, so MET is never reported (fail closed).
+    for (const onset of ["2019-01", "2019-02", "2020-06"]) {
+      const t = run({ ...young, disabilityOnsetMonth: onset, payableByReasonOfDisability: true });
+      expect(t.eventA.status).toBe("UNRESOLVED");
+      expect(t.eventA.reason).toContain("2019");
+    }
+    // last month before the transition is still MET under the declared d(i) premise
+    expect(
+      run({ ...young, disabilityOnsetMonth: "2018-12", payableByReasonOfDisability: true }).eventA
+        .status,
+    ).toBe("MET");
     expect(run({ ...young, payableByReasonOfDisability: false }).eventA.status).toBe("NOT_MET");
     expect(
       run({ disabilityOnsetMonth: "2031-02", payableByReasonOfDisability: true }).eventA.status,

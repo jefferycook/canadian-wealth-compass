@@ -174,6 +174,11 @@ export function selectS583Events(input: EventTimelineInput): EventTimelineResult
         "UNRESOLVED",
         "under 35 at death: dependent-child status needed to exclude an earlier s.72(a)(i) start",
       );
+    } else if (onset >= 2019 * 12) {
+      eventA = sel(
+        "UNRESOLVED",
+        "disability onset in 2019 or later: the pre-2019 age/dependent/disability qualifications were removed effective 2019-01-01 (s.44(1)(d) history; see docs), so entitlement may arise independently of the disability and the pre-2019 d(i) premise cannot be assumed across the transition",
+      );
     } else {
       eventA = sel(
         "MET",

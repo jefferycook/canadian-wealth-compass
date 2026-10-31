@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { selectS583EventC, type EventCInput } from "./cpp5-event-c";
 
 const base: EventCInput = {
+  deathMonth: "2030-01",
+  survivorBirthMonth: "1965-01",
+  provincialPlanProvenanceDeclared: true,
   survivorPensionCommencementMonth: "2030-06",
   ownRetirementCommencementMonth: "2032-01",
   provincialRetirementCommencementMonth: null,
@@ -59,6 +62,48 @@ describe("selectS583EventC (fail-closed, experimental)", () => {
       "INVALID_INPUT",
     );
     expect(selectS583EventC({ ...base, survivorPensionCommencementMonth: "2030-6" }).status).toBe(
+      "INVALID_INPUT",
+    );
+  });
+});
+
+describe("selectS583EventC input-history hardening", () => {
+  it("fails closed when the death month is missing", () => {
+    expect(selectS583EventC({ ...base, deathMonth: undefined }).status).toBe("UNRESOLVED");
+  });
+  it("survivor pension in or before the death month is inconsistent", () => {
+    for (const m of ["2030-01", "2029-12"])
+      expect(selectS583EventC({ ...base, survivorPensionCommencementMonth: m }).status).toBe(
+        "UNRESOLVED",
+      );
+  });
+  it("own CPP retirement before age 60 is not trusted; exactly 60 is", () => {
+    // born 1965-01 => 60 in 2025-01
+    expect(selectS583EventC({ ...base, ownRetirementCommencementMonth: "2024-12" }).status).toBe(
+      "UNRESOLVED",
+    );
+    expect(selectS583EventC({ ...base, ownRetirementCommencementMonth: "2025-01" }).status).toBe(
+      "CANDIDATE",
+    );
+    expect(selectS583EventC({ ...base, survivorBirthMonth: undefined }).status).toBe("UNRESOLVED");
+  });
+  it("a provincial month needs declared provenance", () => {
+    const prov = {
+      ...base,
+      ownRetirementCommencementMonth: null,
+      provincialRetirementCommencementMonth: "2031-03",
+    };
+    expect(selectS583EventC(prov).status).toBe("CANDIDATE");
+    expect(selectS583EventC({ ...prov, provincialPlanProvenanceDeclared: false }).status).toBe(
+      "UNRESOLVED",
+    );
+    expect(selectS583EventC({ ...prov, provincialPlanProvenanceDeclared: undefined }).status).toBe(
+      "UNRESOLVED",
+    );
+  });
+  it("rejects a malformed or contradictory death/birth", () => {
+    expect(selectS583EventC({ ...base, deathMonth: "2030-13" }).status).toBe("INVALID_INPUT");
+    expect(selectS583EventC({ ...base, survivorBirthMonth: "2031-01" }).status).toBe(
       "INVALID_INPUT",
     );
   });
