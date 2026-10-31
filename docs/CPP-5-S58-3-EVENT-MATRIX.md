@@ -153,3 +153,32 @@ adjustment month. Each event month remains convention-dependent until the questi
 2. Whether the s.58(3) "month in which" an event occurs is the entitlement month, the month before the first paid month, or the
    triggering month (see s.72 "month following").
 3. Provincial-plan commencement for event (c). 4. Rounding of the s.58(3) product and Reg. 62(3). 5. No Service Canada fixture.
+
+## s.44(1)(a), s.46(1)/(3.1)/(5) and s.67 direct read (2026-10-31, research only)
+
+Source: Justice Laws HTML for s.44, s.46 and s.67 downloaded directly; each page states "Act current to 2026-09-30". Not second-party checked. No numeric value is approved, and nothing here changes engine behaviour.
+
+**s.44(1)(a).** A retirement pension "shall be paid to a contributor who has reached sixty years of age." This is eligibility only. Payment start is set by s.67.
+
+**s.46(1).** The basic monthly retirement amount is the sum of 25% of average monthly pensionable earnings, 8.33% of first additional monthly pensionable earnings and 33.33% of second additional monthly pensionable earnings. The three components are separate terms, which matches the component-separated fixtures.
+
+**s.46(3.1) and (7).** After 2010 the age-adjustment factor is "fixed under subsection (7)" by regulation. The statute states no percentages. The time interval is "deemed never to exceed five years". The factor values must come from the regulation, not from this Act.
+
+**s.46(5) (read directly, this resolves the earlier paraphrase gap).** The condition is that a person receives both a retirement pension and a survivor's pension, and the survivor's pension is "at any time reduced from its full amount under subsection 58(2)". In that case a downward factor from (3), (3.1) or (4) applies only to the retirement basic amount less R, where R is:
+
+    R = (amount by which the survivor's pension was reduced)
+        x PI(year the retirement pension first commenced) / PI(year of the reduction)
+
+The words "unless otherwise provided by an agreement under section 80" qualify the whole subsection. Open points: it is unclear whether "amount by which the survivor's pension has been reduced" is monthly or annual, and which s.58(2) branch counts as "reduced". Both need an independent reading and are unresolved.
+
+**s.67 commencement.** (3.1) applies to pensions commencing on or after 2012-01-01 for a non-estate applicant, subject to s.62 and approval. The pension is payable from the latest of:
+- (a) the month the applicant reached 60;
+- (b) the month after the application month, if the applicant was under 65 when applying;
+- (c) the 11th month before the application month, if 65 or over when applying, but not earlier than the month of turning 65;
+- (d) the month chosen in the application.
+
+(1) covers commencement before 1987 and (2) covers 1987 to 2011. (3) is a separate exception for applicants who turned 65 before applying. (3.2) covers waived applications and (4) covers a deemed application after a disability pension ceases. A fixture must record which subsection governs the commencement date.
+
+**Consequence for events (a) to (d).** "Retirement pension first commenced" in s.46(5) is the s.67 month. The s.58(3) event month and the s.72 survivor start month are different data. A timeline type therefore needs separate fields for the s.67 commencement month, the s.72 survivor start month, the s.58(9) qualification month and the s.58(3) event month.
+
+**Still unresolved:** the "before 2019" / "after 2018" keying in s.44(1)(d); the month convention for "the month in which" an event occurs; provincial-plan commencement; the Reg. 62(3) decimals; the units of the s.46(5) reduction amount.
