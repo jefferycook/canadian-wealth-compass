@@ -178,4 +178,87 @@ describe("selectS583Events", () => {
       expect(selectS583Events({ ...base, ...o }).status).toBe("INVALID_INPUT");
     }
   });
+
+  describe("event (c): ordering of declared commencements (never MET/NOT_MET)", () => {
+    const both = {
+      survivorPensionCommencementMonth: "2030-07",
+      ownRetirementCommencementMonth: "2040-03",
+    };
+
+    it("survivor pension later than own retirement pension", () => {
+      const r = run({
+        ownRetirementCommencementMonth: "2040-03",
+        survivorPensionCommencementMonth: "2041-01",
+        deathMonth: "2030-06",
+      });
+      expect(r.eventC.laterCommencement).toBe("SURVIVOR_PENSION");
+      expect(r.eventC.status).toBe("UNRESOLVED");
+    });
+
+    it("own retirement pension later than survivor pension", () => {
+      const r = run(both);
+      expect(r.eventC.laterCommencement).toBe("OWN_RETIREMENT_PENSION");
+      expect(r.eventC.status).toBe("UNRESOLVED");
+    });
+
+    it("same month is reported as a tie, not ordered", () => {
+      const r = run({
+        survivorPensionCommencementMonth: "2040-03",
+        ownRetirementCommencementMonth: "2040-03",
+      });
+      expect(r.eventC.laterCommencement).toBe("SAME_MONTH");
+    });
+
+    it("unknown commencement is not treated as declared none", () => {
+      const r = run({ ownRetirementCommencementMonth: "2040-03" }); // survivor commencement omitted
+      expect(r.eventC.laterCommencement).toBeNull();
+      expect(r.eventC.reason).toMatch(/unknown/);
+    });
+
+    it("one pension only stays UNRESOLVED with no ordering (whichever-later case unresolved)", () => {
+      const a = run({
+        survivorPensionCommencementMonth: "2030-07",
+        ownRetirementCommencementMonth: null,
+      });
+      const b = run({
+        survivorPensionCommencementMonth: null,
+        ownRetirementCommencementMonth: "2040-03",
+      });
+      for (const r of [a, b]) {
+        expect(r.eventC.status).toBe("UNRESOLVED");
+        expect(r.eventC.laterCommencement).toBeNull();
+        expect(r.eventC.reason).toMatch(/only one/);
+      }
+    });
+
+    it("does not change (d): a declared own pension still leaves (d) UNRESOLVED", () => {
+      expect(run(both).eventD.status).toBe("UNRESOLVED");
+    });
+
+    it("rejects a survivor pension commencing in or before the death month", () => {
+      for (const m of ["2030-06", "2029-12"]) {
+        const r = selectS583Events({ ...base, survivorPensionCommencementMonth: m });
+        expect(r.status).toBe("INVALID_INPUT");
+      }
+      expect(
+        selectS583Events({ ...base, survivorPensionCommencementMonth: "2030-13" }).status,
+      ).toBe("INVALID_INPUT");
+    });
+
+    it("own retirement commencement before the 60th birthday month is not modelled", () => {
+      // born 1980-03 => 60th birthday month 2040-03; 2040-02 is earlier
+      const r = run({
+        survivorPensionCommencementMonth: "2030-07",
+        ownRetirementCommencementMonth: "2040-02",
+      });
+      expect(r.eventC.status).toBe("UNRESOLVED");
+      expect(r.eventC.laterCommencement).toBeNull();
+      expect(
+        run({
+          survivorPensionCommencementMonth: "2030-07",
+          ownRetirementCommencementMonth: "2040-03",
+        }).eventC.laterCommencement,
+      ).toBe("OWN_RETIREMENT_PENSION");
+    });
+  });
 });

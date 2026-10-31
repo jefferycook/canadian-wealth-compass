@@ -7,7 +7,8 @@
  * docs/CPP-5-S58-3-EVENT-MATRIX.md): (a) survivor's pension payable by reason of a
  * disability that began after the contributor's death; (b) survivor reached 65, not having
  * reached that age at the death; (d) survivor's pension payable in circumstances other
- * than (a), (b) or (c). Event (c) and (e) are not modelled.
+ * than (a), (b) or (c). Event (c) is modelled only as a fail-closed ordering of two
+ * caller-declared ACTUAL commencement months; event (e) is not modelled.
  *
  * The month in which an event "occurs" is NOT settled by the Act text (entitlement month vs
  * the month before the first paid month vs the triggering month), so `eventMonth` is never
@@ -40,6 +41,10 @@ export interface EventTimelineInput {
   readonly dependentChildAtDeath?: boolean;
   /** Survivor's own retirement pension commencement: a month, null = declared none, omitted = unknown. */
   readonly ownRetirementCommencementMonth?: MonthKey | null;
+  /** Caller-declared ACTUAL month the survivor pension commenced to be payable (s.58(3)(c)):
+   *  a month, null = declared never commenced, omitted = unknown. Not derived from the
+   *  hypothetical s.72 schedule. */
+  readonly survivorPensionCommencementMonth?: MonthKey | null;
 }
 
 export type EventStatus = "MET" | "NOT_MET" | "UNRESOLVED";
@@ -63,8 +68,13 @@ export interface EventTimelineComputed {
   readonly hypotheticalS72StartMonthBeforeRetroLimit: MonthKey | null;
   readonly eventA: EventSelection;
   readonly eventB: EventSelection;
+  /** Caller-declared ordering of the two commencements named in s.58(3)(c). */
+  readonly eventC: EventSelection & { readonly laterCommencement: EventCLater | null };
   readonly eventD: EventSelection;
 }
+
+/** Which declared commencement is the later one; a same-month tie is reported as such. */
+export type EventCLater = "SURVIVOR_PENSION" | "OWN_RETIREMENT_PENSION" | "SAME_MONTH";
 
 export interface EventTimelineInvalid {
   readonly status: "INVALID_INPUT";
@@ -117,6 +127,16 @@ export function selectS583Events(input: EventTimelineInput): EventTimelineResult
   if (own !== undefined && own !== null && toIndex(own) === null) {
     return bad("ownRetirementCommencementMonth must be a valid YYYY-MM or null");
   }
+  const surv = input.survivorPensionCommencementMonth;
+  let survIdx: number | null = null;
+  if (surv !== undefined && surv !== null) {
+    survIdx = toIndex(surv);
+    if (survIdx === null)
+      return bad("survivorPensionCommencementMonth must be a valid YYYY-MM or null");
+    if (survIdx <= death)
+      return bad("survivor pension cannot commence in or before the contributor's death month");
+  }
+  const ownIdx = own === undefined || own === null ? null : toIndex(own);
   const regime = input.s44d1dRegime;
   if (regime !== undefined && regime !== "d(i)" && regime !== "d(ii)")
     return bad("unknown s44d1dRegime");
@@ -197,6 +217,42 @@ export function selectS583Events(input: EventTimelineInput): EventTimelineResult
     eventB = sel("NOT_MET", "survivor had already reached 65 at the death");
   }
 
+  // Event (c): the later of the survivor pension's and the survivor's own retirement pension's
+  // commencement (CPP or provincial). Only an ordering of two declared months is computed. How
+  // (c) interacts with (a)/(b) when several occur, the event month convention, and the case
+  // where only one pension exists are unresolved, so those never yield MET or NOT_MET.
+  const cSel = (
+    status: EventStatus,
+    reason: string,
+    laterCommencement: EventCLater | null = null,
+  ) => ({ ...sel(status, reason), laterCommencement });
+  let eventC: EventTimelineComputed["eventC"];
+  if (surv === undefined || own === undefined) {
+    eventC = cSel("UNRESOLVED", "a commencement month is unknown (not the same as declared none)");
+  } else if (surv === null || own === null) {
+    eventC = cSel(
+      "UNRESOLVED",
+      "only one of the two pensions has commenced; how 'whichever is the later' applies is unresolved",
+    );
+  } else if (ownIdx! < birth + 60 * 12) {
+    eventC = cSel(
+      "UNRESOLVED",
+      "own retirement commencement before the survivor's 60th birthday month; not modelled",
+    );
+  } else {
+    const later: EventCLater =
+      survIdx! === ownIdx!
+        ? "SAME_MONTH"
+        : survIdx! > ownIdx!
+          ? "SURVIVOR_PENSION"
+          : "OWN_RETIREMENT_PENSION";
+    eventC = cSel(
+      "UNRESOLVED",
+      "ordering of the two declared commencements is reported only; whether (c) governs when (a) or (b) also holds, and the event month, are unresolved",
+      later,
+    );
+  }
+
   // s.72 start month and s.58(9) qualification month (separate, labelled fields).
   let s72Start: MonthKey | null = null;
   let qualification: MonthKey | null = null;
@@ -263,6 +319,7 @@ export function selectS583Events(input: EventTimelineInput): EventTimelineResult
     hypotheticalS72StartMonthBeforeRetroLimit: s72Start,
     eventA,
     eventB,
+    eventC,
     eventD,
   };
 }
