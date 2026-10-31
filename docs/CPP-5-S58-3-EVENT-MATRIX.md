@@ -60,3 +60,28 @@ Ss.58(3.1) and (3.4) use "paragraphs 3(a) to (e)" and different base amounts, fr
 Still unresolved (trigger text is settled; timing is not): the month in which each event "occurs" for (a), (c) and (d)
 (payment-start rules in ss.67 and 72 unread), the whole-month convention in (b), the meaning of "whichever is the later" in
 (c) across provincial plans, and rounding of the product. Nothing here is an approved expected value.
+
+## Payment-start timing: ss.67 and 72 (read 2026-10-31, fetch tool; research only, not approved)
+
+Sources: https://laws-lois.justice.gc.ca/eng/acts/C-8/section-72.html and .../section-67.html. The s.72 fetch quoted in
+segments and reported them verbatim; the s.67 fetch returned a summary, so s.67 points below are paraphrase and need a verbatim check.
+Consolidation date was not shown on either fetch.
+
+s.72 (survivor's pension), "subject to section 62, if payment ... is approved", payable for each month commencing with:
+- 44(1)(d)(i) applies: the month following the month in which (i) the contributor died (survivor 35+ or with dependent children at death),
+  (ii) the survivor became disabled before 65 (other survivors), or (iii) the survivor reached 65 (other survivors).
+- 44(1)(d)(ii) applies: the month following the month in which the contributor died.
+- Retroactivity cap: never earlier than the twelfth month preceding the month following the month the application was received.
+
+Implications for s.58(3) events (these are the payment-start months, not yet shown to be the event "occurs" month):
+- (a) disability after death: s.72(a)(ii) start is the month after the survivor became disabled, subject to the 12-month cap.
+- (b) age 65: s.72(a)(iii) start is the month after the 65th birthday month, which bears on the whole-month convention but does
+  not settle it for s.58(3)(b).
+- (c) and (d): start depends on the application date via the cap, so the event month can depend on when the application was received.
+- Whether the s.58(3) event month equals the s.72 payment-start month is not established by the text read.
+
+s.67 (retirement pension, paraphrased): from 2012, payable from the latest of the month the applicant turned 60, the month after
+application (if under 65), the eleventh month before application (65+, not before 65), or the month the applicant chose; this bears
+on the own-retirement-pension commencement in (c). The date a provincial plan pension commences was not read.
+
+Still unresolved: event-month definition vs payment start, "whichever is the later" across plans, rounding, Reg. 62(3).
