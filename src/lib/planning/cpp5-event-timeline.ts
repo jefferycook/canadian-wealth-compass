@@ -139,15 +139,45 @@ export function selectS583Events(input: EventTimelineInput): EventTimelineResult
       );
     } else if (input.payableByReasonOfDisability === false) {
       eventA = sel("NOT_MET", "declared: pension not payable by reason of the later disability");
+    } else if (regime === undefined) {
+      eventA = sel(
+        "UNRESOLVED",
+        "declared payable by reason of disability, but the s.44(1)(d) limb is unknown so the earlier s.72 start cannot be excluded",
+      );
     } else if (regime === "d(ii)") {
       eventA = sel(
         "UNRESOLVED",
         "declared payable by reason of disability, but under d(ii) s.72(b) already starts the month after death",
       );
+    } else if (death >= 2019 * 12) {
+      eventA = sel(
+        "UNRESOLVED",
+        "d(i) declared for a death in 2019 or later; the keying of the 'before 2019' limb is unresolved, so the combination is not trusted",
+      );
+    } else if (onset >= turns65) {
+      eventA = sel(
+        "UNRESOLVED",
+        "disability onset at or after the survivor's 65th birthday month; combination not modelled",
+      );
+    } else if (death - birth === 35 * 12) {
+      eventA = sel(
+        "UNRESOLVED",
+        "35th-birthday month equals the death month; day-level order is unknown, so an earlier s.72(a)(i) start is not excluded",
+      );
+    } else if (death - birth > 35 * 12 || input.dependentChildAtDeath === true) {
+      eventA = sel(
+        "UNRESOLVED",
+        "contradictory history: under d(i) a survivor over 35 (or with a dependent child) is already entitled from the month after death, so a later disability cannot be the cause",
+      );
+    } else if (input.dependentChildAtDeath === undefined) {
+      eventA = sel(
+        "UNRESOLVED",
+        "under 35 at death: dependent-child status needed to exclude an earlier s.72(a)(i) start",
+      );
     } else {
       eventA = sel(
         "MET",
-        "disability began after the death and the pension is declared payable by reason of it",
+        "d(i), under 35, no dependent child, disability began after the death and the pension is declared payable by reason of it (caller declaration; entitlement not evidenced)",
       );
     }
   } else {

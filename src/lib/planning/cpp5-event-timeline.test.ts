@@ -43,18 +43,52 @@ describe("selectS583Events", () => {
     expect(r.eventD.status).toBe("UNRESOLVED");
   });
 
-  it("(a) with declared causation: MET under d(i), contradictory under d(ii), NOT_MET if declared false", () => {
+  it("(a) with declared causation: MET only for a consistent pre-2019 d(i) history", () => {
     const young = {
+      deathMonth: "2018-06",
       s44d1dRegime: "d(i)" as const,
-      survivorBirthMonth: "2000-01",
+      survivorBirthMonth: "2000-01", // 18 at death
       dependentChildAtDeath: false,
-      disabilityOnsetMonth: "2031-02",
+      disabilityOnsetMonth: "2019-02",
     };
     expect(run({ ...young, payableByReasonOfDisability: true }).eventA.status).toBe("MET");
     expect(run({ ...young, payableByReasonOfDisability: false }).eventA.status).toBe("NOT_MET");
     expect(
       run({ disabilityOnsetMonth: "2031-02", payableByReasonOfDisability: true }).eventA.status,
     ).toBe("UNRESOLVED"); // d(ii): s.72(b) already starts 2030-07
+  });
+
+  it("(a) adversarial: a bare causation declaration is not trusted when entitlement timing contradicts it", () => {
+    const ok = {
+      deathMonth: "2018-06",
+      s44d1dRegime: "d(i)" as const,
+      survivorBirthMonth: "2000-01",
+      dependentChildAtDeath: false,
+      disabilityOnsetMonth: "2019-02",
+      payableByReasonOfDisability: true,
+    };
+    // reviewer example: d(i), over 35 at death, later disability, declared causation
+    expect(run({ ...ok, survivorBirthMonth: "1970-01" }).eventA.status).toBe("UNRESOLVED");
+    // dependent child at death: entitled from the month after death
+    expect(run({ ...ok, dependentChildAtDeath: true }).eventA.status).toBe("UNRESOLVED");
+    // dependent-child status unknown
+    expect(run({ ...ok }, ["dependentChildAtDeath"]).eventA.status).toBe("UNRESOLVED");
+    // regime undeclared
+    expect(run({ ...ok }, ["s44d1dRegime"]).eventA.status).toBe("UNRESOLVED");
+    // d(i) with a 2019+ death is an unresolved keying combination
+    expect(
+      run({ ...ok, deathMonth: "2030-06", disabilityOnsetMonth: "2031-02" }).eventA.status,
+    ).toBe("UNRESOLVED");
+    // 35th-birthday month equals death month
+    expect(run({ ...ok, deathMonth: "2018-06", survivorBirthMonth: "1983-06" }).eventA.status).toBe(
+      "UNRESOLVED",
+    );
+    // onset at/after 65th-birthday month
+    expect(
+      run({ ...ok, survivorBirthMonth: "1960-01", dependentChildAtDeath: false }).eventA.status,
+    ).toBe("UNRESOLVED");
+    // onset in the death month cannot be ordered
+    expect(run({ ...ok, disabilityOnsetMonth: "2018-06" }).eventA.status).toBe("UNRESOLVED");
   });
 
   it("(a) onset before death is NOT_MET, same month UNRESOLVED", () => {
