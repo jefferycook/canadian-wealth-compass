@@ -15,6 +15,11 @@
  * separate, labelled fields because they are different data. Anything that depends on an
  * unresolved reading returns UNRESOLVED with a reason instead of a guess.
  *
+ * Event (d) is never reported MET: s.58(3)(c) names the commencement of the survivor pension
+ * itself, so exclusion of (c) needs a verified statutory reading. qualificationMonth and
+ * s72StartMonthBeforeRetroLimit are HYPOTHETICAL schedules that assume entitlement (minimum
+ * contributions) and an approved application; they are not established beneficiary facts.
+ *
  * Granularity is the calendar month. A same-month coincidence (for example disability onset
  * in the death month) cannot be ordered at month granularity and is UNRESOLVED.
  */
@@ -29,8 +34,11 @@ export type S44d1dRegime = "d(i)" | "d(ii)";
 export interface EventTimelineInput {
   readonly deathMonth: MonthKey;
   readonly survivorBirthMonth: MonthKey;
-  /** Month the survivor's disability began, if any. */
-  readonly disabilityOnsetMonth?: MonthKey;
+  /** Month the survivor's disability began: a month, null = declared none, omitted = unknown. */
+  readonly disabilityOnsetMonth?: MonthKey | null;
+  /** Evidence that the survivor pension became payable BY REASON OF that disability (s.58(3)(a)).
+   *  Omitted or false leaves event (a) UNRESOLVED; a later onset alone is not proof of cause. */
+  readonly payableByReasonOfDisability?: boolean;
   /** Declared s.44(1)(d) limb; omitted means unknown. */
   readonly s44d1dRegime?: S44d1dRegime;
   /** Survivor had a dependent child at the death (needed under d(i) when under 35). */
@@ -102,7 +110,7 @@ export function selectS583Events(input: EventTimelineInput): EventTimelineResult
   if (birth === null) return bad("survivorBirthMonth must be a valid YYYY-MM");
   if (birth > death) return bad("survivor cannot be born after the contributor's death");
   let onset: number | null = null;
-  if (input.disabilityOnsetMonth !== undefined) {
+  if (input.disabilityOnsetMonth !== undefined && input.disabilityOnsetMonth !== null) {
     onset = toIndex(input.disabilityOnsetMonth);
     if (onset === null) return bad("disabilityOnsetMonth must be a valid YYYY-MM");
     if (onset < birth) return bad("disability cannot begin before the survivor's birth");
@@ -119,15 +127,26 @@ export function selectS583Events(input: EventTimelineInput): EventTimelineResult
 
   // Event (a): disability began after the death.
   let eventA: EventSelection;
-  if (onset === null) {
-    eventA = sel("NOT_MET", "no disability onset supplied");
+  if (input.disabilityOnsetMonth === undefined) {
+    eventA = sel(
+      "UNRESOLVED",
+      "disability onset unknown (omitted is not the same as declared none)",
+    );
+  } else if (onset === null) {
+    eventA = sel("NOT_MET", "declared no disability");
   } else if (onset === death) {
     eventA = sel("UNRESOLVED", "onset in the death month cannot be ordered at month granularity");
   } else if (onset > death) {
-    eventA = sel(
-      "MET",
-      "disability onset is after the death month; (a) also needs the pension to be payable by reason of it",
-    );
+    eventA =
+      input.payableByReasonOfDisability === true
+        ? sel(
+            "MET",
+            "disability began after the death and the pension is declared payable by reason of it",
+          )
+        : sel(
+            "UNRESOLVED",
+            "disability began after the death, but causation of payability is not evidenced (s.72(b) may already start the pension)",
+          );
   } else {
     eventA = sel("NOT_MET", "disability began on or before the death month");
   }
@@ -175,8 +194,8 @@ export function selectS583Events(input: EventTimelineInput): EventTimelineResult
     );
   } else if (regime === "d(ii)") {
     eventD = sel(
-      "MET",
-      "d(ii): payable from the month after the death with no (a)-(c) circumstance",
+      "UNRESOLVED",
+      "d(ii): (c) also names the survivor pension's own commencement, so (c) cannot be excluded without a verified reading",
     );
   } else if (eq35 && input.dependentChildAtDeath !== true) {
     eventD = sel(
@@ -185,8 +204,8 @@ export function selectS583Events(input: EventTimelineInput): EventTimelineResult
     );
   } else if (ge35 || input.dependentChildAtDeath === true) {
     eventD = sel(
-      "MET",
-      "d(i): 35 or over, or dependent child, at the death: payable from the month after the death",
+      "UNRESOLVED",
+      "d(i): payable from the month after the death, but (c) cannot be excluded without a verified reading",
     );
   } else if (input.dependentChildAtDeath === undefined) {
     eventD = sel("UNRESOLVED", "under 35 at death: dependent-child status needed");

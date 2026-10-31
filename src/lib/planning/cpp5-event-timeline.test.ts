@@ -26,8 +26,8 @@ describe("selectS583Events", () => {
     expect(r.qualificationMonth).toBe("2030-07");
     expect(r.s72StartMonthBeforeRetroLimit).toBe("2030-07");
     expect(r.eventB.status).toBe("MET");
-    expect(r.eventA.status).toBe("NOT_MET");
-    expect(r.eventD.status).toBe("MET");
+    expect(r.eventA.status).toBe("UNRESOLVED"); // disability onset omitted = unknown
+    expect(r.eventD.status).toBe("UNRESOLVED"); // (c) cannot be excluded
   });
 
   it("December death rolls qualification into the next year", () => {
@@ -35,10 +35,16 @@ describe("selectS583Events", () => {
     expect(r.qualificationMonth).toBe("2031-01");
   });
 
-  it("(a) is MET for disability onset after the death, NOT_MET before, UNRESOLVED in the same month", () => {
-    expect(run({ disabilityOnsetMonth: "2031-02" }).eventA.status).toBe("MET");
+  it("(a) later onset alone is UNRESOLVED; MET needs declared causation; null is declared none", () => {
+    // Regression: base case with a 2031 onset must not be MET (s.72(b) already starts 2030-07).
+    expect(run({ disabilityOnsetMonth: "2031-02" }).eventA.status).toBe("UNRESOLVED");
+    expect(
+      run({ disabilityOnsetMonth: "2031-02", payableByReasonOfDisability: true }).eventA.status,
+    ).toBe("MET");
     expect(run({ disabilityOnsetMonth: "2029-01" }).eventA.status).toBe("NOT_MET");
     expect(run({ disabilityOnsetMonth: "2030-06" }).eventA.status).toBe("UNRESOLVED");
+    expect(run({ disabilityOnsetMonth: null }).eventA.status).toBe("NOT_MET");
+    expect(run({}, []).eventA.status).toBe("UNRESOLVED");
   });
 
   it("(b) is NOT_MET when 65 before the death and UNRESOLVED in the death month", () => {
@@ -53,12 +59,19 @@ describe("selectS583Events", () => {
     expect(run({ ownRetirementCommencementMonth: "2040-01" }).eventD.status).toBe("UNRESOLVED");
   });
 
+  it("(d) is never MET: no-own-pension does not exclude survivor-pension commencement in (c)", () => {
+    expect(run({}).eventD.status).toBe("UNRESOLVED");
+    expect(
+      run({ ownRetirementCommencementMonth: null, disabilityOnsetMonth: null }).eventD.status,
+    ).toBe("UNRESOLVED");
+  });
+
   it("(d) under d(i) depends on age 35 or a dependent child", () => {
     const d1 = { s44d1dRegime: "d(i)" as const };
-    expect(run({ ...d1 }).eventD.status).toBe("MET"); // 50
+    expect(run({ ...d1 }).eventD.status).toBe("UNRESOLVED"); // 50; (c) not excluded
     const young = { ...d1, survivorBirthMonth: "2000-01" }; // 30
     expect(run({ ...young }).eventD.status).toBe("UNRESOLVED");
-    expect(run({ ...young, dependentChildAtDeath: true }).eventD.status).toBe("MET");
+    expect(run({ ...young, dependentChildAtDeath: true }).eventD.status).toBe("UNRESOLVED");
     expect(run({ ...young, dependentChildAtDeath: false }).eventD.status).toBe("NOT_MET");
     expect(
       run({ ...young, dependentChildAtDeath: false }).s72StartMonthBeforeRetroLimit,
