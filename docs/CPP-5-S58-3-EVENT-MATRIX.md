@@ -97,3 +97,59 @@ Open items added by this read:
 2. The 12-month retroactivity limit can move the first paid month later than the s.72 branch month; a fixture timeline needs an application-date field.
 3. Month-ordering for (c) needs a monthly timeline type (contributor death, birth dates, disability onset, application dates), not annual granularity.
 4. No fixture here claims a payable amount. A later executable selector test should only encode predicates once a second party confirms the month convention.
+
+## s.44(1)(d), s.58(9) and s.62: qualification month and payment timing (direct read, 2026-10-31)
+
+Status: DRAFT research note. No engine change, no expected values, no payable dollars.
+Sources: Justice Laws HTML downloaded directly (not via a summarising tool) for
+s.44 (https://laws-lois.justice.gc.ca/eng/acts/C-8/section-44.html),
+s.58 (https://laws-lois.justice.gc.ca/eng/acts/C-8/section-58.html) and
+s.62 (https://laws-lois.justice.gc.ca/eng/acts/C-8/section-62.html).
+Each page states "Act current to 2026-09-30 and last amended on 2024-12-17". Wording below is quoted from that text;
+a second-party check is still wanted before any of it drives a fixture.
+
+### s.44(1)(d) survivor's pension eligibility (quoted)
+- (i) "before 2019, to the survivor of a deceased contributor who has made base contributions for not less than the minimum
+  qualifying period, if the survivor (A) has reached 65 years of age, or (B) ... not ... 65 ... (I) had at the time of the
+  death ... reached 35 years of age, (II) was at the time of the death ... a survivor with dependent children, or (III) is disabled"
+- (ii) "after 2018, to the survivor of a deceased contributor who has made base contributions for not less than the minimum
+  qualifying period" (no age, dependants or disability condition).
+
+Not settled by the text: whether "before 2019" / "after 2018" is keyed to the death, to the month of entitlement, or to the
+application. s.72(a) vs 72(b) turns on which of (d)(i)/(d)(ii) applies, so a fixture needs this answered first.
+
+### s.58(9) "first qualified" month (quoted)
+"For the purposes of this section, a survivor first becomes qualified to receive a survivor's pension in the month following
+the month in which the survivor first met the criteria of subsection 44(1) in relation to that pension."
+
+Consequences (derived, not stated in the Act):
+- It supplies the year used in the s.58(1)/(2) caps ("the later of the year in which the survivor first became qualified ...
+  and the year in which the survivor's retirement pension commenced to be payable"). A death in December gives a qualification
+  month in January of the next year, so the cap year can differ from the death year.
+- Under (d)(ii) the criteria are met in the death month, so the qualification month is the month after death. That coincides
+  with the s.72(b) start month, but s.72's 12-month application limit does not apply to s.58(9). The two can differ.
+- Under (d)(i)(B) the criteria may be met at 35, at the death, or at disability, so the qualification month is a function of the
+  survivor's history, not only the death date.
+
+### s.62 payment timing (quoted)
+- s.62(1): payment is made "at such time during the month as the Minister directs, except that, where payment of a benefit is
+  approved after the end of the month for which the first payment of the benefit is payable under this Part, monthly payments
+  ... shall be made for months commencing with the month following the month in which payment of the benefit is approved and
+  payments ... for months preceding that month ... shall be paid in one sum during that month."
+- s.62(2): where a benefit is payable commencing with a month, "the benefit shall be deemed to have become payable at the
+  beginning of that month."
+
+So s.62 governs when money is paid, not which months are payable. Late approval creates a lump sum for earlier months and does
+not move the entitlement month. s.62(2) says a benefit is payable from the beginning of its commencement month, which bears on
+"the month in which" wording in s.58(3), but it does not by itself fix which month an event "occurs" in.
+
+### Timeline fields a future selector would need (no code written)
+contributor death month; survivor birth month; disability onset month (if any); survivor pension application month; own retirement
+pension commencement month (CPP or provincial plan, with plan name); date criteria of s.44(1)(d) first met; s.55(7)/55.2(9)
+adjustment month. Each event month remains convention-dependent until the questions above have a second-party answer.
+
+### Still unresolved
+1. Keying of "before 2019" / "after 2018" in s.44(1)(d).
+2. Whether the s.58(3) "month in which" an event occurs is the entitlement month, the month before the first paid month, or the
+   triggering month (see s.72 "month following").
+3. Provincial-plan commencement for event (c). 4. Rounding of the s.58(3) product and Reg. 62(3). 5. No Service Canada fixture.
