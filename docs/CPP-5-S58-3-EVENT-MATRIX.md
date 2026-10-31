@@ -182,3 +182,23 @@ The words "unless otherwise provided by an agreement under section 80" qualify t
 **Consequence for events (a) to (d).** "Retirement pension first commenced" in s.46(5) is the s.67 month. The s.58(3) event month and the s.72 survivor start month are different data. A timeline type therefore needs separate fields for the s.67 commencement month, the s.72 survivor start month, the s.58(9) qualification month and the s.58(3) event month.
 
 **Still unresolved:** the "before 2019" / "after 2018" keying in s.44(1)(d); the month convention for "the month in which" an event occurs; provincial-plan commencement; the Reg. 62(3) decimals; the units of the s.46(5) reduction amount.
+
+## Reg. 78.3 / 78.4 age-adjustment factors under s.46(7) (2026-10-31, research only)
+
+Source: Canada Pension Plan Regulations (C.R.C., c. 385), Part VII "Pension Adjustments", Justice Laws full-text HTML downloaded directly. Not second-party checked. No numeric value here is approved, and nothing changes engine behaviour. Reg. 78.3 and 78.4 each cite SOR/2010-300, s. 1.
+
+**Reg. 78.3 (retirement pension payable before the month of turning 65).** Factor = 1 - (A x B).
+- A = months from the month the pension becomes payable to the month before the month the contributor turns 65, or 60, whichever is less.
+- B by the month the pension becomes payable: 2011 = 0.0050; 2012 = 0.0052; 2013 = 0.0054; 2014 = 0.0056; 2015 = 0.0058; after 2015 = 0.0060.
+
+**Reg. 78.4 (retirement pension payable after the month of turning 65).** Factor = 1 + (A x B).
+- A = months from the month after the month the contributor turns 65 to the month the pension becomes payable, or 60, whichever is less.
+- B by the month payable: 2011 = 0.0057; 2012 = 0.0064; after 2012 = 0.0070.
+
+**Consequences for fixtures (arithmetic only, illustrative):**
+- Pension payable at 60 from 2016 on has A = 60 and factor 1 - 60 x 0.0060 = 0.64.
+- Pension payable at 70 from 2013 on has A = 60 and factor 1 + 60 x 0.0070 = 1.42.
+- Month-of-age conventions matter at the boundaries: A counts differently on each side of 65. The 65th-birthday month itself is in neither period. Whether that matches the engine is unchecked.
+- The year keying uses the month the pension becomes payable, which is the s.67 commencement month, not the application or survivor start month.
+
+**Still unresolved:** the s.46(5) reduction units and "reduced" branch; the s.44(1)(d) "before 2019" / "after 2018" keying; the month convention for event months; provincial-plan commencement; Reg. 62(3) decimals.
