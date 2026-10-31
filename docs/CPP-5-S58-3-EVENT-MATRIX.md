@@ -60,3 +60,40 @@ Ss.58(3.1) and (3.4) use "paragraphs 3(a) to (e)" and different base amounts, fr
 Still unresolved (trigger text is settled; timing is not): the month in which each event "occurs" for (a), (c) and (d)
 (payment-start rules in ss.67 and 72 unread), the whole-month convention in (b), the meaning of "whichever is the later" in
 (c) across provincial plans, and rounding of the product. Nothing here is an approved expected value.
+
+## Commencement rules: s.72 (survivor) and s.67 (retirement) vs the s.58(3) event month (2026-10-31, this author)
+
+Status: DRAFT research note. No engine change, no expected values, no payable dollars.
+Sources: Justice Laws s.72 (https://laws-lois.justice.gc.ca/eng/acts/C-8/section-72.html) and s.67
+(https://laws-lois.justice.gc.ca/eng/acts/C-8/section-67.html), both shown as current to 2026-09-30, last amended 2024-12-17.
+The fetch tool reported s.72 as an exact quotation in segments; s.67 was part quotation, part paraphrase (marked below).
+Second-party verbatim check still required for every row.
+
+### s.72 survivor's pension: first payable month (subject to s.62, if payment is approved)
+| Branch | Start month | Applies when |
+|---|---|---|
+| 72(a)(i) | month after the month the contributor died | survivor was 35+ or had dependent children at the death |
+| 72(a)(ii) | month after the month the survivor became disabled (not yet 65) | survivor not within (a)(i) |
+| 72(a)(iii) | month after the month the survivor reached 65 | survivor not within (a)(i) or (ii) |
+| 72(b) | month after the month the contributor died | s.44(1)(d)(ii) applies |
+| limit | not earlier than the twelfth month before the month after the application was received | all branches |
+
+### s.67(3.1) retirement pension commencing on or after 2012-01-01: latest of
+(a) month the applicant reached 60 (quoted); (b) under 65 at application: month after receipt (paraphrase);
+(c) 65+ at application: eleventh month before receipt, not before the month of 65 (paraphrase); (d) month chosen in the application (quoted).
+Earlier commencements fall under s.67(1), (2), (3), (3.2), (4), which were only paraphrased and are not modelled.
+
+### Mapping to s.58(3) events (candidate predicates, not settled)
+| Event | Candidate "month in which it occurs" | Why not settled |
+|---|---|---|
+| (a) disability after death | s.72(a)(ii) start month, or the month of onset | s.72 says "month following"; s.58(3) says "month in which" the pension becomes payable. Unclear whether the event month is the first paid month or the month before it |
+| (b) survivor reaches 65 | month of the 65th birthday | s.72(a)(iii) pays from the month after; the s.58(3)(b) event is the reaching of 65, a different month |
+| (c) later of survivor or own retirement pension commencing | the later of the s.72 start and the s.67 start (CPP) or the provincial-plan start | provincial commencement is outside CPP s.67; s.67 branch depends on application history; "commenced to be payable" vs first paid month not distinguished |
+| (d) residual | s.72(a)(i) or (b) start month, i.e. the month after the death | which cases are "other than (a)-(c)" is inferred from (a)-(c), not read from text |
+| (e) | see "Event (e) detail" | unchanged |
+
+Open items added by this read:
+1. s.58(9) "qualified" month, s.44 and s.62 were not read here; do not equate it with the s.72 first paid month.
+2. The 12-month retroactivity limit can move the first paid month later than the s.72 branch month; a fixture timeline needs an application-date field.
+3. Month-ordering for (c) needs a monthly timeline type (contributor death, birth dates, disability onset, application dates), not annual granularity.
+4. No fixture here claims a payable amount. A later executable selector test should only encode predicates once a second party confirms the month convention.
