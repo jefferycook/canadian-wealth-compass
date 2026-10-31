@@ -9,6 +9,9 @@ const base: EventTimelineInput = {
   survivorBirthMonth: "1980-03", // 50 at death
   s44d1dRegime: "d(ii)",
   ownRetirementCommencementMonth: null,
+  disabilityOnsetMonth: null,
+  eventCRuledOut: true, // caller-declared; NOT inferred from "no own pension"
+  contributorMinimumContributionsMet: true,
 };
 
 const run = (o: Partial<EventTimelineInput>, omit: (keyof EventTimelineInput)[] = []) => {
@@ -28,6 +31,16 @@ describe("selectS583Events", () => {
     expect(r.eventB.status).toBe("MET");
     expect(r.eventA.status).toBe("NOT_MET");
     expect(r.eventD.status).toBe("MET");
+    expect(r.scheduleBasis).toBe("HYPOTHETICAL_SCHEDULE_NOT_ESTABLISHED_ENTITLEMENT");
+  });
+
+  it("no schedule months are reported unless minimum contributions are declared met", () => {
+    for (const omit of [["contributorMinimumContributionsMet" as const], []]) {
+      const r = run(omit.length ? {} : { contributorMinimumContributionsMet: false }, omit);
+      expect(r.qualificationMonth).toBeNull();
+      expect(r.s72StartMonthBeforeRetroLimit).toBeNull();
+      expect(r.survivor65Month).toBe("2045-03"); // purely mechanical birthday stays
+    }
   });
 
   it("December death rolls qualification into the next year", () => {
@@ -35,10 +48,29 @@ describe("selectS583Events", () => {
     expect(r.qualificationMonth).toBe("2031-01");
   });
 
-  it("(a) is MET for disability onset after the death, NOT_MET before, UNRESOLVED in the same month", () => {
-    expect(run({ disabilityOnsetMonth: "2031-02" }).eventA.status).toBe("MET");
+  it("(a) needs causation evidence: a post-death onset alone is UNRESOLVED (reviewer reproduction)", () => {
+    const r = run({ disabilityOnsetMonth: "2031-02" });
+    expect(r.eventA.status).toBe("UNRESOLVED");
+    // the survivor pension would already start 2030-07 under the declared d(ii) regime
+    expect(r.s72StartMonthBeforeRetroLimit).toBe("2030-07");
+    expect(
+      run({ disabilityOnsetMonth: "2031-02", survivorPensionPayableByReasonOfDisability: true })
+        .eventA.status,
+    ).toBe("MET");
+    expect(
+      run({ disabilityOnsetMonth: "2031-02", survivorPensionPayableByReasonOfDisability: false })
+        .eventA.status,
+    ).toBe("NOT_MET");
+  });
+
+  it("(a) is NOT_MET for onset before the death, UNRESOLVED in the death month", () => {
     expect(run({ disabilityOnsetMonth: "2029-01" }).eventA.status).toBe("NOT_MET");
     expect(run({ disabilityOnsetMonth: "2030-06" }).eventA.status).toBe("UNRESOLVED");
+  });
+
+  it("(a) distinguishes declared-no-disability (null) from unknown (omitted)", () => {
+    expect(run({ disabilityOnsetMonth: null }).eventA.status).toBe("NOT_MET");
+    expect(run({}, ["disabilityOnsetMonth"]).eventA.status).toBe("UNRESOLVED");
   });
 
   it("(b) is NOT_MET when 65 before the death and UNRESOLVED in the death month", () => {
@@ -51,6 +83,12 @@ describe("selectS583Events", () => {
     expect(run({}, ["s44d1dRegime"]).eventD.status).toBe("UNRESOLVED");
     expect(run({}, ["ownRetirementCommencementMonth"]).eventD.status).toBe("UNRESOLVED");
     expect(run({ ownRetirementCommencementMonth: "2040-01" }).eventD.status).toBe("UNRESOLVED");
+  });
+
+  it("(d) is never MET from 'no own pension' alone; (c) must be declared ruled out", () => {
+    expect(run({ eventCRuledOut: false }).eventD.status).toBe("UNRESOLVED");
+    expect(run({}, ["eventCRuledOut"]).eventD.status).toBe("UNRESOLVED");
+    expect(run({ eventCRuledOut: true }).eventD.status).toBe("MET");
   });
 
   it("(d) under d(i) depends on age 35 or a dependent child", () => {
