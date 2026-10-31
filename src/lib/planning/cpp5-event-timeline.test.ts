@@ -9,6 +9,7 @@ const base: EventTimelineInput = {
   survivorBirthMonth: "1980-03", // 50 at death
   s44d1dRegime: "d(ii)",
   ownRetirementCommencementMonth: null,
+  disabilityOnsetMonth: null, // declared none
 };
 
 const run = (o: Partial<EventTimelineInput>, omit: (keyof EventTimelineInput)[] = []) => {
@@ -23,22 +24,47 @@ describe("selectS583Events", () => {
   it("separates qualification month, s.72 start month and the 65th-birthday month", () => {
     const r = run({});
     expect(r.survivor65Month).toBe("2045-03");
-    expect(r.qualificationMonth).toBe("2030-07");
-    expect(r.s72StartMonthBeforeRetroLimit).toBe("2030-07");
+    expect(r.hypotheticalQualificationMonth).toBe("2030-07");
+    expect(r.hypotheticalS72StartMonthBeforeRetroLimit).toBe("2030-07");
     expect(r.eventB.status).toBe("MET");
-    expect(r.eventA.status).toBe("NOT_MET");
-    expect(r.eventD.status).toBe("MET");
+    expect(r.eventA.status).toBe("NOT_MET"); // declared no disability
+    expect(r.eventD.status).toBe("UNRESOLVED"); // (c) names survivor-pension commencement
   });
 
   it("December death rolls qualification into the next year", () => {
     const r = run({ deathMonth: "2030-12" });
-    expect(r.qualificationMonth).toBe("2031-01");
+    expect(r.hypotheticalQualificationMonth).toBe("2031-01");
   });
 
-  it("(a) is MET for disability onset after the death, NOT_MET before, UNRESOLVED in the same month", () => {
-    expect(run({ disabilityOnsetMonth: "2031-02" }).eventA.status).toBe("MET");
+  it("(a) needs evidence of causation: later onset alone is UNRESOLVED (reviewer reproduction)", () => {
+    // death 2030-06, born 1980-03, d(ii), no own pension, onset 2031-02.
+    const r = run({ disabilityOnsetMonth: "2031-02" });
+    expect(r.eventA.status).toBe("UNRESOLVED");
+    expect(r.eventD.status).toBe("UNRESOLVED");
+  });
+
+  it("(a) with declared causation: MET under d(i), contradictory under d(ii), NOT_MET if declared false", () => {
+    const young = {
+      s44d1dRegime: "d(i)" as const,
+      survivorBirthMonth: "2000-01",
+      dependentChildAtDeath: false,
+      disabilityOnsetMonth: "2031-02",
+    };
+    expect(run({ ...young, payableByReasonOfDisability: true }).eventA.status).toBe("MET");
+    expect(run({ ...young, payableByReasonOfDisability: false }).eventA.status).toBe("NOT_MET");
+    expect(
+      run({ disabilityOnsetMonth: "2031-02", payableByReasonOfDisability: true }).eventA.status,
+    ).toBe("UNRESOLVED"); // d(ii): s.72(b) already starts 2030-07
+  });
+
+  it("(a) onset before death is NOT_MET, same month UNRESOLVED", () => {
     expect(run({ disabilityOnsetMonth: "2029-01" }).eventA.status).toBe("NOT_MET");
     expect(run({ disabilityOnsetMonth: "2030-06" }).eventA.status).toBe("UNRESOLVED");
+  });
+
+  it("(a) distinguishes unknown onset from declared none", () => {
+    expect(run({}, ["disabilityOnsetMonth"]).eventA.status).toBe("UNRESOLVED");
+    expect(run({ disabilityOnsetMonth: null }).eventA.status).toBe("NOT_MET");
   });
 
   it("(b) is NOT_MET when 65 before the death and UNRESOLVED in the death month", () => {
@@ -55,13 +81,13 @@ describe("selectS583Events", () => {
 
   it("(d) under d(i) depends on age 35 or a dependent child", () => {
     const d1 = { s44d1dRegime: "d(i)" as const };
-    expect(run({ ...d1 }).eventD.status).toBe("MET"); // 50
+    expect(run({ ...d1 }).eventD.status).toBe("UNRESOLVED"); // 50; (c) not excluded
     const young = { ...d1, survivorBirthMonth: "2000-01" }; // 30
     expect(run({ ...young }).eventD.status).toBe("UNRESOLVED");
-    expect(run({ ...young, dependentChildAtDeath: true }).eventD.status).toBe("MET");
+    expect(run({ ...young, dependentChildAtDeath: true }).eventD.status).toBe("UNRESOLVED");
     expect(run({ ...young, dependentChildAtDeath: false }).eventD.status).toBe("NOT_MET");
     expect(
-      run({ ...young, dependentChildAtDeath: false }).s72StartMonthBeforeRetroLimit,
+      run({ ...young, dependentChildAtDeath: false }).hypotheticalS72StartMonthBeforeRetroLimit,
     ).toBeNull();
   });
 
@@ -82,6 +108,12 @@ describe("selectS583Events", () => {
       dependentChildAtDeath: false,
     });
     expect(r.eventD.status).toBe("UNRESOLVED");
+  });
+
+  it("(d) is never MET while (c) cannot be excluded", () => {
+    for (const regime of ["d(i)", "d(ii)"] as const) {
+      expect(run({ s44d1dRegime: regime }).eventD.status).not.toBe("MET");
+    }
   });
 
   it("rejects malformed or impossible input", () => {

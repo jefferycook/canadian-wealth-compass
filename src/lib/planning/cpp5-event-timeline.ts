@@ -29,8 +29,11 @@ export type S44d1dRegime = "d(i)" | "d(ii)";
 export interface EventTimelineInput {
   readonly deathMonth: MonthKey;
   readonly survivorBirthMonth: MonthKey;
-  /** Month the survivor's disability began, if any. */
-  readonly disabilityOnsetMonth?: MonthKey;
+  /** Month the survivor's disability began: a month, null = declared no disability, omitted = unknown. */
+  readonly disabilityOnsetMonth?: MonthKey | null;
+  /** Declared evidence that the survivor pension actually became payable BY REASON OF that
+   *  disability (s.58(3)(a)). Omitted = unknown. Onset after the death is not enough by itself. */
+  readonly payableByReasonOfDisability?: boolean;
   /** Declared s.44(1)(d) limb; omitted means unknown. */
   readonly s44d1dRegime?: S44d1dRegime;
   /** Survivor had a dependent child at the death (needed under d(i) when under 35). */
@@ -51,10 +54,13 @@ export interface EventTimelineComputed {
   readonly status: "COMPUTED";
   /** Month the survivor turns 65 (birth month + 780 months). */
   readonly survivor65Month: MonthKey;
-  /** s.58(9): month following the month the s.44(1) criteria were first met; null when unknown. */
-  readonly qualificationMonth: MonthKey | null;
-  /** s.72 branch start month before the 12-month application limit; null when unknown. */
-  readonly s72StartMonthBeforeRetroLimit: MonthKey | null;
+  /** HYPOTHETICAL schedule, not an established fact: s.58(9) month following the month the
+   *  s.44(1) criteria would first be met IF the survivor is entitled (contributor's minimum
+   *  contributions, application, approval are not evidenced here). null when unknown. */
+  readonly hypotheticalQualificationMonth: MonthKey | null;
+  /** HYPOTHETICAL s.72 branch start month before the 12-month application limit and before any
+   *  entitlement/approval evidence. It is not the actual first payable month. null when unknown. */
+  readonly hypotheticalS72StartMonthBeforeRetroLimit: MonthKey | null;
   readonly eventA: EventSelection;
   readonly eventB: EventSelection;
   readonly eventD: EventSelection;
@@ -102,7 +108,7 @@ export function selectS583Events(input: EventTimelineInput): EventTimelineResult
   if (birth === null) return bad("survivorBirthMonth must be a valid YYYY-MM");
   if (birth > death) return bad("survivor cannot be born after the contributor's death");
   let onset: number | null = null;
-  if (input.disabilityOnsetMonth !== undefined) {
+  if (input.disabilityOnsetMonth !== undefined && input.disabilityOnsetMonth !== null) {
     onset = toIndex(input.disabilityOnsetMonth);
     if (onset === null) return bad("disabilityOnsetMonth must be a valid YYYY-MM");
     if (onset < birth) return bad("disability cannot begin before the survivor's birth");
@@ -119,15 +125,31 @@ export function selectS583Events(input: EventTimelineInput): EventTimelineResult
 
   // Event (a): disability began after the death.
   let eventA: EventSelection;
-  if (onset === null) {
-    eventA = sel("NOT_MET", "no disability onset supplied");
+  if (input.disabilityOnsetMonth === undefined) {
+    eventA = sel("UNRESOLVED", "disability onset unknown (not the same as declared none)");
+  } else if (onset === null) {
+    eventA = sel("NOT_MET", "declared no disability");
   } else if (onset === death) {
     eventA = sel("UNRESOLVED", "onset in the death month cannot be ordered at month granularity");
   } else if (onset > death) {
-    eventA = sel(
-      "MET",
-      "disability onset is after the death month; (a) also needs the pension to be payable by reason of it",
-    );
+    if (input.payableByReasonOfDisability === undefined) {
+      eventA = sel(
+        "UNRESOLVED",
+        "disability began after the death, but no evidence the survivor pension became payable by reason of it",
+      );
+    } else if (input.payableByReasonOfDisability === false) {
+      eventA = sel("NOT_MET", "declared: pension not payable by reason of the later disability");
+    } else if (regime === "d(ii)") {
+      eventA = sel(
+        "UNRESOLVED",
+        "declared payable by reason of disability, but under d(ii) s.72(b) already starts the month after death",
+      );
+    } else {
+      eventA = sel(
+        "MET",
+        "disability began after the death and the pension is declared payable by reason of it",
+      );
+    }
   } else {
     eventA = sel("NOT_MET", "disability began on or before the death month");
   }
@@ -175,8 +197,8 @@ export function selectS583Events(input: EventTimelineInput): EventTimelineResult
     );
   } else if (regime === "d(ii)") {
     eventD = sel(
-      "MET",
-      "d(ii): payable from the month after the death with no (a)-(c) circumstance",
+      "UNRESOLVED",
+      "s.58(3)(c) also names commencement of the survivor pension itself; absence of an own pension does not exclude it",
     );
   } else if (eq35 && input.dependentChildAtDeath !== true) {
     eventD = sel(
@@ -185,8 +207,8 @@ export function selectS583Events(input: EventTimelineInput): EventTimelineResult
     );
   } else if (ge35 || input.dependentChildAtDeath === true) {
     eventD = sel(
-      "MET",
-      "d(i): 35 or over, or dependent child, at the death: payable from the month after the death",
+      "UNRESOLVED",
+      "s.58(3)(c) also names commencement of the survivor pension itself; (c) vs (d) is not excluded",
     );
   } else if (input.dependentChildAtDeath === undefined) {
     eventD = sel("UNRESOLVED", "under 35 at death: dependent-child status needed");
@@ -207,8 +229,8 @@ export function selectS583Events(input: EventTimelineInput): EventTimelineResult
   return {
     status: "COMPUTED",
     survivor65Month: fromIndex(turns65),
-    qualificationMonth: qualification,
-    s72StartMonthBeforeRetroLimit: s72Start,
+    hypotheticalQualificationMonth: qualification,
+    hypotheticalS72StartMonthBeforeRetroLimit: s72Start,
     eventA,
     eventB,
     eventD,
