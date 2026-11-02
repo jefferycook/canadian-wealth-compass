@@ -109,6 +109,66 @@ elsewhere in this file remain invented and illustrative.
   PI / cent-rounding order all remain unresolved. Keep fail-closed output. Representative
   actual CPP payment cases and independent exact-SHA review are still needed.
 
+## Regs. 78.3 and 78.4 date-specific factor rules (2026-11-02, research only)
+
+Source: Canada Pension Plan Regulations (C.R.C., c. 385), Justice Laws full-text HTML
+(`FullText.html`) downloaded directly and the text of ss.78.3 and 78.4 read from the
+page; the page states "current to 2026-09-30 and last amended on 2026-01-01". Both
+sections cite SOR/2010-300, s. 1. This is a first-party read by this author only and has
+no second-party check. Nothing here is approved, and no engine behaviour changes.
+
+Both sections open "For the purposes of subsection 46(3.1) of the Act". They do not
+name s.46(7) in their own text. The s.46(7) link above is the owner's reading and is
+unconfirmed by the regulation text.
+
+**s.78.3, pension payable in a month before the month the contributor reaches 65.**
+Factor = 1 - (A x B). A = months from the month the pension becomes payable to the
+month before the month the contributor reaches 65, or 60 months, whichever is less.
+B by the month the pension becomes payable:
+
+| Payable month | B |
+|---|---|
+| after 2010-12-31 and before 2012-01-01 | 0.0050 |
+| 2012 | 0.0052 |
+| 2013 | 0.0054 |
+| 2014 | 0.0056 |
+| 2015 | 0.0058 |
+| after 2015-12-31 | 0.0060 |
+
+**s.78.4, pension payable in a month after the month the contributor reaches 65.**
+Factor = 1 + (A x B). A = months from the month after the contributor reaches 65 to the
+month the pension becomes payable, or 60 months, whichever is less. B:
+
+| Payable month | B |
+|---|---|
+| 2011 | 0.0057 |
+| 2012 | 0.0064 |
+| after 2012-12-31 | 0.0070 |
+
+**Boundaries and gaps recorded, none resolved:**
+- Neither section covers a pension payable in the month the contributor reaches 65. The
+  gap is in the regulation text as read. No factor is asserted for that month; a model
+  must fail closed rather than choose 1, 78.3 or 78.4.
+- Neither section lists B for a payable month before 2011. Those cases are not covered
+  by these two sections. Nothing is asserted for them.
+- Dates are keyed to the month the pension becomes payable, not to the application
+  date, the birth year or the s.58 event month.
+- A is capped at 60 months in both. The cap is stated in the text as "or 60 months,
+  whichever is less".
+- Whether the upward factor (s.78.4) may be applied to a reduced basis under s.46(5) is
+  still unspecified, as in row iv above.
+- Rounding of the factor, and of the factor times the amount, is not given in either
+  section.
+
+**Structure-only arithmetic, not expected values** (invented inputs; A and B taken from
+the tables above): pension payable 2026-01 for a contributor reaching 65 in 2026-07 gives
+A = 6 (months 2026-01 to 2026-06), B = 0.0060, factor = 1 - 0.036 = 0.964. Pension
+payable 2026-09 for a contributor who reached 65 in 2026-07 gives A = 2 (months 2026-08
+to 2026-09), B = 0.0070, factor = 1 + 0.014 = 1.014.
+
+This closes ledger item 1 only in part: s.46(7) itself and the s.46(4) definitions are
+not re-read here.
+
 ## Illustrative worked shape (invented numbers, not expected values)
 
 Only the *shape* is shown, because the ratio and deduction definitions are
