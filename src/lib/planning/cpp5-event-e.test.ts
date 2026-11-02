@@ -13,6 +13,7 @@ const s552: EventEInput = {
   branch: "S55_2_9_DIVISION_UNDER_55_1",
   adjustedBenefitIsSurvivorRetirementPension: true,
   divisionTakesPlaceMonth: "2031-05",
+  benefitPayableAbsentDivision: true,
   benefitFirstPayableMonth: "2030-01",
 };
 
@@ -103,5 +104,46 @@ describe("selectS583EventE (fail-closed, experimental)", () => {
     expect(
       selectS583EventE({ ...s57, branch: "S55_3" as unknown as EventEInput["branch"] }).status,
     ).toBe("INVALID_INPUT");
+  });
+  it("month range: 9999-12, 0000-01 and pre-CPP months are rejected, not overflowed", () => {
+    for (const m of ["9999-12", "0000-01", "1965-12", "2200-01"]) {
+      expect(selectS583EventE({ ...s57, applicationReceivedMonth: m }).status).toBe(
+        "INVALID_INPUT",
+      );
+      expect(selectS583EventE({ ...s552, divisionTakesPlaceMonth: m }).status).toBe(
+        "INVALID_INPUT",
+      );
+    }
+  });
+  it("month range: boundary months are accepted and the result stays in range", () => {
+    expect(
+      selectS583EventE({
+        ...s57,
+        applicationReceivedMonth: "2199-12",
+        benefitFirstPayableMonth: "1966-01",
+      }),
+    ).toMatchObject({ status: "CANDIDATE", adjustedBenefitEffectiveMonth: "2200-01" });
+    expect(
+      selectS583EventE({
+        ...s57,
+        applicationReceivedMonth: "1966-01",
+        benefitFirstPayableMonth: "1966-01",
+      }).status,
+    ).toBe("CANDIDATE");
+  });
+  it("s.55.2(9): payability absent the division must be declared true", () => {
+    for (const v of [undefined, false]) {
+      const r = selectS583EventE({ ...s552, benefitPayableAbsentDivision: v });
+      expect(r.status).toBe("UNRESOLVED");
+      expect("adjustedBenefitEffectiveMonth" in r).toBe(false);
+    }
+  });
+  it("a CANDIDATE is labelled caller-declared and unverified, never MET", () => {
+    for (const base of [s57, s552]) {
+      expect(selectS583EventE(base)).toMatchObject({
+        status: "CANDIDATE",
+        provenance: "CALLER_DECLARED_UNVERIFIED",
+      });
+    }
   });
 });
