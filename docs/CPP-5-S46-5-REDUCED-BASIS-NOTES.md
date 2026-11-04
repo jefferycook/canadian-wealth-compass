@@ -190,3 +190,30 @@ This arithmetic only illustrates the *structure*. It must not be used until (ii)
 
 ## Not done
 No code, tests or workflows were run or changed. Nothing here affects production.
+
+## Second read of Regs. 78.3 / 78.4 and s.46(4) (2026-11-04, research only)
+
+Source: Justice Laws HTML pages for CPP Regulations s.78.3 and s.78.4 and Act s.46,
+fetched directly on 2026-11-04; the pages state "current to 2026-10-19" (regulations and
+Act). Read by the same automated author as the 2026-11-02 section, so this is a
+re-read, not an independent second-party check.
+
+- **Reg. 78.3 table**: B = 0.0050 / 0.0052 / 0.0054 / 0.0056 / 0.0058 for payable
+  months in 2011 / 2012 / 2013 / 2014 / 2015, and 0.0060 after 2015-12-31. A = months
+  from the payable month to the month before age 65, or 60, whichever is less. Matches
+  the table recorded above.
+- **Reg. 78.4 table**: B = 0.0057 (2011), 0.0064 (2012), 0.0070 (after 2012-12-31).
+  A = months from the month after age 65 to the payable month, or 60, whichever is less.
+  Matches the table recorded above.
+- Both sections open "For the purposes of subsection 46(3.1) of the Act" and do not
+  mention s.46(7); the three gaps recorded above (month of the 65th birthday, payable
+  month before 2011, no rounding rule) are still present in the text.
+- **s.46(4)**: the formula [(F1 x P1) + (F2 x E)] / P2 and the F1, P1, F2 (lesser of
+  the commencing-month factor and 1), E, P2 definitions match the owner's transcription.
+- **s.46(5)** opens "Unless otherwise provided by an agreement under section 80" and
+  restricts a *downward* factor to the remaining amount. The page text was read only as
+  far as the start of that restriction; the PI-ratio wording was not re-read here.
+
+Ledger items 2 to 4 (s.58(2) "reduced" branch, ratio years, negative remainder) remain
+open. No numeric value is approved and no engine behaviour changes. No code or tests
+were run.
