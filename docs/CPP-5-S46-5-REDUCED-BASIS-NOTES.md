@@ -217,3 +217,63 @@ re-read, not an independent second-party check.
 Ledger items 2 to 4 (s.58(2) "reduced" branch, ratio years, negative remainder) remain
 open. No numeric value is approved and no engine behaviour changes. No code or tests
 were run.
+
+## s.46(5) in full and s.58(2) structure (2026-11-04, research only)
+
+Source: Justice Laws HTML for Act s.46 and s.58, fetched directly on 2026-11-04. Read by
+the same automated author as the earlier sections; this is a re-read, not an independent
+second-party check. Text below is copied from the fetched page text, not recalled.
+
+**s.46(5), "Exception if survivor's pension reduced"** (full text):
+
+> Unless otherwise provided by an agreement under section 80, if a person receives a
+> retirement pension under this Act and a survivor's pension under this Act and the
+> survivor's pension is at any time reduced from its full amount under subsection 58(2),
+> any downward adjustment factor resulting from the application of subsection (3), (3.1)
+> or (4) at that time shall not be applied to the whole of the basic monthly amount of the
+> retirement pension calculated in accordance with subsection (1) or (2), as the case may
+> be, but only to the amount remaining when that basic monthly amount is reduced by the
+> product obtained by multiplying (a) the amount by which the survivor's pension has been
+> reduced by (b) the ratio that the Pension Index for the year in which the retirement
+> pension first commenced to be payable bears to the Pension Index for the year in which
+> the survivor's pension is reduced.
+
+Reading points (stated as text, not as approved behaviour):
+
+- The ratio is PI(year the retirement pension first commenced) / PI(year the survivor's
+  pension is reduced). That answers the "ratio years" ledger item at the text level.
+  "At any time reduced" and "year in which the survivor's pension is reduced" are not
+  defined further in s.46(5).
+- It only governs a *downward* factor from (3), (3.1) or (4).
+- Nothing in the text says what happens when the product exceeds the basic monthly amount
+  (a zero or negative remainder). Left open; no assumption made.
+- The text does not state the rounding order or whether the PI ratio is rounded.
+
+**s.58(2) structure** (the page carries all branches at once):
+
+- (a) survivor under 65, retirement pension commencing after 1997-12-31: sum of (i) flat
+  rate benefit (or the greater of it and a post-retirement disability benefit) plus the
+  lesser of [C - D] and a cap defined against 25% of 1/12 of the survivor's Maximum
+  Pensionable Earnings Average, then (ii) and (iii) which are C - D formulas for the
+  s.46(3.1) and (3.4) portions. C is 37.5% of the contributor's retirement pension
+  portion; D is the lesser of 40% of C and 40% of the survivor's own retirement pension
+  portion (calculated "without regard to subsections 46(3) to (6)", adjusted under
+  s.45(2)).
+- (b) under 65, retirement pension commencing before 1998-01-01: flat rate benefit plus
+  the lesser of 37.5% of the contributor's pension and a cap against the three-year YMPE
+  average.
+- (c) 65 or over, born after 1932-12-31, retirement pension commencing after 1997-12-31:
+  same shape as (a) with A = 60% in place of 37.5%, no flat rate benefit.
+- (d) any other case: lesser of 60% of the contributor's portion and a cap against the
+  three-year YMPE average, plus 60% of the (3.1) and (3.4) portions.
+
+Relevant to s.46(5): in every branch the survivor's own retirement pension enters the
+survivor-pension formula "without regard to subsections 46(3) to (6)", so the s.46(5)
+reduction does not feed back into the s.58(2) amount through that term. Whether the
+"full amount" counterfactual in s.46(5) is the s.58(2) result with the unreduced
+retirement pension is not stated in the text and stays open.
+
+Unchanged open items: ledger item 2 (what counts as the s.58(2) "reduced" amount), item 4
+(zero or negative remainder), PI and cent-rounding order, and Service Canada payment
+cases. No numeric value is approved, no engine behaviour changes, and no code or tests
+were run. Prettier was not run on this file.
