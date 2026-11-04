@@ -72,9 +72,29 @@ describe("the engine stays annual", () => {
   });
 
   it("an unconverted monthly figure would spend twelve times as much", () => {
-    expect(retiredTarget(annualFromMonthly(100000)!) / retiredTarget(100000)).toBeCloseTo(
-      12,
-      6,
-    );
+    expect(retiredTarget(annualFromMonthly(100000)!) / retiredTarget(100000)).toBeCloseTo(12, 6);
+  });
+});
+
+describe("unit helpers: missing and invalid input", () => {
+  it("treats undefined and NaN as unanswered, not zero, for the null-preserving helpers", () => {
+    expect(annualFromMonthly(undefined)).toBeNull();
+    expect(annualFromMonthly(Number.NaN)).toBeNull();
+    expect(monthlyFromAnnual(undefined)).toBeNull();
+    expect(monthlyFromAnnual(Number.NaN)).toBeNull();
+  });
+
+  it("monthlyDisplay falls back to 0 for null, undefined and NaN", () => {
+    expect(monthlyDisplay(null)).toBe(0);
+    expect(monthlyDisplay(undefined)).toBe(0);
+    expect(monthlyDisplay(Number.NaN)).toBe(0);
+  });
+
+  it("monthlyFromAnnual rounds to the cent and monthlyDisplay to the dollar", () => {
+    // 1000 / 12 = 83.3333...
+    expect(monthlyFromAnnual(1000)).toBe(83.33);
+    expect(monthlyDisplay(1000)).toBe(83);
+    // 1010 / 12 = 84.1666...
+    expect(monthlyFromAnnual(1010)).toBe(84.17);
   });
 });
