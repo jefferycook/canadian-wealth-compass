@@ -2345,3 +2345,307 @@ test("independent verify-merge helper preserves Git graph and tree invariants", 
   assert.notEqual(wrongHead.status, 0);
   assert.match(wrongHead.stderr, /second parent/);
 });
+
+// ---------------------------------------------------------------------------
+// Low-risk machine dispatch (PL): identity, allowlist, receipt, fail-closed.
+// ---------------------------------------------------------------------------
+import {
+  LOWRISK_PHRASE,
+  assertLowRiskFiles,
+  doubleRead,
+  findLowRiskReceipt,
+  lowRiskPath,
+  validateLowRisk,
+} from "./phase0-merge.mjs";
+
+const lowRiskDispatch = (change = {}) => ({
+  ref: "refs/heads/main",
+  actor: "jefferycook",
+  approvalPhrase: LOWRISK_PHRASE,
+  prNumber: "7",
+  head,
+  base,
+  tree,
+  lowRiskEnabled: "true",
+  lowRiskReviewer: "codex-reviewer[bot]",
+  lowRiskDispatchActor: "",
+  ...change,
+});
+const receiptLine = (change = {}) => {
+  const v = { pr: 7, head, base, tree, ...change };
+  return `<!-- cwc-automerge-receipt:v1 pr=${v.pr} head=${v.head} base=${v.base} tree=${v.tree} verdict=approve -->`;
+};
+const receiptReview = (change = {}) => ({
+  id: 500,
+  user: { login: "codex-reviewer[bot]" },
+  commit_id: head,
+  state: "COMMENTED",
+  body: `Receipt.\n${receiptLine()}`,
+  ...change,
+});
+
+test("PL machine dispatch identity validates exactly and fails closed", () => {
+  assert.deepEqual(validateDispatch(lowRiskDispatch()), {
+    prNumber: 7,
+    head,
+    base,
+    tree,
+    lowRisk: true,
+    lowRiskReviewer: "codex-reviewer[bot]",
+  });
+  assert.deepEqual(
+    validateDispatch(
+      lowRiskDispatch({ actor: "cwc-automation", lowRiskDispatchActor: "cwc-automation" }),
+    ).lowRisk,
+    true,
+  );
+  for (const [change, message] of [
+    [{ lowRiskEnabled: "false" }, /P1 low-risk automation not enabled/],
+    [{ lowRiskEnabled: "" }, /P1 low-risk automation not enabled/],
+    [{ lowRiskEnabled: undefined }, /P1 low-risk automation not enabled/],
+    [{ lowRiskReviewer: "" }, /P1 low-risk reviewer not configured/],
+    [{ lowRiskReviewer: undefined }, /P1 low-risk reviewer not configured/],
+    [{ actor: "attacker" }, /P1 dispatch authority mismatch/],
+    [{ actor: "cwc-automation" }, /P1 dispatch authority mismatch/],
+    [
+      { actor: "attacker", lowRiskDispatchActor: "cwc-automation" },
+      /P1 dispatch authority mismatch/,
+    ],
+    [{ lowRiskDispatchActor: "bad actor!" }, /P1 invalid pinned low-risk dispatch actor/],
+  ])
+    assert.throws(() => validateDispatch(lowRiskDispatch(change)), message);
+});
+
+test("PL human path is byte-identical and ignores machine-mode variables", () => {
+  const human = {
+    ref: "refs/heads/main",
+    actor: "jefferycook",
+    approvalPhrase: "EXACT-SHA-AUDIT-PASS",
+    prNumber: "7",
+    head,
+    base,
+    tree,
+    lowRiskEnabled: "true",
+    lowRiskReviewer: "codex-reviewer[bot]",
+    lowRiskDispatchActor: "cwc-automation",
+  };
+  assert.deepEqual(validateDispatch(human), { prNumber: 7, head, base, tree });
+  // A pinned machine actor can never ride the human phrase.
+  assert.throws(
+    () => validateDispatch({ ...human, actor: "cwc-automation" }),
+    /P1 dispatch authority mismatch/,
+  );
+  // An unknown phrase stays rejected.
+  assert.throws(
+    () => validateDispatch(lowRiskDispatch({ approvalPhrase: "auto-receipt-lowrisk-pass" })),
+    /P1 dispatch authority mismatch/,
+  );
+});
+
+test("PL allowlist is deny-by-default", () => {
+  assert.equal(lowRiskPath("src/lib/planning/ages.boundary.test.ts"), true);
+  assert.equal(lowRiskPath("docs/NOTES.md"), true);
+  for (const path of [
+    "src/lib/planning/benefits.ts",
+    "src/lib/planning/phase0-freeze.fixtures.ts",
+    "src/lib/planning/phase0-freeze.test.ts",
+    "docs/CANONICAL-ENGINE-SPECIFICATION-v1.2-FINAL.md",
+    "docs/IMPLEMENTATION-CHANGELOG.md",
+    "docs/audit/evidence.md",
+    ".github/workflows/phase0-trust.yml",
+    "scripts/audit/phase0-merge.mjs",
+    "package.json",
+    "",
+  ])
+    assert.equal(lowRiskPath(path), false, path);
+  assert.deepEqual(
+    assertLowRiskFiles([{ filename: "src/a.test.ts", status: "added" }]),
+    [{ filename: "src/a.test.ts", status: "added" }],
+  );
+  for (const file of [
+    { filename: "src/a.test.ts", status: "removed" },
+    { filename: "src/a.test.ts", status: "renamed", previous_filename: "src/b.test.ts" },
+    { filename: "src/lib/planning/tax.ts", status: "modified" },
+  ])
+    assert.throws(() => assertLowRiskFiles([file]), /PL2 file outside the low-risk allowlist/);
+});
+
+test("PL receipt binds reviewer, exact SHAs and latest review only", () => {
+  const params = {
+    reviewer: "codex-reviewer[bot]",
+    author: "jefferycook",
+    prNumber: 7,
+    head,
+    base,
+    tree,
+  };
+  assert.ok(findLowRiskReceipt([receiptReview()], params));
+  for (const reviews of [
+    [receiptReview({ user: { login: "jefferycook" } })],
+    [receiptReview({ commit_id: "9".repeat(40) })],
+    [receiptReview({ state: "CHANGES_REQUESTED" })],
+    [receiptReview({ body: `x\n${receiptLine({ head: "9".repeat(40) })}` })],
+    [receiptReview({ body: `x\n${receiptLine({ base: "9".repeat(40) })}` })],
+    [receiptReview({ body: `x\n${receiptLine({ tree: "9".repeat(40) })}` })],
+    [receiptReview({ body: `x\n${receiptLine({ pr: 8 })}` })],
+    [receiptReview({ body: `x\n${receiptLine()}\ntrailing prose` })],
+    [receiptReview({ body: `${receiptLine()}\n${receiptLine()}` })],
+    [receiptReview(), receiptReview({ id: 600, body: "withdrawing" })],
+    [],
+  ])
+    assert.equal(findLowRiskReceipt(reviews, params), null);
+  assert.equal(
+    findLowRiskReceipt([receiptReview({ user: { login: "self" } })], {
+      ...params,
+      reviewer: "self",
+      author: "self",
+    }),
+    null,
+  );
+});
+
+function lowRiskApi({ files, reviews, dispatch }) {
+  const gateRun = run(v());
+  const listFiles = "listFiles";
+  const listReviews = "listReviews";
+  const listForRef = async () => {};
+  const statuses = "statuses";
+  const pull = {
+    state: "open",
+    draft: false,
+    merged: false,
+    changed_files: files.length,
+    user: { login: "jefferycook" },
+    base: { ref: "main", sha: base },
+    head: { sha: head, repo: { full_name: "o/r" } },
+  };
+  const github = {
+    paginate: async (method) =>
+      method === listFiles
+        ? structuredClone(files)
+        : method === listReviews
+          ? structuredClone(reviews.current ?? reviews)
+          : method === listForRef
+            ? [structuredClone(gateRun)]
+            : [],
+    request: async (route) =>
+      route.includes("/actions/workflows/") ? { data: { id: 10 } } : { data: [] },
+    rest: {
+      git: { getRef: async () => ({ data: { object: { sha: base } } }) },
+      pulls: { get: async () => ({ data: structuredClone(pull) }), listFiles, listReviews },
+      repos: {
+        getCommit: async () => ({
+          data: { parents: [{ sha: base }], commit: { tree: { sha: tree } } },
+        }),
+        compareCommitsWithBasehead: async () => ({
+          data: {
+            merge_base_commit: { sha: base },
+            ahead_by: 1,
+            behind_by: 0,
+            total_commits: 1,
+          },
+        }),
+        listCommitStatusesForRef: statuses,
+      },
+      checks: { listForRef },
+      actions: {
+        getWorkflowRun: async () => ({
+          data: {
+            id: 20,
+            workflow_id: 10,
+            run_attempt: 1,
+            head_sha: head,
+            conclusion: "success",
+            event: "pull_request",
+            path: ".github/workflows/phase0-verify.yml",
+            head_repository: { full_name: "o/r" },
+          },
+        }),
+      },
+    },
+  };
+  return {
+    github,
+    args: {
+      github,
+      owner: "o",
+      repo: "r",
+      dispatch,
+      trustedSha: base,
+      helperSha: base,
+      dispatchRunId: 99,
+      dispatchAttempt: 1,
+    },
+  };
+}
+
+test("PL prepare accepts an exact low-risk candidate and keeps human path intact", async () => {
+  const files = [{ filename: "src/lib/planning/ages.boundary.test.ts", status: "added" }];
+  const { args } = lowRiskApi({ files, reviews: [receiptReview()], dispatch: lowRiskDispatch() });
+  const prepared = await prepareBeforeMerge(args);
+  assert.equal(prepared.audit.lowRisk, true);
+  assert.equal(prepared.requiresGateToken, false);
+  // The SAME candidate through the human path needs no receipt.
+  const human = lowRiskApi({
+    files,
+    reviews: [],
+    dispatch: {
+      ref: "refs/heads/main",
+      actor: "jefferycook",
+      approvalPhrase: "EXACT-SHA-AUDIT-PASS",
+      prNumber: "7",
+      head,
+      base,
+      tree,
+    },
+  });
+  const humanPrepared = await prepareBeforeMerge(human.args);
+  assert.equal(humanPrepared.audit.lowRisk, undefined);
+});
+
+test("PL prepare fails closed on allowlist, infrastructure and receipt", async () => {
+  for (const [files, reviews, message] of [
+    [
+      [{ filename: "src/lib/planning/benefits.ts", status: "modified" }],
+      [receiptReview()],
+      /PL2 file outside the low-risk allowlist/,
+    ],
+    [
+      [{ filename: "scripts/audit/phase0-merge.mjs", status: "modified" }],
+      [receiptReview()],
+      /PL1 low-risk mode cannot touch infrastructure paths/,
+    ],
+    [
+      [{ filename: "src/a.test.ts", status: "added" }],
+      [],
+      /PL4 independent low-risk receipt missing or not exact/,
+    ],
+    [
+      [{ filename: "src/a.test.ts", status: "added" }],
+      [receiptReview(), { id: 700, user: { login: "other" }, state: "CHANGES_REQUESTED" }],
+      /PL3 changes requested by a reviewer/,
+    ],
+  ]) {
+    const { args } = lowRiskApi({ files, reviews, dispatch: lowRiskDispatch() });
+    await assert.rejects(prepareBeforeMerge(args), message);
+  }
+});
+
+test("PL doubleRead re-verifies the receipt and aborts on withdrawal", async () => {
+  const files = [{ filename: "src/a.test.ts", status: "added" }];
+  const reviews = { current: [receiptReview()] };
+  const { github } = lowRiskApi({ files, reviews, dispatch: lowRiskDispatch() });
+  const gateRun = run(v());
+  const validated = {
+    audit: validateDispatch(lowRiskDispatch()),
+    gateId: gateRun.id,
+    gateExternalId: gateRun.external_id,
+    gateCompletedAt: gateRun.completed_at,
+  };
+  await doubleRead({ github, owner: "o", repo: "r", validated, trustedSha: base });
+  reviews.current = [receiptReview(), { ...receiptReview(), id: 800, body: "withdrawn" }];
+  await assert.rejects(
+    doubleRead({ github, owner: "o", repo: "r", validated, trustedSha: base }),
+    /PL4 independent low-risk receipt missing or not exact/,
+  );
+});
