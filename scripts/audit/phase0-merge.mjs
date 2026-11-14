@@ -60,21 +60,128 @@ const repoRequest = (github, route, owner, repo, rest = {}) =>
   github.request(route, { owner, repo, ...rest });
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+export const LOWRISK_PHRASE = "AUTO-RECEIPT-LOWRISK-PASS";
+const LOGIN = /^[A-Za-z0-9[\]-]{1,64}$/;
+
 export function validateDispatch(input) {
+  // Low-risk machine mode is selected ONLY by its distinct phrase and is
+  // fail-closed behind the owner's PHASE0_LOWRISK_AUTOMERGE variable. The
+  // human path below is byte-for-byte the original behaviour, including
+  // its exact return shape; arbitrary actors are never accepted in either
+  // mode, and the permitted machine actor is the owner unless the owner
+  // pinned one exact automation login server-side.
+  const lowRisk = input.approvalPhrase === LOWRISK_PHRASE;
+  let permittedActor = "jefferycook";
+  if (lowRisk) {
+    if (input.lowRiskEnabled !== "true")
+      throw new Error("P1 low-risk automation not enabled by owner");
+    if (input.lowRiskDispatchActor) {
+      if (!LOGIN.test(input.lowRiskDispatchActor))
+        throw new Error("P1 invalid pinned low-risk dispatch actor");
+      permittedActor = input.lowRiskDispatchActor;
+    }
+    if (typeof input.lowRiskReviewer !== "string" || !LOGIN.test(input.lowRiskReviewer))
+      throw new Error("P1 low-risk reviewer not configured");
+  }
   if (
     input.ref !== "refs/heads/main" ||
-    input.actor !== "jefferycook" ||
-    input.approvalPhrase !== "EXACT-SHA-AUDIT-PASS"
+    input.actor !== permittedActor ||
+    (!lowRisk && input.approvalPhrase !== "EXACT-SHA-AUDIT-PASS")
   )
     throw new Error("P1 dispatch authority mismatch");
   if (!/^[1-9][0-9]*$/.test(input.prNumber ?? "") || !Number.isSafeInteger(Number(input.prNumber)))
     throw new Error("P1 invalid PR number");
-  return {
+  const audit = {
     prNumber: Number(input.prNumber),
     head: sha(input.head, "audited head SHA"),
     base: sha(input.base, "audited base SHA"),
     tree: sha(input.tree, "audited tree SHA"),
   };
+  return lowRisk
+    ? { ...audit, lowRisk: true, lowRiskReviewer: input.lowRiskReviewer }
+    : audit;
+}
+
+const LOWRISK_TEST_FILE = /^src\/[A-Za-z0-9._/-]+\.test\.(ts|tsx|mjs)$/;
+const LOWRISK_DOC_FILE = /^docs\/[A-Za-z0-9._-]+\.md$/;
+const LOWRISK_DOC_DENY = Object.freeze(["CANONICAL-", "IMPLEMENTATION-CHANGELOG"]);
+const LOWRISK_RECEIPT = new RegExp(
+  "^<!-- cwc-automerge-receipt:v1 pr=([1-9][0-9]{0,4}) head=([0-9a-f]{40}) " +
+    "base=([0-9a-f]{40}) tree=([0-9a-f]{40}) verdict=approve -->$",
+);
+
+export function lowRiskPath(path) {
+  if (typeof path !== "string" || path.length === 0 || infrastructurePath(path)) return false;
+  if (LOWRISK_TEST_FILE.test(path)) return true;
+  if (!LOWRISK_DOC_FILE.test(path)) return false;
+  const base = path.slice(path.lastIndexOf("/") + 1);
+  return !LOWRISK_DOC_DENY.some((prefix) => base.startsWith(prefix));
+}
+
+export function assertLowRiskFiles(files) {
+  const accepted = new Set(["added", "modified"]);
+  for (const file of files) {
+    if (!accepted.has(file.status) || file.previous_filename || !lowRiskPath(file.filename))
+      throw new Error("PL2 file outside the low-risk allowlist");
+  }
+  return files;
+}
+
+export function latestReviewsByUser(reviews) {
+  const latest = new Map();
+  for (const review of [...reviews].sort((left, right) => (left.id ?? 0) - (right.id ?? 0))) {
+    const login = review?.user?.login;
+    if (login) latest.set(login, review);
+  }
+  return latest;
+}
+
+export function findLowRiskReceipt(reviews, { reviewer, author, prNumber, head, base, tree }) {
+  // A receipt is a PR REVIEW (server-recorded commit_id), by the pinned
+  // reviewer login, which must differ from the PR author, on the exact
+  // audited head, whose body's FINAL line binds this exact
+  // pr/head/base/tree with verdict=approve. The reviewer's LATEST review
+  // is the only one considered, so any newer review withdraws approval.
+  if (!reviewer || reviewer === author) return null;
+  const latest = latestReviewsByUser(reviews).get(reviewer);
+  if (!latest || latest.commit_id !== head || !["APPROVED", "COMMENTED"].includes(latest.state))
+    return null;
+  const body = String(latest.body ?? "").trim();
+  if (body.split("cwc-automerge-receipt:v1").length !== 2) return null;
+  const lines = body.split("\n");
+  const match = LOWRISK_RECEIPT.exec(lines[lines.length - 1].trim());
+  if (!match) return null;
+  const [, receiptPr, receiptHead, receiptBase, receiptTree] = match;
+  if (
+    Number(receiptPr) !== prNumber ||
+    receiptHead !== head ||
+    receiptBase !== base ||
+    receiptTree !== tree
+  )
+    return null;
+  return latest;
+}
+
+export async function validateLowRisk(github, { owner, repo, audit, author }) {
+  const reviews = await github.paginate(github.rest.pulls.listReviews, {
+    owner,
+    repo,
+    pull_number: audit.prNumber,
+    per_page: 100,
+  });
+  for (const review of latestReviewsByUser(reviews).values())
+    if (review.state === "CHANGES_REQUESTED")
+      throw new Error("PL3 changes requested by a reviewer");
+  const receipt = findLowRiskReceipt(reviews, {
+    reviewer: audit.lowRiskReviewer,
+    author,
+    prNumber: audit.prNumber,
+    head: audit.head,
+    base: audit.base,
+    tree: audit.tree,
+  });
+  if (!receipt) throw new Error("PL4 independent low-risk receipt missing or not exact");
+  return receipt;
 }
 
 export function validateLivePull(pull, { owner, repo, head, base }) {
@@ -420,6 +527,13 @@ export async function prepareBeforeMerge({
       infrastructurePath(file.filename) ||
       infrastructurePath(file.previous_filename),
   );
+  if (audit.lowRisk) {
+    // PL: machine mode re-derives eligibility server-side; the dispatching
+    // controller's claims are advisory. Infrastructure is never low-risk.
+    if (infrastructure) throw new Error("PL1 low-risk mode cannot touch infrastructure paths");
+    assertLowRiskFiles(files);
+    await validateLowRisk(github, { owner, repo, audit, author: pull.user?.login });
+  }
   await poisonSignals(github, owner, repo, audit.head);
   const gates = await listAuthoritativeGateChecks(github, owner, repo, audit.head);
   if (gates.length === 0) throw new Error("P7 exactly one canonical Gate required");
@@ -468,6 +582,10 @@ export async function doubleRead({ github, owner, repo, validated, trustedSha })
     gate.conclusion !== "success"
   )
     throw new Error("P13 final double-read changed");
+  if (audit.lowRisk)
+    // The receipt must still hold at the final read: a withdrawal or a
+    // changes-requested review arriving after P-steps aborts the merge.
+    await validateLowRisk(github, { owner, repo, audit, author: pull.user?.login });
   return validated;
 }
 

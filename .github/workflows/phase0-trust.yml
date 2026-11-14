@@ -159,11 +159,14 @@ jobs:
           BASE: ${{ inputs.audited_base_sha }}
           TREE: ${{ inputs.audited_tree_sha }}
           PHRASE: ${{ inputs.approval_phrase }}
+          LOWRISK_ENABLED: ${{ vars.PHASE0_LOWRISK_AUTOMERGE || 'false' }}
+          LOWRISK_REVIEWER: ${{ vars.PHASE0_LOWRISK_REVIEWER || '' }}
+          LOWRISK_ACTOR: ${{ vars.PHASE0_LOWRISK_DISPATCH_ACTOR || '' }}
         with:
           script: |
             const { pathToFileURL } = require("node:url");
             const helper = await import(pathToFileURL(process.env.HELPER).href);
-            const prepared = await helper.prepareBeforeMerge({ github, ...context.repo, trustedSha: context.sha, helperSha: process.env.HELPER_SHA, dispatchRunId: Number(context.runId), dispatchAttempt: Number(process.env.GITHUB_RUN_ATTEMPT), dispatch: { ref: context.ref, actor: context.actor, prNumber: process.env.PR, head: process.env.HEAD, base: process.env.BASE, tree: process.env.TREE, approvalPhrase: process.env.PHRASE } });
+            const prepared = await helper.prepareBeforeMerge({ github, ...context.repo, trustedSha: context.sha, helperSha: process.env.HELPER_SHA, dispatchRunId: Number(context.runId), dispatchAttempt: Number(process.env.GITHUB_RUN_ATTEMPT), dispatch: { ref: context.ref, actor: context.actor, prNumber: process.env.PR, head: process.env.HEAD, base: process.env.BASE, tree: process.env.TREE, approvalPhrase: process.env.PHRASE, lowRiskEnabled: process.env.LOWRISK_ENABLED, lowRiskReviewer: process.env.LOWRISK_REVIEWER, lowRiskDispatchActor: process.env.LOWRISK_ACTOR } });
             core.setOutput("prepared", Buffer.from(JSON.stringify(prepared)).toString("base64"));
             core.setOutput("needs_gate_token", String(prepared.requiresGateToken));
 
