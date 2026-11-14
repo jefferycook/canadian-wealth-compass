@@ -283,14 +283,15 @@ describe("CPP survivor's pension", () => {
     expect(b).toBeCloseTo(Math.min(TY.cppSurvFlat + 3750, TY.cppSurvMaxU65), 6);
   });
 
-  it("reduces the benefit by 1/120 per month for a survivor aged 35 to 44", () => {
+  it("does not reduce a qualifying 40-year-old survivor's post-2018 pension by age alone", () => {
     const full = cppSurvivorBenefit(10000, 45, 0, 1, TY);
     const at40 = cppSurvivorBenefit(10000, 40, 0, 1, TY);
-    expect(at40).toBeCloseTo(full * 0.5, 6); // 60 of 120 months
+    expect(at40).toBeCloseTo(full, 6);
   });
 
-  it("pays nothing to a survivor under 35 with no children or disability", () => {
-    expect(cppSurvivorBenefit(10000, 34, 0, 1, TY)).toBe(0);
+  it("does not exclude a qualifying under-35 survivor for post-2018 payments", () => {
+    const full = cppSurvivorBenefit(10000, 45, 0, 1, TY);
+    expect(cppSurvivorBenefit(10000, 34, 0, 1, TY)).toBeCloseTo(full, 6);
   });
 
   it("caps the combined survivor plus own pension at the statutory maximum", () => {
