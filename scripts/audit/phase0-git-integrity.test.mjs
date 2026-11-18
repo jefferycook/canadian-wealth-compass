@@ -2518,10 +2518,11 @@ test("PL receipt binds reviewer, exact SHAs and latest review only", () => {
   );
 });
 
-function lowRiskApi({ files, reviews, dispatch }) {
+function lowRiskApi({ files, reviews, dispatch, comments = [] }) {
   const gateRun = run(v());
   const listFiles = "listFiles";
   const listReviews = "listReviews";
+  const listComments = "listComments";
   const listForRef = async () => {};
   const statuses = "statuses";
   const pull = {
@@ -2539,14 +2540,17 @@ function lowRiskApi({ files, reviews, dispatch }) {
         ? structuredClone(files)
         : method === listReviews
           ? structuredClone(reviews.current ?? reviews)
-          : method === listForRef
-            ? [structuredClone(gateRun)]
-            : [],
+          : method === listComments
+            ? structuredClone(comments.current ?? comments)
+            : method === listForRef
+              ? [structuredClone(gateRun)]
+              : [],
     request: async (route) =>
       route.includes("/actions/workflows/") ? { data: { id: 10 } } : { data: [] },
     rest: {
       git: { getRef: async () => ({ data: { object: { sha: base } } }) },
       pulls: { get: async () => ({ data: structuredClone(pull) }), listFiles, listReviews },
+      issues: { listComments },
       repos: {
         getCommit: async () => ({
           data: { parents: [{ sha: base }], commit: { tree: { sha: tree } } },
@@ -2632,7 +2636,7 @@ test("PL prepare fails closed on allowlist, infrastructure and receipt", async (
     [
       [{ filename: "src/a.test.ts", status: "added" }],
       [],
-      /PL4 independent low-risk receipt missing or not exact/,
+      /PL4 independent low-risk approval missing/,
     ],
     [
       [{ filename: "src/a.test.ts", status: "added" }],
@@ -2660,7 +2664,351 @@ test("PL doubleRead re-verifies the receipt and aborts on withdrawal", async () 
   reviews.current = [receiptReview(), { ...receiptReview(), id: 800, body: "withdrawn" }];
   await assert.rejects(
     doubleRead({ github, owner: "o", repo: "r", validated, trustedSha: base }),
-    /PL4 independent low-risk receipt missing or not exact/,
+    /PL4 independent low-risk approval missing/,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Codex-native review evidence (owner-approved 2026-11-18).
+// ---------------------------------------------------------------------------
+import { findCodexNativeReceipt } from "./phase0-merge.mjs";
+
+const CODEX_LOGIN = "codex-reviewer[bot]";
+const otherSha = "9".repeat(40);
+const codexReceiptComment = (change = {}) => ({
+  id: 7000,
+  user: { login: CODEX_LOGIN },
+  created_at: "2026-11-16T20:56:07Z",
+  updated_at: "2026-11-16T20:56:07Z",
+  body:
+    "<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues." +
+    "\n\n**Reviewed commit:** `" + head.slice(0, 10) + "`\n\n<details>about</details>",
+  ...change,
+});
+const codexStateComment = (change = {}, review = {}) => ({
+  id: 6900,
+  user: { login: CODEX_LOGIN },
+  created_at: "2026-11-16T20:43:22Z",
+  updated_at: "2026-11-16T20:56:09Z",
+  body:
+    "<!-- codex-pull-request-review-summary -->\n<!-- codex-review-state:v1 " +
+    JSON.stringify({
+      code_review: {
+        commit_sha: head,
+        has_any_findings: false,
+        has_unresolved_findings: false,
+        status: "completed",
+        ...review,
+      },
+      security_review: { commit_sha: null, status: null },
+    }) +
+    " -->\n\n<details>summary</details>",
+  ...change,
+});
+const codexParams = { reviewer: CODEX_LOGIN, author: "jefferycook", head };
+
+test("PL codex-native coherent pair is accepted", () => {
+  const got = findCodexNativeReceipt(
+    [codexStateComment(), codexReceiptComment()],
+    codexParams,
+  );
+  assert.ok(got);
+  assert.equal(got.id, 7000);
+});
+
+test("PL codex-native evidence fails closed on every tamper vector", () => {
+  const cases = [
+    // forged identity: wrong or lookalike logins, and the PR author
+    [codexStateComment(), codexReceiptComment({ user: { login: "codex-reviewer" } })],
+    [codexStateComment({ user: { login: "mallory" } }), codexReceiptComment()],
+    [
+      codexStateComment({ user: { login: "jefferycook" } }),
+      codexReceiptComment({ user: { login: "jefferycook" } }),
+    ],
+    // edited newest receipt, with no fallback to the older unedited one
+    [
+      codexStateComment(),
+      codexReceiptComment({ id: 6800 }),
+      codexReceiptComment({ updated_at: "2026-11-16T21:30:00Z" }),
+    ],
+    // stale receipt for a previous head
+    [
+      codexStateComment(),
+      codexReceiptComment({
+        body:
+          "<!-- codex-review-receipt:v1 -->\n**Reviewed commit:** `" +
+          otherSha.slice(0, 10) + "`",
+      }),
+    ],
+    // superseding receipt for another commit invalidates this head
+    [
+      codexStateComment(),
+      codexReceiptComment(),
+      codexReceiptComment({
+        id: 7100,
+        body:
+          "<!-- codex-review-receipt:v1 -->\n**Reviewed commit:** `" +
+          otherSha.slice(0, 12) + "`",
+      }),
+    ],
+    // adverse, unresolved, incomplete or wrong-commit states
+    [codexStateComment({}, { has_any_findings: true }), codexReceiptComment()],
+    [codexStateComment({}, { has_unresolved_findings: true }), codexReceiptComment()],
+    [codexStateComment({}, { status: "in_progress" }), codexReceiptComment()],
+    [codexStateComment({}, { commit_sha: otherSha }), codexReceiptComment()],
+    // conflicting clean + adverse states about the same head
+    [
+      codexStateComment({ id: 6890 }, { has_any_findings: true }),
+      codexStateComment({ id: 6950 }),
+      codexReceiptComment(),
+    ],
+    // newer state about another commit supersedes the clean one
+    [
+      codexStateComment({ id: 6900 }),
+      codexStateComment({ id: 6950 }, { commit_sha: otherSha }),
+      codexReceiptComment(),
+    ],
+    // malformed JSON, doubled markers, short prefix, missing artifacts
+    [
+      codexStateComment({ body: "<!-- codex-review-state:v1 {not json -->" }),
+      codexReceiptComment(),
+    ],
+    [
+      codexStateComment({
+        body: codexStateComment().body + "\n<!-- codex-review-state:v1 {} -->",
+      }),
+      codexReceiptComment(),
+    ],
+    [
+      codexStateComment(),
+      codexReceiptComment({
+        body:
+          "<!-- codex-review-receipt:v1 -->\n**Reviewed commit:** `" +
+          head.slice(0, 8) + "`",
+      }),
+    ],
+    [codexReceiptComment()],
+    [codexStateComment()],
+    [],
+  ];
+  for (const comments of cases)
+    assert.equal(findCodexNativeReceipt(comments, codexParams), null);
+  // self-approval can never work even with a matching reviewer config
+  assert.equal(
+    findCodexNativeReceipt(
+      [codexStateComment(), codexReceiptComment()],
+      { reviewer: CODEX_LOGIN, author: CODEX_LOGIN, head },
+    ),
+    null,
+  );
+});
+
+test("PL validateLowRisk accepts codex-native evidence and keeps PL3 veto", async () => {
+  const audit = {
+    prNumber: 7,
+    head,
+    base,
+    tree,
+    lowRisk: true,
+    lowRiskReviewer: CODEX_LOGIN,
+  };
+  const stub = (reviews, comments) => ({
+    paginate: async (method) => (method === "r" ? reviews : comments),
+    rest: { pulls: { listReviews: "r" }, issues: { listComments: "c" } },
+  });
+  const got = await validateLowRisk(
+    stub([], [codexStateComment(), codexReceiptComment()]),
+    { owner: "o", repo: "r", audit, author: "jefferycook" },
+  );
+  assert.equal(got.id, 7000);
+  await assert.rejects(
+    validateLowRisk(
+      stub(
+        [{ id: 1, user: { login: "other" }, state: "CHANGES_REQUESTED" }],
+        [codexStateComment(), codexReceiptComment()],
+      ),
+      { owner: "o", repo: "r", audit, author: "jefferycook" },
+    ),
+    /PL3 changes requested by a reviewer/,
+  );
+  await assert.rejects(
+    validateLowRisk(stub([], [codexStateComment()]), {
+      owner: "o",
+      repo: "r",
+      audit,
+      author: "jefferycook",
+    }),
+    /PL4 independent low-risk approval missing/,
+  );
+});
+
+test("PL prepare accepts codex-native evidence end to end", async () => {
+  const files = [{ filename: "src/a.test.ts", status: "added" }];
+  const { args } = lowRiskApi({
+    files,
+    reviews: [],
+    comments: [codexStateComment(), codexReceiptComment()],
+    dispatch: lowRiskDispatch({ lowRiskReviewer: CODEX_LOGIN }),
+  });
+  const prepared = await prepareBeforeMerge(args);
+  assert.equal(prepared.audit.lowRisk, true);
+});
+
+test("PL doubleRead aborts when codex state turns adverse before merge", async () => {
+  const files = [{ filename: "src/a.test.ts", status: "added" }];
+  const comments = { current: [codexStateComment(), codexReceiptComment()] };
+  const { github } = lowRiskApi({
+    files,
+    reviews: [],
+    comments,
+    dispatch: lowRiskDispatch({ lowRiskReviewer: CODEX_LOGIN }),
+  });
+  const gateRun = run(v());
+  const validated = {
+    audit: validateDispatch(lowRiskDispatch({ lowRiskReviewer: CODEX_LOGIN })),
+    gateId: gateRun.id,
+    gateExternalId: gateRun.external_id,
+    gateCompletedAt: gateRun.completed_at,
+  };
+  await doubleRead({ github, owner: "o", repo: "r", validated, trustedSha: base });
+  comments.current = [
+    codexStateComment({}, { has_any_findings: true }),
+    codexReceiptComment(),
+  ];
+  // The adverse state now vetoes ahead of receipt resolution (PL5).
+  await assert.rejects(
+    doubleRead({ github, owner: "o", repo: "r", validated, trustedSha: base }),
+    /PL5 adverse or malformed Codex-native review state/,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Codex P2 fixes: malformed newest receipt; duplicate JSON keys.
+// ---------------------------------------------------------------------------
+import { assertNoDuplicateJsonKeys } from "./phase0-merge.mjs";
+
+test("PL malformed newest receipt rejects outright, never falls back", () => {
+  // Reproduces the PR #88 finding: older valid receipt + newer EDITED
+  // receipt for ANOTHER commit carrying a doubled marker returned the
+  // older receipt before the fix.
+  const olderValid = codexReceiptComment({ id: 6800 });
+  const doubled = codexReceiptComment({
+    id: 7200,
+    updated_at: "2026-11-16T21:30:00Z",
+    body:
+      "<!-- codex-review-receipt:v1 -->\n<!-- codex-review-receipt:v1 -->\n" +
+      "**Reviewed commit:** `" + otherSha.slice(0, 10) + "`",
+  });
+  assert.equal(
+    findCodexNativeReceipt([codexStateComment(), olderValid, doubled], codexParams),
+    null,
+  );
+  // Doubled marker alone on the newest, unedited, right head: still
+  // ambiguous, still rejected, still no fallback.
+  const doubledClean = codexReceiptComment({
+    id: 7300,
+    body: codexReceiptComment().body + "\n<!-- codex-review-receipt:v1 -->",
+  });
+  assert.equal(
+    findCodexNativeReceipt(
+      [codexStateComment(), olderValid, doubledClean],
+      codexParams,
+    ),
+    null,
+  );
+});
+
+test("PL duplicate JSON keys reject instead of last-wins", () => {
+  const adverse =
+    '{"commit_sha": "' + head + '", "has_any_findings": true, ' +
+    '"has_unresolved_findings": false, "status": "completed"}';
+  const clean =
+    '{"commit_sha": "' + head + '", "has_any_findings": false, ' +
+    '"has_unresolved_findings": false, "status": "completed"}';
+  const dupCodeReview =
+    '{"code_review": ' + adverse + ', "code_review": ' + clean + "}";
+  assert.equal(
+    findCodexNativeReceipt(
+      [
+        codexStateComment({
+          body: "<!-- codex-review-state:v1 " + dupCodeReview + " -->",
+        }),
+        codexReceiptComment(),
+      ],
+      codexParams,
+    ),
+    null,
+  );
+  const dupField =
+    '{"code_review": {"commit_sha": "' + head + '", ' +
+    '"has_any_findings": true, "has_any_findings": false, ' +
+    '"has_unresolved_findings": false, "status": "completed"}}';
+  assert.equal(
+    findCodexNativeReceipt(
+      [
+        codexStateComment({
+          body: "<!-- codex-review-state:v1 " + dupField + " -->",
+        }),
+        codexReceiptComment(),
+      ],
+      codexParams,
+    ),
+    null,
+  );
+  // The scanner itself: same key in sibling scopes is fine; duplicates
+  // at any single scope, top-level or nested, throw.
+  assertNoDuplicateJsonKeys(
+    '{"a": {"x": 1}, "b": {"x": 2}, "c": [{"x": 3}, {"x": 4}], "d": "x\\"x"}',
+  );
+  for (const bad of [
+    '{"a": 1, "a": 2}',
+    '{"a": {"x": 1, "x": 2}}',
+    '{"a": [{"x": 1, "x": 2}]}',
+  ])
+    assert.throws(() => assertNoDuplicateJsonKeys(bad), /duplicate JSON key/);
+});
+
+test("PL unicode-escaped duplicate keys are detected after decoding", () => {
+  // Exact reported reproduction (Codex P2 on PR #88): raw spellings
+  // differ, decoded property names collide, JSON.parse keeps false.
+  const escapedDup =
+    '{"code_review": {"commit_sha": "' + head + '", ' +
+    '"has_any_findings": true, "has_any_\\u0066indings": false, ' +
+    '"has_unresolved_findings": false, "status": "completed"}}';
+  assert.throws(
+    () => assertNoDuplicateJsonKeys(escapedDup),
+    /duplicate JSON key: has_any_findings/,
+  );
+  assert.equal(
+    findCodexNativeReceipt(
+      [
+        codexStateComment({
+          body: "<!-- codex-review-state:v1 " + escapedDup + " -->",
+        }),
+        codexReceiptComment(),
+      ],
+      codexParams,
+    ),
+    null,
+  );
+  // Fully-escaped duplicate of a plain key, and escaped-vs-escaped.
+  assert.throws(
+    () => assertNoDuplicateJsonKeys('{"a": 1, "\\u0061": 2}'),
+    /duplicate JSON key: a/,
+  );
+  assert.throws(
+    () => assertNoDuplicateJsonKeys('{"\\u0061": 1, "\\u0061": 2}'),
+    /duplicate JSON key: a/,
+  );
+  // Invalid escapes in key position fail closed rather than pass.
+  assert.throws(
+    () => assertNoDuplicateJsonKeys('{"\\x61": 1}'),
+    /invalid JSON key escape/,
+  );
+  // Distinct decoded keys and same keys in separate nested objects
+  // remain valid, escapes included.
+  assertNoDuplicateJsonKeys(
+    '{"\\u0061": 1, "b": {"\\u0061": 2}, "c": [{"a": 3}, {"\\u0061": 4}], "d": "\\u0061"}',
   );
 });
 
@@ -2841,4 +3189,102 @@ test("KC-3 provenance stays strict: a stable mismatch is never written over", as
     /provenance changed before cleanup/,
   );
   assert.ok(reads > READ_CONFIRM.attempts); // the mismatch was retried, then refused
+});
+
+// ---------------------------------------------------------------------------
+// Codex P2 on PR #88: adverse native state vetoes regardless of receipt form.
+// ---------------------------------------------------------------------------
+import { codexNativeAdverseForHead } from "./phase0-merge.mjs";
+
+test("PL5 adverse native state vetoes an otherwise valid formal receipt", async () => {
+  // Exact reported reproduction: the pinned reviewer holds a valid formal
+  // receipt review AND a newer Codex-native state reporting findings for
+  // the same head. validateLowRisk must veto, not return the formal
+  // receipt.
+  const audit = {
+    prNumber: 7,
+    head,
+    base,
+    tree,
+    lowRisk: true,
+    lowRiskReviewer: CODEX_LOGIN,
+  };
+  const formalReceipt = {
+    id: 500,
+    user: { login: CODEX_LOGIN },
+    commit_id: head,
+    state: "COMMENTED",
+    body:
+      "Receipt.\n<!-- cwc-automerge-receipt:v1 pr=7 head=" + head +
+      " base=" + base + " tree=" + tree + " verdict=approve -->",
+  };
+  const stub = (reviews, comments) => ({
+    paginate: async (method) => (method === "r" ? reviews : comments),
+    rest: { pulls: { listReviews: "r" }, issues: { listComments: "c" } },
+  });
+  const adverse = codexStateComment({}, {
+    has_any_findings: true,
+    has_unresolved_findings: true,
+  });
+  await assert.rejects(
+    validateLowRisk(stub([formalReceipt], [adverse]), {
+      owner: "o",
+      repo: "r",
+      audit,
+      author: "jefferycook",
+    }),
+    /PL5 adverse or malformed Codex-native review state/,
+  );
+  // Malformed state evidence also vetoes the formal path (fail closed).
+  await assert.rejects(
+    validateLowRisk(
+      stub([formalReceipt], [
+        codexStateComment({ body: "<!-- codex-review-state:v1 {broken -->" }),
+      ]),
+      { owner: "o", repo: "r", audit, author: "jefferycook" },
+    ),
+    /PL5 adverse or malformed Codex-native review state/,
+  );
+  // A clean native state, or no native state at all, does not veto the
+  // formal receipt.
+  const clean = await validateLowRisk(
+    stub([formalReceipt], [codexStateComment()]),
+    { owner: "o", repo: "r", audit, author: "jefferycook" },
+  );
+  assert.equal(clean.id, 500);
+  const noStates = await validateLowRisk(stub([formalReceipt], []), {
+    owner: "o",
+    repo: "r",
+    audit,
+    author: "jefferycook",
+  });
+  assert.equal(noStates.id, 500);
+  // Adverse state about a DIFFERENT commit does not veto this head.
+  const otherCommit = await validateLowRisk(
+    stub([formalReceipt], [
+      codexStateComment({}, { commit_sha: otherSha, has_any_findings: true }),
+    ]),
+    { owner: "o", repo: "r", audit, author: "jefferycook" },
+  );
+  assert.equal(otherCommit.id, 500);
+});
+
+test("PL5 veto helper ignores non-reviewer comments and requires valid head", () => {
+  const adverse = codexStateComment({}, { has_any_findings: true });
+  assert.equal(
+    codexNativeAdverseForHead([adverse], { reviewer: CODEX_LOGIN, head }),
+    true,
+  );
+  assert.equal(
+    codexNativeAdverseForHead(
+      [{ ...adverse, user: { login: "mallory" } }],
+      { reviewer: CODEX_LOGIN, head },
+    ),
+    false,
+  );
+  assert.equal(codexNativeAdverseForHead([adverse], { reviewer: "", head }), false);
+  assert.equal(
+    codexNativeAdverseForHead([adverse], { reviewer: CODEX_LOGIN, head: "zzz" }),
+    false,
+  );
 });
