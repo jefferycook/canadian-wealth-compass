@@ -1455,6 +1455,14 @@ function preflightClient(change = {}) {
   let commitReads = 0;
   let checkLists = 0;
   let checkUpdates = 0;
+  // Stale read-after-write simulation: after each checks.update, gate
+  // reads (direct get or listing) consume one schedule entry; true serves
+  // the pre-update snapshot, false (or an exhausted schedule) serves the
+  // live record. Opt-in only, so read-count-sensitive fixtures elsewhere
+  // are untouched.
+  let staleSnapshot = null;
+  const staleSchedule = [...(change.staleAfterUpdate ?? [])];
+  const takeStale = () => staleSchedule.length > 0 && staleSchedule.shift() === true;
   const client = {
     paginate: async (method) => {
       if (method === client.rest.pulls.listFiles) return files;
@@ -1462,6 +1470,8 @@ function preflightClient(change = {}) {
         return change.legacy ? [{ context: "phase0-gate" }] : [];
       if (method === client.rest.checks.listForRef) {
         checkLists += 1;
+        if (staleSnapshot && gates[0] && staleSnapshot.id === gates[0].id && takeStale())
+          return [structuredClone(staleSnapshot), ...wrongApp];
         if (change.p13GateChange && checkLists >= 5 && gates[0])
           Object.assign(gates[0], {
             external_id: serializePhase0Gate(head, {
@@ -1543,13 +1553,17 @@ function preflightClient(change = {}) {
       },
       checks: {
         listForRef: async () => {},
-        get: async ({ check_run_id }) => ({
-          data: structuredClone(gates.find((item) => item.id === check_run_id)),
-        }),
+        get: async ({ check_run_id }) => {
+          const item = gates.find((candidate) => candidate.id === check_run_id);
+          if (item && staleSnapshot && staleSnapshot.id === check_run_id && takeStale())
+            return { data: structuredClone(staleSnapshot) };
+          return { data: structuredClone(item) };
+        },
         update: async (payload) => {
           checkUpdates += 1;
           if (change.throwBeforeUpdate?.includes(checkUpdates)) throw new Error("transport");
           const item = gates.find((candidate) => candidate.id === payload.check_run_id);
+          if (change.staleAfterUpdate) staleSnapshot = structuredClone(item);
           Object.assign(item, {
             name: payload.name,
             status: payload.status,
@@ -2648,4 +2662,183 @@ test("PL doubleRead re-verifies the receipt and aborts on withdrawal", async () 
     doubleRead({ github, owner: "o", repo: "r", validated, trustedSha: base }),
     /PL4 independent low-risk receipt missing or not exact/,
   );
+});
+
+// ---------------------------------------------------------------------------
+// KC-3 / cleanup bounded read-after-write confirmation
+// (runs 44383746357 and 44590369086).
+// ---------------------------------------------------------------------------
+import { READ_CONFIRM } from "./phase0-gate-check.mjs";
+
+READ_CONFIRM.delayMs = 0; // retries stay bounded; tests skip the wall-clock wait
+
+const infraFiles = [{ filename: ".github/workflows/candidate.yml", status: "modified" }];
+const kc3Reads = READ_CONFIRM.attempts * 2; // one direct get + one listing per attempt
+
+test("KC-3 run-1 reproduction: stale re-reads converge within the bounded window", async () => {
+  // Run 44383746357: the M-SUCC PATCH succeeded but the immediate re-read
+  // served the stale A-WAIT payload and the candidate burned. With the
+  // bounded confirmation, one fully-stale attempt followed by a converged
+  // read authorizes normally.
+  const gate = run(awaiting());
+  const github = preflightClient({
+    gate,
+    files: infraFiles,
+    staleAfterUpdate: [true, true],
+  });
+  const validated = await validateBeforeMerge({
+    github,
+    gateGithub: github,
+    owner: "o",
+    repo: "r",
+    dispatch,
+    trustedSha: base,
+    helperSha: base,
+    dispatchRunId: 30,
+    dispatchAttempt: 1,
+  });
+  assert.equal(validated.infrastructure, true);
+  assert.match(validated.gateExternalId, /:m:/);
+  assert.match(gate.external_id, /:m:/);
+  assert.equal(gate.conclusion, "success");
+});
+
+test("KC-3 run-2 reproduction: cleanup survives flip-flopping reads and burns", async () => {
+  // Run 44590369086: KC-3 exhausted on stale reads, then cleanup's
+  // consecutive reads disagreed (fresh M-SUCC, then stale A-WAIT), the
+  // provenance check aborted, and the M-SUCC authorization was left
+  // standing. With bounded confirmation in update(), the flip-flop is
+  // retried and the candidate is proven burned; the run still fails
+  // closed with the KC-3 error alone (cleanup proven, no AggregateError).
+  const gate = run(awaiting());
+  const github = preflightClient({
+    gate,
+    files: infraFiles,
+    staleAfterUpdate: [...Array(kc3Reads).fill(true), false, true],
+  });
+  await assert.rejects(
+    validateBeforeMerge({
+      github,
+      gateGithub: github,
+      owner: "o",
+      repo: "r",
+      dispatch,
+      trustedSha: base,
+      helperSha: base,
+      dispatchRunId: 30,
+      dispatchAttempt: 1,
+    }),
+    (error) =>
+      /P9 KC-3 did not establish the exact M-SUCC/.test(error.message) &&
+      !(error instanceof AggregateError),
+  );
+  assert.equal(isCanonicalPhase0GateQ(gate, head), true);
+  assert.equal(gate.conclusion, "failure");
+});
+
+test("KC-3 cleanup retries a stale first read instead of leaving M-SUCC standing", async () => {
+  // The silent variant: cleanup's FIRST read serves the stale A-WAIT, which
+  // the old code classified as non-authorizing and skipped, leaving the
+  // M-SUCC authorization in place without any error naming it. The retry
+  // finds the authorization and burns it.
+  const gate = run(awaiting());
+  const github = preflightClient({
+    gate,
+    files: infraFiles,
+    staleAfterUpdate: [...Array(kc3Reads).fill(true), true, false],
+  });
+  await assert.rejects(
+    validateBeforeMerge({
+      github,
+      gateGithub: github,
+      owner: "o",
+      repo: "r",
+      dispatch,
+      trustedSha: base,
+      helperSha: base,
+      dispatchRunId: 30,
+      dispatchAttempt: 1,
+    }),
+    /P9 KC-3 did not establish the exact M-SUCC/,
+  );
+  assert.equal(isCanonicalPhase0GateQ(gate, head), true);
+});
+
+test("KC-3 persistent inconsistency stays bounded and fail-closed, never merging", async () => {
+  // Reads that never converge within every bounded window: the run fails
+  // with the same strict errors, nothing is accepted, and no merge path
+  // is reached. (A replica stale beyond all windows is indistinguishable
+  // from a write that never applied; the conservative branches keep their
+  // original behaviour.)
+  const gate = run(awaiting());
+  const github = preflightClient({
+    gate,
+    files: infraFiles,
+    staleAfterUpdate: Array(60).fill(true),
+  });
+  await assert.rejects(
+    validateBeforeMerge({
+      github,
+      gateGithub: github,
+      owner: "o",
+      repo: "r",
+      dispatch,
+      trustedSha: base,
+      helperSha: base,
+      dispatchRunId: 30,
+      dispatchAttempt: 1,
+    }),
+    /P9 KC-3 did not establish the exact M-SUCC/,
+  );
+  assert.notEqual(isCanonicalPhase0GateQ(gate, head), true);
+});
+
+test("KC-3 provenance stays strict: a stable mismatch is never written over", async () => {
+  // Requirement: retries re-read; they never relax acceptance. Cleanup
+  // sees the expected authorization, but a genuine interloper rewrites
+  // the record before the pre-write read; the mismatch persists through
+  // every bounded retry and the write is still refused with the original
+  // strict provenance error.
+  const expectedSource = {
+    kind: "m",
+    token: "success",
+    dispatchRunId: 30,
+    dispatchAttempt: 1,
+    actor: "jefferycook",
+    pr: 7,
+    base,
+    verifierRunId: 20,
+    verifierAttempt: 2,
+  };
+  const ourAuthorization = { ...run(expectedSource) };
+  const interloper = {
+    ...run({ ...expectedSource, dispatchRunId: 31 }),
+  };
+  let reads = 0;
+  const github = {
+    rest: {
+      checks: {
+        get: async () => ({
+          data: structuredClone(reads++ === 0 ? ourAuthorization : interloper),
+        }),
+        update: async () => {
+          throw new Error("provenance mismatch must refuse before any write");
+        },
+      },
+    },
+  };
+  await assert.rejects(
+    terminalizeAuthorizedGate({
+      github,
+      owner: "o",
+      repo: "r",
+      candidateSha: head,
+      checkRunId: 1,
+      expectedExternalId: ourAuthorization.external_id,
+      detailsUrl: "https://github.com/o/r",
+      reason: "test",
+    }),
+    /provenance changed before cleanup/,
+  );
+  assert.ok(reads > READ_CONFIRM.attempts); // the mismatch was retried, then refused
 });

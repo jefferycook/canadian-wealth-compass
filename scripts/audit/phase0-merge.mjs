@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   PHASE0_GATE_APP_ID,
   PHASE0_GATE_NAME,
+  READ_CONFIRM,
   authorizeManualGate,
   listAuthoritativeGateChecks,
   parsePhase0Gate,
@@ -635,16 +636,58 @@ export async function finalizeBeforeMerge({
   }
   try {
     if (prepared.infrastructure) {
-      const refreshed = await listAuthoritativeGateChecks(github, owner, repo, prepared.audit.head);
-      if (refreshed.length !== 1) throw new Error("P9 Gate changed during KC-3");
-      canonicalGate = refreshed[0];
-      gate = parsePhase0Gate(canonicalGate, prepared.audit.head);
-      if (
-        gate.state !== "M-SUCC" ||
-        canonicalGate.id !== cleanupGateId ||
-        gate.externalId !== cleanupExternalId
-      )
-        throw new Error("P9 KC-3 did not establish the exact M-SUCC");
+      // KC-3 bounded read-after-write confirmation (runs 44383746357 and
+      // 44590369086): the authorization PATCH succeeds and its response is
+      // echoed, but an immediate independent re-read can serve a stale
+      // replica. Retries only RE-READ. Acceptance stays strict: only the
+      // exact M-SUCC this run just minted, on the exact check id, is ever
+      // accepted; the direct by-id read is the authoritative payload, and
+      // the commit-level listing must ALSO show the converged record (so
+      // the later P13/I5 listing reads start from a converged endpoint).
+      // Exhaustion throws the same error and takes the same fail-closed
+      // terminalization path as before.
+      let confirmed = false;
+      let lastError = new Error("P9 KC-3 did not establish the exact M-SUCC");
+      for (let attempt = 1; attempt <= READ_CONFIRM.attempts; attempt++) {
+        if (attempt > 1 && READ_CONFIRM.delayMs > 0) await sleep(READ_CONFIRM.delayMs);
+        const direct = (
+          await github.rest.checks.get({ owner, repo, check_run_id: cleanupGateId })
+        ).data;
+        const refreshed = await listAuthoritativeGateChecks(
+          github,
+          owner,
+          repo,
+          prepared.audit.head,
+        );
+        if (refreshed.length !== 1) {
+          lastError = new Error("P9 Gate changed during KC-3");
+          continue;
+        }
+        let parsedDirect;
+        try {
+          parsedDirect = parsePhase0Gate(direct, prepared.audit.head);
+        } catch {
+          lastError = new Error("P9 KC-3 did not establish the exact M-SUCC");
+          continue;
+        }
+        if (
+          direct.id === cleanupGateId &&
+          direct.name === PHASE0_GATE_NAME &&
+          direct.head_sha === prepared.audit.head &&
+          direct.app?.id === PHASE0_GATE_APP_ID &&
+          parsedDirect.state === "M-SUCC" &&
+          parsedDirect.externalId === cleanupExternalId &&
+          refreshed[0].id === cleanupGateId &&
+          refreshed[0].external_id === cleanupExternalId
+        ) {
+          canonicalGate = direct;
+          gate = parsedDirect;
+          confirmed = true;
+          break;
+        }
+        lastError = new Error("P9 KC-3 did not establish the exact M-SUCC");
+      }
+      if (!confirmed) throw lastError;
     }
     const rulesets = await validateRulesets(github, owner, repo);
     const validated = {
