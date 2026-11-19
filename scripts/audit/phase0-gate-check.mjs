@@ -210,6 +210,15 @@ const matches = (run, e) =>
 async function get(github, owner, repo, id) {
   return (await github.rest.checks.get({ owner, repo, check_run_id: id })).data;
 }
+
+// Bounded read-after-write confirmation (runs 44383746357 and 44590369086):
+// GitHub check-run reads can briefly return stale payloads after a
+// successful write, including consecutive same-token reads disagreeing.
+// Retries only RE-READ; no acceptance rule is relaxed anywhere, writes are
+// never retried by this mechanism, and exhaustion ends in the same strict
+// fail-closed errors as before. Exported so tests can zero the delay.
+export const READ_CONFIRM = { attempts: 6, delayMs: 5000 };
+const confirmSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function provedNonAuthorizingRecovery(errors, id, recovered) {
   const error = new AggregateError(
     errors,
@@ -278,18 +287,27 @@ async function update(
   expectedCurrentExternalId,
   requireNonAuthorizingRecovery = false,
 ) {
-  const current = await get(github, owner, repo, id); // I-Q before every update.
-  if (isCanonicalPhase0GateQ(current, candidateSha)) fail("Q_NO_WRITE", "Q is terminal");
-  if (
-    current.id !== id ||
-    current.name !== PHASE0_GATE_NAME ||
-    current.head_sha !== candidateSha ||
-    current.app?.id !== PHASE0_GATE_APP_ID
-  )
-    throw new Error(`invalid authoritative Check Run identity ${id}`);
-  if (expectedCurrentExternalId !== undefined) {
-    if (current.external_id !== expectedCurrentExternalId)
+  let current;
+  for (let attempt = 1; ; attempt++) {
+    current = await get(github, owner, repo, id); // I-Q before every update.
+    if (isCanonicalPhase0GateQ(current, candidateSha)) fail("Q_NO_WRITE", "Q is terminal");
+    if (
+      current.id !== id ||
+      current.name !== PHASE0_GATE_NAME ||
+      current.head_sha !== candidateSha ||
+      current.app?.id !== PHASE0_GATE_APP_ID
+    )
+      throw new Error(`invalid authoritative Check Run identity ${id}`);
+    if (expectedCurrentExternalId === undefined) break;
+    // Strict provenance: only the exact expected record is ever written
+    // over. A mismatched read within the bounded window is retried as
+    // presumptively stale; a mismatch that persists stays terminal.
+    if (current.external_id === expectedCurrentExternalId) break;
+    if (attempt >= READ_CONFIRM.attempts)
       throw new Error(`Check Run ${id} provenance changed before cleanup`);
+    if (READ_CONFIRM.delayMs > 0) await confirmSleep(READ_CONFIRM.delayMs);
+  }
+  if (expectedCurrentExternalId !== undefined) {
     try {
       parsePhase0Gate(current, candidateSha);
     } catch (error) {
@@ -417,11 +435,24 @@ export async function terminalizeAuthorizedGate({
   detailsUrl,
   reason,
 }) {
-  const current = await get(github, owner, repo, checkRunId);
-  if (current.id !== checkRunId) throw new Error(`cleanup Gate ${checkRunId} identity changed`);
-  if (!hasAuthoritativeIdentity(current, candidateSha))
-    throw new Error(`cleanup Gate ${checkRunId} identity changed`);
-  if (isCanonicalPhase0GateQ(current, candidateSha)) return { operation: "Q_NO_WRITE", checkRunId };
+  let current;
+  for (let attempt = 1; ; attempt++) {
+    current = await get(github, owner, repo, checkRunId);
+    if (current.id !== checkRunId) throw new Error(`cleanup Gate ${checkRunId} identity changed`);
+    if (!hasAuthoritativeIdentity(current, candidateSha))
+      throw new Error(`cleanup Gate ${checkRunId} identity changed`);
+    if (isCanonicalPhase0GateQ(current, candidateSha))
+      return { operation: "Q_NO_WRITE", checkRunId };
+    // Cleanup exists to retire the exact authorization this run just
+    // minted (expectedExternalId). A read not showing it is presumptively
+    // stale within the bounded window: without this retry, one stale
+    // first read classified the standing M-SUCC as non-authorizing and
+    // silently left it in place (run 44590369086). After the window, the
+    // original conservative branches below act on what is actually there.
+    if (current.external_id === expectedExternalId && current.conclusion === "success") break;
+    if (attempt >= READ_CONFIRM.attempts) break;
+    if (READ_CONFIRM.delayMs > 0) await confirmSleep(READ_CONFIRM.delayMs);
+  }
   let parsed;
   try {
     parsed = parsePhase0Gate(current, candidateSha);
