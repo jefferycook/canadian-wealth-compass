@@ -163,6 +163,169 @@ export function findLowRiskReceipt(reviews, { reviewer, author, prNumber, head, 
   return latest;
 }
 
+// Codex-native review evidence (owner-approved 2026-11-18). The Codex
+// integration posts NO formal PR review when clean; it posts two issue
+// comments: a per-round receipt and a living structured state. Both must
+// be authored by exactly the pinned reviewer login and cohere on the
+// exact audited head; everything else fails closed. The semantics the
+// owner accepted: "independent reviewer completed a review of this exact
+// head with zero findings" stands in for an explicit approval signature.
+// Base/tree binding still comes from the gate's own P-steps.
+const CODEX_RECEIPT_MARK = "codex-review-receipt:v1";
+const CODEX_STATE_MARK = "codex-review-state:v1";
+const CODEX_REVIEWED_RE = /\*\*Reviewed commit:\*\* `([0-9a-f]{7,40})`/;
+const CODEX_STATE_RE = /<!-- codex-review-state:v1 (\{[\s\S]*?\}) -->/;
+const CODEX_MIN_PREFIX = 10;
+
+export function assertNoDuplicateJsonKeys(text) {
+  // JSON.parse keeps the LAST of duplicated keys, which would let an
+  // ambiguous payload erase adverse evidence. This scanner walks the raw
+  // text and throws on any key repeated within one object scope, at any
+  // depth. A key is a string immediately followed (after whitespace) by
+  // a colon. Arrays push an empty scope so braces stay balanced.
+  const scopes = [new Set()];
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === '"') {
+      let j = i + 1;
+      let value = "";
+      while (j < text.length && text[j] !== '"') {
+        if (text[j] === "\\") {
+          value += text[j] + (text[j + 1] ?? "");
+          j += 2;
+        } else {
+          value += text[j];
+          j += 1;
+        }
+      }
+      if (j >= text.length) throw new Error("unterminated JSON string");
+      let k = j + 1;
+      while (k < text.length && /\s/.test(text[k])) k += 1;
+      if (text[k] === ":") {
+        // Compare DECODED property names, not raw spellings (Codex P2 on
+        // PR #88): "a" and "a" are the same key to JSON.parse, so a
+        // Unicode-escaped duplicate must not slip past the scope check.
+        // JSON.parse of the quoted raw capture applies exact JSON string
+        // semantics; an invalid escape fails closed here.
+        let decoded;
+        try {
+          decoded = JSON.parse('"' + value + '"');
+        } catch {
+          throw new Error("invalid JSON key escape");
+        }
+        const scope = scopes[scopes.length - 1];
+        if (scope.has(decoded)) throw new Error(`duplicate JSON key: ${decoded}`);
+        scope.add(decoded);
+      }
+      i = j + 1;
+      continue;
+    }
+    if (ch === "{" || ch === "[") scopes.push(new Set());
+    if (ch === "}" || ch === "]") {
+      if (scopes.length <= 1) throw new Error("unbalanced JSON");
+      scopes.pop();
+    }
+    i += 1;
+  }
+  if (scopes.length !== 1) throw new Error("unbalanced JSON");
+}
+
+function reviewerComments(comments, reviewer) {
+  return comments
+    .filter((c) => c?.user?.login === reviewer && Number.isSafeInteger(c?.id) && c.id > 0)
+    .sort((left, right) => left.id - right.id);
+}
+
+// Collect every parseable code_review state entry from the reviewer's
+// comments, in comment-id order. Returns null when any state comment is
+// malformed (doubled marker, unparseable or duplicate-key JSON, wrong
+// shape): malformed evidence can never be reasoned about and fails closed
+// in every caller.
+function collectCodexStates(mine) {
+  const countMark = (body, mark) => body.split(mark).length - 1;
+  const states = [];
+  for (const comment of mine) {
+    const body = String(comment.body ?? "");
+    const marks = countMark(body, CODEX_STATE_MARK);
+    if (marks === 0) continue;
+    if (marks !== 1) return null;
+    const parsed = CODEX_STATE_RE.exec(body);
+    if (!parsed) return null;
+    let payload;
+    try {
+      assertNoDuplicateJsonKeys(parsed[1]);
+      payload = JSON.parse(parsed[1]);
+    } catch {
+      return null;
+    }
+    const review = payload?.code_review;
+    if (typeof review !== "object" || review === null || Array.isArray(review)) return null;
+    states.push(review);
+  }
+  return states;
+}
+
+function codexStateCleanForHead(review, head) {
+  return (
+    review.commit_sha === head &&
+    review.status === "completed" &&
+    review.has_any_findings === false &&
+    review.has_unresolved_findings === false
+  );
+}
+
+export function codexNativeAdverseForHead(comments, { reviewer, head }) {
+  // Adverse-veto check applied REGARDLESS of receipt form (Codex P2 on
+  // PR #88): switching evidence formats must not bypass an adverse
+  // review state. True when the pinned reviewer's native state evidence
+  // cannot clear this head: any entry naming the head that is not clean,
+  // or malformed state evidence. No state comments at all is not a veto.
+  if (!reviewer || !/^[0-9a-f]{40}$/.test(head ?? "")) return false;
+  const states = collectCodexStates(reviewerComments(comments, reviewer));
+  if (states === null) return true;
+  return states.some(
+    (review) => review.commit_sha === head && !codexStateCleanForHead(review, head),
+  );
+}
+
+export function findCodexNativeReceipt(comments, { reviewer, author, head }) {
+  if (!reviewer || reviewer === author || !/^[0-9a-f]{40}$/.test(head ?? "")) return null;
+  const countMark = (body, mark) => body.split(mark).length - 1;
+  const mine = reviewerComments(comments, reviewer);
+  // Select the newest comment CONTAINING a receipt marker first, THEN
+  // judge it (Codex review P2 on PR #88): a malformed newest receipt
+  // (doubled marker, edited, other commit) must reject outright, never
+  // vanish from the filter and let an older clean receipt authorize.
+  const receipts = mine.filter(
+    (c) => countMark(String(c.body ?? ""), CODEX_RECEIPT_MARK) > 0,
+  );
+  if (receipts.length === 0) return null;
+  const newest = receipts[receipts.length - 1];
+  if (countMark(String(newest.body ?? ""), CODEX_RECEIPT_MARK) !== 1) return null;
+  // An edited NEWEST receipt rejects outright; never fall back to older.
+  if (!newest.created_at || newest.created_at !== newest.updated_at) return null;
+  const match = CODEX_REVIEWED_RE.exec(String(newest.body ?? ""));
+  if (!match) return null;
+  const prefix = match[1];
+  // Stale, or superseded by a review of another commit.
+  if (prefix.length < CODEX_MIN_PREFIX || !head.startsWith(prefix)) return null;
+  // Duplicate-key and malformed state handling lives in collectCodexStates
+  // (mirrors the controller fix for the Codex P2 on PR #16).
+  const states = collectCodexStates(mine);
+  if (states === null || states.length === 0) return null;
+  // The newest state is authoritative; a newer state about another commit
+  // supersedes, and any adverse entry about this head is a conflict.
+  if (!codexStateCleanForHead(states[states.length - 1], head)) return null;
+  if (
+    states.some(
+      (review) => review.commit_sha === head && !codexStateCleanForHead(review, head),
+    )
+  )
+    return null;
+  return newest;
+}
+
 export async function validateLowRisk(github, { owner, repo, audit, author }) {
   const reviews = await github.paginate(github.rest.pulls.listReviews, {
     owner,
@@ -173,7 +336,31 @@ export async function validateLowRisk(github, { owner, repo, audit, author }) {
   for (const review of latestReviewsByUser(reviews).values())
     if (review.state === "CHANGES_REQUESTED")
       throw new Error("PL3 changes requested by a reviewer");
-  const receipt = findLowRiskReceipt(reviews, {
+  // Native comment evidence is ALWAYS read, before any receipt form is
+  // accepted (Codex P2 on PR #88): an adverse or malformed review state
+  // about this exact head vetoes authorization even when an otherwise
+  // valid formal receipt review exists, so switching evidence formats can
+  // never bypass the adverse-state veto. doubleRead re-runs this whole
+  // validation, so a veto arriving before the final read still aborts.
+  const comments = await github.paginate(github.rest.issues.listComments, {
+    owner,
+    repo,
+    issue_number: audit.prNumber,
+    per_page: 100,
+  });
+  if (
+    codexNativeAdverseForHead(comments, {
+      reviewer: audit.lowRiskReviewer,
+      head: audit.head,
+    })
+  )
+    throw new Error(
+      "PL5 adverse or malformed Codex-native review state for this exact " +
+        "head vetoes low-risk authorization regardless of receipt form",
+    );
+  // Two accepted, equally validated receipt forms: the explicit formal
+  // PR-review marker (unchanged), or Codex-native comment evidence.
+  let receipt = findLowRiskReceipt(reviews, {
     reviewer: audit.lowRiskReviewer,
     author,
     prNumber: audit.prNumber,
@@ -181,7 +368,17 @@ export async function validateLowRisk(github, { owner, repo, audit, author }) {
     base: audit.base,
     tree: audit.tree,
   });
-  if (!receipt) throw new Error("PL4 independent low-risk receipt missing or not exact");
+  if (!receipt)
+    receipt = findCodexNativeReceipt(comments, {
+      reviewer: audit.lowRiskReviewer,
+      author,
+      head: audit.head,
+    });
+  if (!receipt)
+    throw new Error(
+      "PL4 independent low-risk approval missing: neither a formal receipt " +
+        "review nor coherent Codex-native review evidence for this exact head",
+    );
   return receipt;
 }
 
