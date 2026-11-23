@@ -301,7 +301,8 @@ Golden anchors are Ontario fixtures and were unaffected: **201,470 / 411,408 /
   rule is VERIFIED but the fifty percentages have not been compared line by
   line the way the RRIF table now has been. FSRA's consumer table page 404s and
   the guidance page returns the surrounding text without the table
-  (2026-08-21). Note: this table is **not** an annual refresh item — FSRA's
+  (2026-08-21). **Update 2026-11-05:** the 50 C/F rows were since matched against
+  FSRA's HTML Appendix A (see LIF-3); the table-vs-full-maximum caveat remains. Note: this table is **not** an annual refresh item — FSRA's
   guidance floors the reference rate at 6% and the table stands unless the
   November CANSIM V122487 rate exceeds it, so what it needs is a periodic
   check that the floor still binds (recorded in spec §13.3a).
@@ -397,6 +398,41 @@ re-encode the unstated January-1 convention the Appendix A correction removed.
 The real fix is an optional DOB (or birth month) on `PersonInput` feeding a
 sub-annual age basis, and it must be applied consistently to the RRIF minimum
 table at the same time.
+
+## LIF-3 [A] — Ontario LIF: verified C/F table vs. the FULL statutory maximum
+
+Recorded 2026-11-05. **Documentation only; no engine, test, golden or status-flag change.**
+
+**Source.** FSRA guidance PE0196INF (Active), Appendix A, published as regulator
+HTML (the PDF's HTTP 403 is not a source blocker):
+https://www.fsrao.ca/industry/pensions/regulatory-framework/guidance-pensions/life-income-fund-lif-and-locked-retirement-income-fund-lrif-maximum-annual-income-payment-amount-table
+Independent review: Issue #39 comment 6642084654 (reviewed and relayed by the
+owner in #39 comment 6645421040).
+
+**Verified.** All 50 published C/F percentage rows (ages 41–90) match
+`ON_LIF_MAX` numerically against `main` 07d273b. Spot boundaries: 41 = 5.98531%,
+65 = 7.25513%, 71 = 8.22496%, 89 = 51.45631%, 90 = 100%. The 6% reference-rate
+floor is described on the source page. FSRA keys the table to age attained during
+the year.
+
+**NOT verified — do not promote to VERIFIED.** The table is only one limb of the
+statutory maximum. Per FSRA, for pre-2009 LIFs/LRIFs the maximum is the greater of
+prior-year investment earnings (including unrealized gains/losses) and C/F; for
+post-2008 LIFs it is the greatest of those two plus a qualifying direct-transfer
+earnings alternative. `lifMaximumFor` returns the C/F limb only and
+`projection.ts` uses it as a withdrawal cap, so the cap can **understate** legally
+available withdrawals. Maximum LIF **dollars** are therefore unverified. Still
+open: DOB / age-attained-year basis (see LIF-1), initial fiscal-year proration
+(<12 months; part of a month counts as a full month), the earnings and
+direct-transfer alternatives, and ages below 41 (the code returns the age-41 row;
+Appendix A does not publish those ages — no statutory coverage is implied).
+Out of scope of this check: RRIF minimums (LIF-2), other provinces, CPP-5, and
+dollar-valued fixtures.
+
+Any engine change to model the alternatives needs a separate scoped review and
+explicit owner authorization.
+
+---
 
 ## LIF-2 — audit the RRIF minimum table's age basis
 
