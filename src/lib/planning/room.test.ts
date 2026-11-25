@@ -283,7 +283,9 @@ describe("engine integration", () => {
     // E2 ratification 2026-08-25 (approved): 201184 -> 202530, +0.67%. Stage 2
     // (R-2, beginning-of-year FMV base) only; Stage 1 (R-3) left this fixture
     // unmoved.
-    expect(Math.round(lifetimeTax(runPlan(regressionFixturePlan())))).toBe(202530);
+    // Ontario surtax-before-DTC correction 2026-11-25 (approved, issue #79):
+    // 202530 -> 203811, +0.63% (see engine.test.ts for the attribution).
+    expect(Math.round(lifetimeTax(runPlan(regressionFixturePlan())))).toBe(203811);
 
   });
 
@@ -310,5 +312,9 @@ describe("engine integration", () => {
 // E2 ratification 2026-08-25 (approved): 1762590 -> 1756006, -0.37%. Stage 1
 // (R-3, nil establishment-year minimum) took it to 1777271; Stage 2 (R-2)
 // brought it to 1756006.
-const ACCUMULATION_GOLDEN = 1756006;
+// Ontario surtax-before-DTC correction 2026-11-25 (approved, issue #79):
+// 1756006 -> 1759813, +0.22%. Tax rises in the 2026-2045 working years
+// (+$5,648.64) and falls in 2046-2071 (-$1,841.80) on the slightly smaller
+// portfolio. The couple, locked-in and survivor anchors did not move.
+const ACCUMULATION_GOLDEN = 1759813;
 

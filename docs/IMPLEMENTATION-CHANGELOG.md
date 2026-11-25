@@ -782,3 +782,44 @@ Stage attribution (measured by replaying each commit's engine on the fixtures):
   expected to leave it dormant. The Manitoba
   rounded anchors remain 113,283 lifetime tax and 131,458 terminal portfolio.
   Independent audit is still pending.
+
+## Ontario surtax before the dividend tax credit (issue #79), approved 2026-11-25
+
+- `computeTax` (`src/lib/planning/tax.ts`) now computes the Ontario surtax on
+  provincial tax after non-refundable credits and only then deducts the
+  dividend tax credit. It used to deduct the credit first, which understated
+  the surtax for Ontario filers with eligible dividends. Provinces with an
+  empty surtax table (BC, AB) are unaffected.
+- Basis: Taxation Act, 2007 (Ontario) s. 5(1) paras 4 to 6, s. 16(2) and
+  s. 19.1; CRA Form ON428 (the surtax lines come before the dividend credit
+  line); CRA "Information for Residents of Ontario" 2014 (the credit is claimed
+  after the surtax from 2014); CRA technical interpretation 2017-0692261M4.
+- New regression fixtures ONSD-1 to ONSD-6 in
+  `src/lib/planning/benchmark-on-surtax-dtc.test.ts`.
+- Owner decision (Jeff, 2026-11-25, recorded on PR #85): methodology approved
+  and a re-baseline of the three affected protected anchors authorized, limited
+  to this correction and its directly resulting benchmark changes.
+
+Anchor movement, measured on main `744a0c0` before and after this change:
+
+| Anchor | before | after | change |
+|---|---|---|---|
+| single (indexed) | 202,529.63 | 203,810.55 | +1,280.92 |
+| single (frozen brackets) | 281,104.79 | 282,372.96 | +1,268.17 |
+| couple | 406,524.26 | 406,524.26 | 0 |
+| accumulation | 1,756,006.39 | 1,759,813.23 | +3,806.84 |
+| MB locked-in lifetime tax | 113,282.75 | 113,282.75 | 0 |
+| MB locked-in terminal | 131,458.03 | 131,458.03 | 0 |
+| survivor | 274,814.68 | 274,814.68 | 0 |
+
+Attribution: tax rises in the high-income years that have eligible dividends
+(single: 2026-2029, +1,958.42; accumulation: 2026-2045, +5,648.64) and falls
+slightly in later years on the smaller portfolio (single: 2030-2036, -677.50;
+frozen-bracket single: 2030-2036, -690.25; accumulation: 2046-2071, -1,841.80).
+Every yearly tax row of the couple, locked-in and survivor plans is unchanged.
+
+Eight assertions in seven test files restate these anchors and were re-pinned
+in the same commit: F0-1 (`phase0-freeze.test.ts`), P0G-11, V2-10, CPP5-9, the
+`engine.test.ts` default-plan check, the two `room.test.ts` goldens and the
+`projection-integrity.test.ts` section 12 frozen-bracket check. No other
+assertion changed.

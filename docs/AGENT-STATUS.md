@@ -4,13 +4,22 @@ Maintained by whichever agent finds an issue. Purpose: ChatGPT, Claude and Lovab
 can all see current blockers without Jeff relaying them. Update the entry until it is
 resolved, then move it to **Resolved**.
 
-**Last updated:** E2-1 transfer-retention enforcement · 2026-08-25
+**Last updated:** Ontario surtax before dividend tax credit (issue #79) · 2026-11-25
 
-**Current anchors (of record): 202,530 / 406,524 / 1,756,006**, plus the
-frozen-bracket single-filer variant at **281,105**, the Manitoba locked-in
+**Current anchors (of record): 203,811 / 406,524 / 1,759,813**, plus the
+frozen-bracket single-filer variant at **282,373**, the Manitoba locked-in
 golden at **113,283** (terminal portfolio **131,458**) and the survivor golden
 at **274,815**. The survivor golden never moved in either E2 stage and is the
 no-movement control.
+
+**Ontario surtax-before-DTC anchor movements are APPROVED** (Jeff, 2026-11-25,
+decision recorded on PR #85). `computeTax` now computes the Ontario surtax
+before it deducts the dividend tax credit (Taxation Act, 2007 s. 16(2); Form
+ON428). Single 202,530 -> 203,811 (+1,280.92), frozen-bracket single
+281,105 -> 282,373 (+1,268.17), accumulation 1,756,006 -> 1,759,813
+(+3,806.84). The couple, Manitoba locked-in (lifetime tax and terminal
+portfolio) and survivor anchors did not move. The fix and the re-pin are in the
+same commit; attribution is in the changelog entry of the same date.
 
 **E2 anchor movements are APPROVED** (Jeff, 2026-08-25) with the stage-by-stage
 attribution in the E2 entry below. The values were reproduced stage-by-stage in

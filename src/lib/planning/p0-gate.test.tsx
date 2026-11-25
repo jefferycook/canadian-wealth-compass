@@ -420,14 +420,14 @@ describe("P0-GATE — live projection advice gates", () => {
       lifetimeTax(projection(survivorGoldenFixturePlan(), { startYear: 2026 })),
     ];
 
-    expect(raw[0]).toBeCloseTo(202529.63101576085, 6);
-    expect(raw[1]).toBeCloseTo(281104.7871018497, 6);
+    expect(raw[0]).toBeCloseTo(203810.54929381784, 6);
+    expect(raw[1]).toBeCloseTo(282372.96093106666, 6);
     expect(raw[2]).toBeCloseTo(406524.2587903573, 6);
-    expect(raw[3]).toBeCloseTo(1756006.388544313, 6);
+    expect(raw[3]).toBeCloseTo(1759813.2327766686, 6);
     expect(raw[4]).toBeCloseTo(113282.75217087875, 6);
     expect(raw[5]).toBeCloseTo(131458.02973093285, 6);
     expect(raw[6]).toBeCloseTo(274814.67627053545, 6);
-    expect(raw.map(Math.round)).toEqual([202530, 281105, 406524, 1756006, 113283, 131458, 274815]);
+    expect(raw.map(Math.round)).toEqual([203811, 282373, 406524, 1759813, 113283, 131458, 274815]);
   });
 
   it("P0G-12: E2-1 retention and defensive status remain frozen", () => {

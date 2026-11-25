@@ -177,7 +177,10 @@ describe("indexation of statutory amounts (§12)", () => {
     // and taxed at +$2,141. -1217 + 2141 = +924.
     // E2 ratification (2026-08-25, approved): 279538 -> 281105 (+0.56%).
     // Stage 2 (R-2) only; Stage 1 (R-3) left this fixture unmoved.
-    expect(Math.round(frozen)).toBe(281105);
+    // Ontario surtax-before-DTC correction (2026-11-25, approved, issue #79):
+    // 281105 -> 282373 (+0.45%). Same cause as the indexed anchor (see
+    // engine.test.ts): +$1,958.42 in 2026-2029, -$690.25 in 2030-2036.
+    expect(Math.round(frozen)).toBe(282373);
 
 
   });

@@ -319,18 +319,18 @@ describe("VALID-2 — universal component-status coverage", () => {
     const single = regressionFixturePlan();
     const locked = projection(lockedInGoldenFixturePlan(), { startYear: 2026 });
 
-    expect(Math.round(lifetimeTax(runPlan(single, { startYear: 2026 })))).toBe(202530);
+    expect(Math.round(lifetimeTax(runPlan(single, { startYear: 2026 })))).toBe(203811);
     expect(
       Math.round(
         lifetimeTax(runPlan({ ...single, indexationRate: 0 }, { startYear: 2026 })),
       ),
-    ).toBe(281105);
+    ).toBe(282373);
     expect(
       Math.round(lifetimeTax(projection(coupleGoldenFixturePlan(), { startYear: 2026 }))),
     ).toBe(406524);
     expect(
       Math.round(lifetimeTax(runPlan(accumulationGoldenFixturePlan(), { startYear: 2026 }))),
-    ).toBe(1756006);
+    ).toBe(1759813);
     expect(Math.round(lifetimeTax(locked))).toBe(113283);
     expect(Math.round(locked.rows[locked.rows.length - 1]!.totalPortfolio)).toBe(131458);
     expect(

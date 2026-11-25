@@ -32,11 +32,11 @@ describe("Phase 0 economic freeze", () => {
     ];
 
     const expected = [
-      202529.63101576085, 281104.7871018497, 406524.2587903573, 1756006.388544313,
+      203810.54929381784, 282372.96093106666, 406524.2587903573, 1759813.2327766686,
       113282.75217087875, 131458.02973093285, 274814.67627053545,
     ];
     raw.forEach((value, index) => expect(value).toBeCloseTo(expected[index]!, 6));
-    expect(raw.map(Math.round)).toEqual([202530, 281105, 406524, 1756006, 113283, 131458, 274815]);
+    expect(raw.map(Math.round)).toEqual([203811, 282373, 406524, 1759813, 113283, 131458, 274815]);
   });
 
   it("F0-2: E2-1 RRIF transfer retention remains frozen", () => {

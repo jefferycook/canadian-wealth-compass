@@ -258,10 +258,10 @@ describe("CPP-5 — engine validity reaches every projection result view", () =>
         projection(survivorGoldenFixturePlan(), { startYear: 2026 }),
       ),
     };
-    expect(Math.round(measured.singleIndexedLifetimeTax)).toBe(202530);
-    expect(Math.round(measured.singleFrozenLifetimeTax)).toBe(281105);
+    expect(Math.round(measured.singleIndexedLifetimeTax)).toBe(203811);
+    expect(Math.round(measured.singleFrozenLifetimeTax)).toBe(282373);
     expect(Math.round(measured.coupleLifetimeTax)).toBe(406524);
-    expect(Math.round(measured.accumulationLifetimeTax)).toBe(1756006);
+    expect(Math.round(measured.accumulationLifetimeTax)).toBe(1759813);
     expect(Math.round(measured.lockedInLifetimeTax)).toBe(113283);
     expect(Math.round(measured.lockedInTerminalPortfolio)).toBe(131458);
     expect(Math.round(measured.survivorLifetimeTax)).toBe(274815);
