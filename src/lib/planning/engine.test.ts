@@ -376,7 +376,15 @@ describe("the default plan (regression fixture)", () => {
     // (+0.67%). Stage 2 (R-2, beginning-of-year FMV base) only — Stage 1 (R-3,
     // nil establishment-year minimum) left this fixture at 201184 because its
     // RRIF/LIF arrangements pre-date the plan.
-    expect(Math.round(lifetimeTax(P))).toBe(202530);
+    //
+    // Ontario surtax-before-DTC correction (2026-11-25, approved by Jeff,
+    // issue #79): 202530 -> 203811 (+0.63%). The Ontario surtax is now
+    // computed before the dividend tax credit is deducted (Taxation Act, 2007
+    // s. 16(2); Form ON428). Tax rises in 2026-2029 (+$1,958.42: taxable
+    // income of $125k-$131k with eligible dividends puts pre-credit Ontario
+    // tax above the surtax threshold) and falls in 2030-2036 (-$677.50) on
+    // the slightly smaller portfolio. 1958.42 - 677.50 = +1280.92.
+    expect(Math.round(lifetimeTax(P))).toBe(203811);
 
 
   });
