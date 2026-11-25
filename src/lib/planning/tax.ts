@@ -140,12 +140,20 @@ export function computeTax(
   }
   provCred += Math.min(prov.penAmt || 0, creditBase) * provLow;
   provTax = Math.max(0, provTax - provCred);
-  provTax = Math.max(0, provTax - grossedDiv * prov.divCredit);
 
-  // Surtax applies to provincial tax, not to income
+  // Surtax applies to provincial tax, not to income. DRAFT (issue #79, pending
+  // independent statutory review and owner approval): the surtax base excludes
+  // the dividend tax credit. Ontario Taxation Act, 2007, s. 16(2) measures the
+  // "gross tax amount" after the subdivision b and d credits only. The Ontario
+  // dividend tax credit is in subdivision g (s. 19.1), and s. 5(1) para. 6
+  // deducts it from the total that already includes the surtax (para. 5).
+  // CRA Form ON428 (2025) follows the same order: the surtax is computed on
+  // line 65 and the dividend credit is subtracted at line 70. Provinces whose
+  // `surtax` table is empty get the same result as before.
   let surtax = 0;
   for (const s of prov.surtax) surtax += Math.max(0, provTax - s.over) * s.rate;
   provTax += surtax;
+  provTax = Math.max(0, provTax - grossedDiv * prov.divCredit);
 
   const ohp = prov.healthPremium ? ontarioHealthPremium(taxable) : 0;
 
