@@ -60,17 +60,16 @@ describe("cppSurvivorBenefit — settled parts", () => {
     expect(b).toBeCloseTo(TY.cppSurvFlat + base65 * 0.375, 6);
   });
 
-  it("reduces by 1/120 per month under 45 at ages 44, 40 and 35", () => {
-    const full = TY.cppSurvFlat + base65 * 0.375;
-    expect(cppSurvivorBenefit(base65, 44, 0, 1, TY)).toBeCloseTo(full * 0.9, 6);
-    expect(cppSurvivorBenefit(base65, 40, 0, 1, TY)).toBeCloseTo(full * 0.5, 6);
-    expect(cppSurvivorBenefit(base65, 35, 0, 1, TY)).toBeCloseTo(0, 10);
-  });
-
-  it("pays a survivor under 35 nothing", () => {
-    expect(cppSurvivorBenefit(base65, 34, 0, 1, TY)).toBe(0);
-    expect(cppSurvivorBenefit(base65, 20, 0, 1, TY)).toBe(0);
-  });
+  it.each([20, 30, 34, 35, 40, 44, 45, 50, 64])(
+    "does not age-reduce a qualifying under-65 survivor aged %i for a post-2018 payment",
+    (age) => {
+      // Under-65 survivor with no own CPP; the age-only taper ended in 2019.
+      // This relative invariant is NOT a certification of absolute CPP dollars.
+      const reference = cppSurvivorBenefit(base65, 50, 0, 1, TY);
+      expect(reference).toBeGreaterThan(0);
+      expect(cppSurvivorBenefit(base65, age, 0, 1, TY)).toBeCloseTo(reference, 6);
+    },
+  );
 
   it("caps a survivor at 65 with no pension of their own at cppSurvMax65", () => {
     const huge = 100_000;
