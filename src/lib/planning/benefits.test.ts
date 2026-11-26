@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { cppFactor, oasFactor, cppSurvivorBenefit } from "./benefits";
+import {
+  CPP_SURVIVOR_LEGACY_AGE_RULE_LAST_YEAR,
+  cppFactor,
+  oasFactor,
+  cppSurvivorBenefit,
+} from "./benefits";
 import { TAX_2026 } from "./taxYears";
 
 const TY = TAX_2026;
@@ -60,16 +65,64 @@ describe("cppSurvivorBenefit — settled parts", () => {
     expect(b).toBeCloseTo(TY.cppSurvFlat + base65 * 0.375, 6);
   });
 
-  it("reduces by 1/120 per month under 45 at ages 44, 40 and 35", () => {
+  // Post-2018 rule — CPP Act s.44(1)(d)(ii) ("after 2018") and s.58(1)(a.1)
+  // ("any month after December 2018"): no age-only exclusion or reduction for
+  // an under-65 survivor. Relative invariant only; absolute dollars are NOT
+  // certified here.
+  it.each([20, 30, 34, 35, 40, 44, 45, 50, 64])(
+    "does not age-reduce a qualifying under-65 survivor aged %i for a post-2018 payment",
+    (age) => {
+      const reference = cppSurvivorBenefit(base65, 50, 0, 1, TY);
+      expect(reference).toBeGreaterThan(0);
+      expect(cppSurvivorBenefit(base65, age, 0, 1, TY)).toBeCloseTo(reference, 6);
+    },
+  );
+
+  it("treats the 2026 tax-year default payable year as post-2018", () => {
+    expect(TY.year).toBe(2026);
+    expect(cppSurvivorBenefit(base65, 34, 0, 1, TY)).toBe(
+      cppSurvivorBenefit(base65, 34, 0, 1, TY, 2026),
+    );
+  });
+
+  it("applies the post-2018 rule from the first payable year after 2018", () => {
     const full = TY.cppSurvFlat + base65 * 0.375;
-    expect(cppSurvivorBenefit(base65, 44, 0, 1, TY)).toBeCloseTo(full * 0.9, 6);
-    expect(cppSurvivorBenefit(base65, 40, 0, 1, TY)).toBeCloseTo(full * 0.5, 6);
-    expect(cppSurvivorBenefit(base65, 35, 0, 1, TY)).toBeCloseTo(0, 10);
+    expect(cppSurvivorBenefit(base65, 34, 0, 1, TY, 2019)).toBeCloseTo(full, 6);
+    expect(cppSurvivorBenefit(base65, 40, 0, 1, TY, 2019)).toBeCloseTo(full, 6);
+  });
+});
+
+describe("cppSurvivorBenefit — pre-2019 historical-law boundary", () => {
+  // Historical rule preserved for payable years before 2019 only — CPP Act
+  // s.44(1)(d)(i) ("before 2019") and s.58(1)(a) ("any month before January
+  // 2019"). Assumes no dependent children and no disability. The engine's
+  // 2026-forward projection never reaches these years; the 2026 parameters
+  // are reused here purely to exercise the age rule, not as 2018 amounts.
+  const base65 = 12_000;
+  const Y = CPP_SURVIVOR_LEGACY_AGE_RULE_LAST_YEAR;
+  const full = TY.cppSurvFlat + base65 * 0.375;
+
+  it("places the last legacy payable year at 2018", () => {
+    expect(Y).toBe(2018);
+  });
+
+  it("reduces by 1/120 per month under 45 at ages 44, 40 and 35", () => {
+    expect(cppSurvivorBenefit(base65, 44, 0, 1, TY, Y)).toBeCloseTo(full * 0.9, 6);
+    expect(cppSurvivorBenefit(base65, 40, 0, 1, TY, Y)).toBeCloseTo(full * 0.5, 6);
+    expect(cppSurvivorBenefit(base65, 35, 0, 1, TY, Y)).toBeCloseTo(0, 10);
   });
 
   it("pays a survivor under 35 nothing", () => {
-    expect(cppSurvivorBenefit(base65, 34, 0, 1, TY)).toBe(0);
-    expect(cppSurvivorBenefit(base65, 20, 0, 1, TY)).toBe(0);
+    expect(cppSurvivorBenefit(base65, 34, 0, 1, TY, Y)).toBe(0);
+    expect(cppSurvivorBenefit(base65, 20, 0, 1, TY, Y)).toBe(0);
+  });
+
+  it("leaves survivors aged 45-64 and 65+ unchanged across the boundary", () => {
+    for (const age of [45, 50, 64, 65, 70]) {
+      expect(cppSurvivorBenefit(base65, age, 0, 1, TY, Y)).toBe(
+        cppSurvivorBenefit(base65, age, 0, 1, TY, Y + 1),
+      );
+    }
   });
 
   it("caps a survivor at 65 with no pension of their own at cppSurvMax65", () => {
