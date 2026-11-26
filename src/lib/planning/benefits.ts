@@ -31,10 +31,12 @@ export function oasFactor(startAge: number): number {
  * early/late adjustment):
  *
  *  - survivor 65+      -> 60% of it
- *  - survivor 45-64    -> flat-rate portion + 37.5% of it
- *  - survivor 35-44    -> the same, reduced by 1/120 for each month under 45
- *                         (assuming no dependent children)
- *  - survivor under 35 -> none, unless disabled or raising the deceased's child
+ *  - survivor under 65 -> flat-rate portion + 37.5% of it
+ *
+ * For pensions payable after December 2018, age under 45 alone no longer
+ * reduces or excludes the survivor's pension (CPP Act s.58(1)(a.1)).
+ * This projection model uses contemporary tax-year parameters; it does not
+ * calculate historical survivor payments payable before January 2019.
  *
  * The result is capped at the published survivor maximum, then capped again so
  * that the survivor's pension plus their own retirement pension does not exceed
@@ -59,9 +61,6 @@ export function cppSurvivorBenefit(
     b = deceasedBase65 * 0.6;
   } else {
     b = ty.cppSurvFlat * infFac + deceasedBase65 * 0.375;
-    if (survAge < 35) return 0;
-    // 1/120 reduction for each month under 45
-    if (survAge < 45) b *= Math.max(0, (survAge - 35) * 12) / 120;
   }
 
   b = Math.min(b, (survAge >= 65 ? ty.cppSurvMax65 : ty.cppSurvMaxU65) * infFac);
