@@ -672,6 +672,7 @@ export function projection(
               raw[i]!.survOwnCppForS58,
               infFac,
               tyY,
+              yr,
             );
             // The s.58 calculation participated whenever the deceased has a
             // retirement pension entitlement — `cppSurvivorBenefit` returns
